@@ -135,6 +135,31 @@ A check that posts a comment adds a new one. It never changes the comment of an 
 
 In mode `on` of the reference step, the job record holds the links of the check in `alternatives.refs`, with a space between them. A check whose step ran to its end and found no link clears the key. A change of the links alone is no change of the result, so it posts no comment: the head commit of a repository moves, and the links move with it.
 
+## The brain index
+
+After its checks, the alternatives row of the Service runs `brain-sync` (#4676, [ADR 0023](../adr/0023-the-project-brain-is-a-derived-index-in-two-cache-tiers-and-two-scheduled-runs-keep-it.md), section 3). The step copies the result of each check into the brain index of `valkey-roadmap` ([docs/CLUSTER.md](../CLUSTER.md#valkey-roadmap)), so a reader finds the verdicts, the tools and the references of a repository in one place. `devops roadmap alternatives` on a workstation writes no index: the next round of the row copies its checks.
+
+- **The source.** The step reads the issues that the round already holds: the listing snapshot and the writes of the round. It sends no GitHub request and makes no model call. The block and the keys `alternatives.*` of the job record are the durable copy, so a lost index is built again from them.
+- **The keys.** `RepoRef` builds each key, and each name holds the schema version `v1`.
+
+  | Key | Holds | Ends |
+  | :--- | :--- | :--- |
+  | `roadmap:v1:brain-item:<owner>/<name>:<n>` | A hash: `verdict`, `tool_id`, `refs` (at most 3 reference ids), `near` (at most 5 items), `checked_at`, `body_hash`, `adr_hash`, `state`, `uses` (at most 10 entries of `alternatives.brain_used`) and `schema` | 45 days after its last write |
+  | `roadmap:v1:brain-tool:<owner>/<name>:<id>` | A hash: the canonical id of the tool, its URL, the name that the check wrote, and the items that name it. `<id>` is 16 hex characters of the hash of the canonical id | 45 days after its last write |
+  | `roadmap:v1:brain-ref:<owner>/<name>:<id>` | A hash: the URL of a reference repository and the items that link it. `<id>` is 16 hex characters of the hash of the URL | 45 days after its last write |
+  | `roadmap:v1:brain-events:<owner>/<name>` | A stream with one entry for each write of an item, about 10,000 entries. It is an audit trail, and no job reads it as a trigger | 45 days after its last write |
+  | `roadmap:v1:brain-sync:<owner>/<name>` | A hash: the watermark of the step | No TTL. The step is its one owner |
+
+- **Trusted authors only.** The repository is public, and the body of an issue holds its job record. So an account with no write access can write a block and a record of its own. The check takes only the items of trusted authors ([Which items a run takes](#which-items-a-run-takes)), and the step takes only their issues: the issue of another author gets no entry, and no tool or reference entry names it. Thus the check of an outside author's issue that a person ran with `--item` is not in the index.
+- **A record of a wrong form.** A person can change a record by hand. No value of a record stops the step: a verdict or a time of a wrong form gives no entry, a time with no zone is a time in UTC, a tool URL that is no URL is its own id, and a link that is no URL is no reference.
+- **References and near items.** A reference is the GitHub repository of a link of `alternatives.refs`, one time for each repository. The near items of an item are the other items of the same repository whose check names the same tool, the newest check first. An entry never names an item of another repository.
+- **One item, one transaction.** The hashes of one item and its stream entry go in one MULTI/EXEC, so an entry is whole, old or new.
+- **The newer check wins.** The transaction reads the `checked_at` of the entry that the index holds. When that time is newer than the one of the block, the entry stays. In each other case the block replaces it, because GitHub holds the durable copy.
+- **The watermark.** The step keeps the `updated_at` and the number of the last issue that it examined. It copies each issue that changed after that place, at most 500 in one round, and the next round goes on from there. So the first round copies each check, and a round after an outage copies each issue that changed in it.
+- **A store that is down.** With no `roadmap.state.url`, or while the store does not answer, the round ends as before and adds one `fallback` to `devops_cli_brain_reads_total{store="brain_index"}`. A reader of the index has a miss.
+- **A private repository.** The check is off for a private repository, so it has no block, and the step makes no sync for it.
+- **Instruments.** `devops_cli_brain_entries` gives the item entries of a repository. `devops_cli_brain_sync_lag_seconds{store="brain_index"}` gives the time since the end of the last sync: the row runs about six times a day, so its bound is the interval of the row and the time of one round. `devops_cli_brain_first_reads_total` counts the checks whose item the index held no entry for. `devops_cli_brain_writes_total{store="brain_index"}` counts each write as `shared`, as `older` when the index holds a newer check, or as `skipped` when the store did not answer.
+
 ## Which items a run takes
 
 A run takes open New and Ready items that a trusted author opened. A trusted author is a person with write access, the Service App's bot or `github-actions[bot]`. A run takes an item of a bot only with the approval of the review of refine.
@@ -167,4 +192,4 @@ The command exits 1 only when it tried items and checked none.
 
 ## Where the rules are
 
-[roadmap-alternatives](../../openspec/specs/roadmap-alternatives/spec.md) holds the order of the items, the three tools of the agent, the checks on a reply, the comment and the block, the recheck and retry settings, the skip class, the tools in use, the canonical id, the ADR hash and the reference step.
+[roadmap-alternatives](../../openspec/specs/roadmap-alternatives/spec.md) holds the order of the items, the three tools of the agent, the checks on a reply, the comment and the block, the recheck and retry settings, the skip class, the tools in use, the canonical id, the ADR hash and the reference step. [project-brain/index](../../openspec/specs/project-brain/index/spec.md) holds the brain index: its keys, the sync, the watermark, the transaction of an item and the instruments.

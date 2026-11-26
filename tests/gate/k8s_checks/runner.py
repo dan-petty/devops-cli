@@ -340,7 +340,12 @@ def check_only_the_service_pod_may_reach_the_api_server() -> None:
             {
                 "to": [{"ipBlock": {"cidr": "0.0.0.0/0", "except": [METADATA_ADDRESS]}}],
                 "ports": [{"protocol": "TCP", "port": 6443}],
-            }
+            },
+            # The store of the brain index, valkey-roadmap (#4676): its pods and its port only.
+            {
+                "to": [{"podSelector": {"matchLabels": {"app.kubernetes.io/name": "valkey"}}}],
+                "ports": [{"protocol": "TCP", "port": 6379}],
+            },
         ],
         [],
         ["roadmap-service-egress"],

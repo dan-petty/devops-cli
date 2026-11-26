@@ -30,7 +30,9 @@ removes the key in one Lua script, so a write or an `EXPIRE` that comes first ke
 A process has a second tier of the same class, `roadmap_state_tier()`, over `valkey-roadmap`, the
 Valkey of the shared state of the roadmap jobs that `roadmap.state.url` names (ADR 0021 section 3,
 #7294). It has its own client, its own breaker and its own ACL user, so an outage of one Valkey
-does not turn the other tier off. A process with no `roadmap.state.url` has no such tier.
+does not turn the other tier off. A process with no `roadmap.state.url` has no such tier. The
+brain index of the alternatives results (#4676) is its first data: the index reads the watermark
+with `hscan`, writes each item with `watch_and_write` and counts its entries with `scan`.
 """
 
 from __future__ import annotations
@@ -175,6 +177,15 @@ class ValkeyCacheTier:
         """One step of `HSCAN` (see `ValkeyClient.hscan`), or None on a failure."""
         step: tuple[int, dict[str, bytes]] | None = self._send(
             "hscan", self.client.hscan, key, cursor, count
+        )
+        return step
+
+    def scan(self, cursor: int, match: str, count: int) -> tuple[int, list[str]] | None:
+        """One step of `SCAN` over the keys that match the pattern `match`: the next cursor, 0 at
+        the end, and the keys of the step; None on a failure. `count` is the number of keys that
+        the server is asked to look at."""
+        step: tuple[int, list[str]] | None = self._send(
+            "scan", self.client.scan, cursor, match, count
         )
         return step
 
@@ -396,6 +407,15 @@ def roadmap_state_tier() -> ValkeyCacheTier | None:
     read is a miss and a write does not occur, with no error.
     """
     return _ROADMAP_STATE_TIER.get()
+
+
+def install_roadmap_state_tier(tier: ValkeyCacheTier | None) -> None:
+    """Make `tier` the tier of the roadmap state of the process, or turn it off with None.
+
+    A test installs a tier over the in-memory Valkey through this seam;
+    `reset_roadmap_state_tier` removes it.
+    """
+    _ROADMAP_STATE_TIER.install(tier)
 
 
 def reset_roadmap_state_tier() -> None:

@@ -438,7 +438,7 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             True,
             SecretGenerator(encoding="hex", nbytes=32, prefix=""),
             None,
-            ("deployment/valkey-roadmap",),
+            ("deployment/valkey-roadmap", "deployment/roadmap-service"),
         ),
         (
             "devops/valkey-roadmap-auth",
@@ -447,7 +447,7 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             True,
             SecretGenerator(encoding="hex", nbytes=32, prefix=""),
             None,
-            ("deployment/valkey-roadmap",),
+            ("deployment/valkey-roadmap", "deployment/roadmap-service"),
         ),
         (
             "devops/valkey-roadmap-auth",
@@ -456,7 +456,7 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             True,
             SecretGenerator(encoding="hex", nbytes=32, prefix=""),
             None,
-            ("deployment/valkey-roadmap",),
+            ("deployment/valkey-roadmap", "deployment/roadmap-service"),
         ),
         (
             "devops/valkey-roadmap-auth",
@@ -465,7 +465,7 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             True,
             None,
             None,
-            ("deployment/valkey-roadmap",),
+            ("deployment/valkey-roadmap", "deployment/roadmap-service"),
         ),
         (
             "devops/crawl4ai",

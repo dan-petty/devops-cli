@@ -12,7 +12,10 @@ server to Valkey's behaviour in its own test suite. It answers no INFO, and
 holds a silent or slow server only as a connection that fails; a test of a timeout binds a
 loopback listener that never answers (`silent_valkey`), as the floor's `refusing_port` does for a
 refused port. `shared_valkey` installs a cache tier over the fake as the one tier of the process,
-which the shared tier of the project brain reads (#4668). A client of `valkey_client_on` with
+which the shared tier of the project brain reads (#4668), and `roadmap_state_valkey` installs one
+as the tier of the roadmap state, which the brain index reads and writes (#4676). A client of
+`valkey_client_on` with `transactions` records the commands of each MULTI/EXEC block that it
+sends. A client of `valkey_client_on` with
 `after_command` runs a test action after each command that it sends alone, so a test changes
 the world between a WATCH and its EXEC, or between two `HSCAN` steps, with no double of its own.
 The pool is the fake's own, so a test of what the client's own password, the database of its
@@ -66,6 +69,7 @@ def valkey_client_on(
     *,
     password: str | None = None,
     after_command: AfterCommand | None = None,
+    transactions: list[list[list[str]]] | None = None,
 ) -> ValkeyClient:
     """A `ValkeyClient` connected to an in-memory server.
 
@@ -78,16 +82,26 @@ def valkey_client_on(
     it to change the world at that point: another client writes the watched key before the EXEC,
     `server.connected = False` stops the server before the next command, or the `clock` fixture
     moves between two `HSCAN` steps.
+
+    `transactions` gets the commands of each MULTI/EXEC block that the client sends, from `MULTI`
+    to `EXEC`, each command as its words. A test reads from it which keys one transaction wrote.
     """
     pool = FakeValkey(
         server=server, password=password, decode_responses=True, encoding_errors="replace"
     ).connection_pool
-    pool.connection_class = _fake_connection_class(pool.connection_class, after_command)
+    pool.connection_class = _fake_connection_class(
+        pool.connection_class, after_command, transactions
+    )
     return ValkeyClient(valkey_endpoint("valkey://127.0.0.1"), connection_pool=pool)
 
 
-def _fake_connection_class(base: type[Any], after_command: AfterCommand | None) -> type[Any]:
-    """The connection class of the fake, with `after_command` after each command sent alone.
+def _fake_connection_class(
+    base: type[Any],
+    after_command: AfterCommand | None,
+    transactions: list[list[list[str]]] | None = None,
+) -> type[Any]:
+    """The connection class of the fake, with `after_command` after each command sent alone, and
+    with each MULTI/EXEC block that it sends kept in `transactions`.
 
     The fake's server does a command while the client sends it, so the action sees its effect.
     A connection that is open when `server.connected` turns False fails its next write with the
@@ -102,6 +116,11 @@ def _fake_connection_class(base: type[Any], after_command: AfterCommand | None) 
                 after_command(args)
 
         def send_packed_command(self, command: Any, check_health: bool = True) -> None:
+            if transactions is not None:
+                packed = command if isinstance(command, bytes) else b"".join(command)
+                sent = _commands_in(packed)
+                if sent[:1] == [["MULTI"]]:
+                    transactions.append(sent)
             try:
                 super().send_packed_command(command, check_health)
             except RedisConnectionError as exc:
@@ -158,6 +177,30 @@ def shared_valkey(valkey_server: FakeServer) -> Iterator[ValkeyCacheTier]:
         yield tier
     finally:
         reset_shared_cache_tier()
+        client.close()
+
+
+@pytest.fixture
+def roadmap_state_valkey(valkey_server: FakeServer) -> Iterator[ValkeyCacheTier]:
+    """A tier over `valkey_server`, installed as the tier of the roadmap state of the process.
+
+    `roadmap_state_tier()` gives it, so the brain index of the alternatives results reads and
+    writes the fake (#4676). The imports are local, so the fail-to-pass replay can load this
+    plugin on a base without the seam.
+    """
+    from devops_cli.valkey.cache import (
+        ValkeyCacheTier,
+        install_roadmap_state_tier,
+        reset_roadmap_state_tier,
+    )
+
+    client = valkey_client_on(valkey_server)
+    tier = ValkeyCacheTier(client)
+    install_roadmap_state_tier(tier)
+    try:
+        yield tier
+    finally:
+        reset_roadmap_state_tier()
         client.close()
 
 

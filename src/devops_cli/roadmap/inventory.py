@@ -30,7 +30,7 @@ from urllib.parse import quote, urlsplit
 import httpx2
 from cachetools import cached
 from packageurl import PackageURL
-from packaging.utils import canonicalize_name
+from packaging.utils import InvalidName, canonicalize_name
 from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, Field, TypeAdapter
 
@@ -101,24 +101,38 @@ class _ProjectPackageVersions(BaseModel):
     versions: list[_PackageVersion] = Field(default_factory=list)
 
 
+def _host_and_segments(url: str) -> tuple[str, list[str]]:
+    """The host of `url` in lower case and the segments of its path; no host and no segment for
+    a string that the URL parser refuses, such as `https://[name]:6443` or a host with a
+    full-width colon. A job record, a PyPI record and a model reply can each hold such a string,
+    and it is the URL of no project (#4676)."""
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return "", []
+    return (parts.hostname or "").lower(), [segment for segment in parts.path.split("/") if segment]
+
+
 def project_of(url: str) -> str | None:
     """The deps.dev project key of the GitHub repository at `url`, `github.com/<owner>/<name>` in
     lower case, or None when `url` is no URL of a GitHub repository."""
-    parts = urlsplit(url)
-    segments = [segment for segment in parts.path.split("/") if segment]
-    if (parts.hostname or "").lower() not in _GITHUB_HOSTS or len(segments) < 2:
+    host, segments = _host_and_segments(url)
+    if host not in _GITHUB_HOSTS or len(segments) < 2:
         return None
     name = f"{segments[0]}/{segments[1].removesuffix('.git')}"
     return f"{_GITHUB_PROJECT}/{name.lower()}" if is_repository_name(name) else None
 
 
 def _pypi_name(url: str) -> str | None:
-    """The canonical name of the PyPI package at `url`, or None when `url` is no PyPI page."""
-    parts = urlsplit(url)
-    segments = [segment for segment in parts.path.split("/") if segment]
-    if (parts.hostname or "").lower() not in _PYPI_HOSTS or len(segments) < 2:
+    """The canonical name of the PyPI package at `url`, or None when `url` is no PyPI page, or
+    its last part is no name of a package as `packaging` reads one, so it gives no package URL."""
+    host, segments = _host_and_segments(url)
+    if host not in _PYPI_HOSTS or len(segments) < 2 or segments[0] != _PYPI_PROJECT:
         return None
-    return canonicalize_name(segments[1]) if segments[0] == _PYPI_PROJECT else None
+    try:
+        return canonicalize_name(segments[1], validate=True)
+    except InvalidName:
+        return None
 
 
 def source_project(urls: Iterable[str]) -> str | None:

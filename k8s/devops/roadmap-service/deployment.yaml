@@ -34,6 +34,9 @@ spec:
       labels:
         app.kubernetes.io/name: roadmap-service
         app.kubernetes.io/part-of: devops-cli-stack
+        # The policy valkey-ingress-roadmap admits only a pod with this label to valkey-roadmap
+        # (#4676; docs/CLUSTER.md, valkey-roadmap).
+        valkey-client: "true"
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8000"
@@ -115,6 +118,16 @@ spec:
                 secretKeyRef:
                   name: devops-cli
                   key: DEVOPS_CLI_VALKEY_PASSWORD
+                  optional: true
+            # The password of the ACL user brain of valkey-roadmap: the alternatives row writes
+            # the brain index (#4676). The ConfigMap names the store and the user
+            # (roadmap.state.url and roadmap.state.username). Without the key the row counts a
+            # fallback and the round goes on.
+            - name: DEVOPS_CLI_ROADMAP_STATE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: valkey-roadmap-auth
+                  key: brain
                   optional: true
             - name: DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN
               valueFrom:

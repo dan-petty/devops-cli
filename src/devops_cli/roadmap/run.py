@@ -142,6 +142,7 @@ from devops_cli.roadmap.alternatives import (
     raise_for_failed_checks,
     record_coverage,
 )
+from devops_cli.roadmap.brain_sync import sync_alternatives_round
 from devops_cli.roadmap.clone_git import default_branch
 from devops_cli.roadmap.failure import FailureClass, failure_class_of, retry_after
 from devops_cli.roadmap.implement.implement import comment_asks_retry
@@ -1103,13 +1104,16 @@ def _run_alternatives_adapter(
     (#4034). The row sends the coverage gauges of the round after the checks, also when it
     writes nothing (#2950). The deployed paths of the lane's clone name the tools in use (#4661);
     a call that gives no clone reads the SBOM only. The outcome holds the unchecked items as the
-    queue of the row, and no queue while the check is off (#5470)."""
+    queue of the row, and no queue while the check is off (#5470). After the checks, `brain-sync`
+    copies the checks of the listing that the round read into the brain index, with no GitHub
+    request; a store that is down or not configured does not fail the round (#4676)."""
     plan = plan_alternatives(
         store, repo=repo, writer=AlternativesWriter(store, repo), source=clone_path
     )
     record_coverage(plan)
     if plan.off_reason:
         logger.info("The alternatives check of %s is off: %s", repo, plan.off_reason)
+    sync_alternatives_round(store, plan)
     raise_for_failed_checks(plan)
     return JobOutcome(queue=plan.queue)
 

@@ -275,6 +275,34 @@ def test_a_pypi_read_gives_the_project_that_the_package_names_as_its_source(
     assert facts.project == "github.com/pydantic/pydantic-ai"
 
 
+def test_a_pypi_record_with_a_project_url_that_is_no_url_still_gives_its_source(
+    store: InMemoryRoadmapStore, web: WebFake
+) -> None:
+    """A PyPI record names a `Repository` URL that the URL parser refuses, before its home page.
+    The read does not raise: that string names no project, and the home page gives the project
+    (#4676)."""
+    package = {
+        "info": {
+            "name": "widget-kit",
+            "version": "1.0.0",
+            "license_expression": "MIT",
+            "package_url": "https://pypi.org/project/widget-kit/",
+            "project_urls": {
+                "Repository": "https://[widget-host]/widget-kit",
+                "Homepage": "https://github.com/Acme/Widget-Kit",
+            },
+        },
+        "urls": [{"upload_time_iso_8601": "2026-11-01T10:00:00Z"}],
+    }
+    web.content(DEFAULT_PYPI_PACKAGE_URL.format(name="widget-kit"), json.dumps(package).encode())
+    tools = AlternativesTools(store=store)
+
+    tools.pypi_package("widget-kit")
+
+    (facts,) = tools.facts.values()
+    assert facts.project == "github.com/acme/widget-kit"
+
+
 @pytest.mark.parametrize(
     ("url", "project", "expected"),
     [
@@ -300,6 +328,22 @@ def test_the_canonical_id_of_a_tool_is_its_github_project_else_its_package_url(
     url: str, project: str | None, expected: str
 ) -> None:
     assert canonical_id(url, project) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("https://[cluster-ip]:6443/healthz", id="a-name-in-brackets"),
+        pytest.param("http://[{host}]:{port}", id="a-template"),
+        pytest.param("https://[::1", id="an-open-bracket"),
+        pytest.param("https://example.com\uff1a8080", id="a-full-width-colon"),
+    ],
+)
+def test_a_string_that_is_no_url_names_no_project_and_is_its_own_canonical_id(text: str) -> None:
+    """A job record or a PyPI record can hold a string that the URL parser refuses. Such a
+    string names no GitHub project and no PyPI package, so it is its own id, and no reader of a
+    URL raises (#4676)."""
+    assert (project_of(text), canonical_id(text, None)) == (None, text)
 
 
 def test_a_check_records_the_canonical_id_of_its_tool_and_the_hash_of_its_adrs(

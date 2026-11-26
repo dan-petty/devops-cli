@@ -560,7 +560,8 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
     ),
     # The ACL users of `valkey-roadmap` (#7294). The pod mounts key `users.acl` as its aclfile
     # (k8s/devops/valkey-roadmap), and the exporter scrapes as `metrics`. A client pod reads the
-    # key of its user as `DEVOPS_CLI_ROADMAP_STATE_PASSWORD`.
+    # key of its user as `DEVOPS_CLI_ROADMAP_STATE_PASSWORD`: the roadmap Service pod reads key
+    # `brain` at its start (#4676), so a change restarts it after the store.
     ClusterSecret(
         namespace="devops",
         name="valkey-roadmap-auth",
@@ -583,7 +584,10 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
             ),
             SecretEntry("users.acl", _ROADMAP_STATE_VALKEY_ACL),
         ),
-        restarts=(Workload("deployment", "valkey-roadmap"),),
+        restarts=(
+            Workload("deployment", "valkey-roadmap"),
+            Workload("deployment", "roadmap-service"),
+        ),
         labels={
             "app.kubernetes.io/name": "valkey",
             "app.kubernetes.io/instance": "valkey-roadmap",
