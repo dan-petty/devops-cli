@@ -17,7 +17,9 @@ import pytest
 
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.roadmap.stores.store import ItemField
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.implement_step import git_for_real
 
 # The command claims the issue on the roadmap of the repository of `origin` (#2910). The roadmap
 # is in memory: it reaches no GitHub.
@@ -855,6 +857,61 @@ def test_a_missing_type_or_slug_without_a_branch_of_origin_is_an_error(
     assert "--slug" in _said(result)
     assert not standard_dir.exists()
     assert _branches(repo) == ["main"]
+
+
+# ── The Node tools of the lock file (#7233) ───────────────────────────────────────────────
+
+
+def _commit_lock_file(repo: Path, git: Git) -> None:
+    """Commit a `package-lock.json` to the repository and push it to `origin`."""
+    (repo / "package-lock.json").write_text('{"lockfileVersion": 3}\n', encoding="utf-8")
+    git(repo, "add", "package-lock.json")
+    git(repo, "commit", "-m", "chore: pin the Node tools")
+    git(repo, "push", "origin", "main")
+
+
+def _npm_calls(process_fake: ProcessFake) -> list[ProcessCall]:
+    """The calls of the npm program that the fake recorded."""
+    return [call for call in process_fake.calls if call.argv[0] == "npm"]
+
+
+def test_add_installs_the_node_tools_of_the_lock_file(
+    cli: Cli, repo: Path, git: Git, standard_dir: Path, process_fake: ProcessFake
+) -> None:
+    process_fake.answer("git", ProcessAnswer(side_effect=git_for_real))
+    _commit_lock_file(repo, git)
+
+    result = _add(cli, repo)
+
+    assert result.exit_code == 0, result.output
+    assert [(call.argv, call.cwd) for call in _npm_calls(process_fake)] == [
+        (("npm", "ci", "--ignore-scripts"), standard_dir)
+    ]
+
+
+def test_add_starts_no_npm_without_the_lock_file(
+    cli: Cli, repo: Path, standard_dir: Path, process_fake: ProcessFake
+) -> None:
+    process_fake.answer("git", ProcessAnswer(side_effect=git_for_real))
+
+    result = _add(cli, repo)
+
+    assert (result.exit_code, _npm_calls(process_fake), standard_dir.is_dir()) == (0, [], True)
+
+
+def test_a_failed_node_install_warns_and_keeps_the_worktree(
+    cli: Cli, repo: Path, git: Git, standard_dir: Path, process_fake: ProcessFake
+) -> None:
+    process_fake.answer("git", ProcessAnswer(side_effect=git_for_real))
+    process_fake.answer(
+        "npm", ProcessAnswer(returncode=1, stderr="npm ERR! the registry is down\n")
+    )
+    _commit_lock_file(repo, git)
+
+    result = _add(cli, repo)
+
+    assert (result.exit_code, standard_dir.is_dir()) == (0, True)
+    assert "npm ci --ignore-scripts" in _said(result)
 
 
 # ── The claim of the issue for an agent (#2910) ───────────────────────────────────────────
