@@ -654,9 +654,6 @@ class RepoMessages:
         "has no Status. The plan lists the requests of both label writes.",
     )
     worktrees_add_created: str = "Created worktree {path} on branch {branch}."
-    worktrees_add_node_tools_failed: str = (
-        "`{command}` in {path} failed with exit code {code}, so the worktree has no Node tools."
-    )
     worktrees_add_took_over: str = (
         "Took over the staged branch {branch} in worktree {path}. Commits by the App: {commits}."
     )

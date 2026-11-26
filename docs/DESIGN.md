@@ -42,7 +42,7 @@ A page selects its theme with the CSS files: `tokens-light.css` on `:root`, `tok
 
 ### Install Style Dictionary
 
-Style Dictionary is a devDependency of `package.json`, and `package-lock.json` pins it with each package that it needs (#6409). The `audit` row of `devops ci` audits that lockfile. `npm ci --ignore-scripts` at the root of the checkout installs it into `node_modules/.bin`, and `make` calls it from there, so a `style-dictionary` on `PATH`, such as the one of the devtools image, has no effect on the build. The devcontainer runs `npm ci --ignore-scripts` at post-create, and `devops repos worktrees add` runs it in each new worktree. On another host, run:
+Style Dictionary is a devDependency of `package.json`, and `package-lock.json` pins it with each package that it needs (#6409). The `audit` row of `devops ci` audits that lockfile. `npm ci --ignore-scripts` at the root of the checkout installs it into `node_modules/.bin`, and `make` calls it from there, so a `style-dictionary` on `PATH`, such as the one of the devtools image, has no effect on the build. The devcontainer runs `npm ci --ignore-scripts` at post-create. In a new worktree or on another host, run:
 
 ```bash
 npm ci --ignore-scripts
