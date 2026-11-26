@@ -69,14 +69,6 @@ When telemetry is enabled, log records of level WARNING and above SHALL be expor
 - **THEN** an error log is exported to `/v1/logs` with `severityText` `ERROR`
 - **AND** the log record carries the active `traceId` and `spanId`
 
-### Requirement: Loki datasource configures derived trace link to Tempo
-The Grafana Loki datasource in `k8s/monitoring/grafana-values.yaml` SHALL configure two derived fields that target the Tempo datasource (`datasourceUid: tempo`): a regex field that finds the 32-character trace id after a `trace_id` key in a log line, also in the JSON form `"trace_id":"<id>"`, and a label field that matches the `trace_id` structured metadata of an OTLP log record.
-
-#### Scenario: Derived field is configured in Loki datasource
-- **WHEN** the Loki datasource configuration in `k8s/monitoring/grafana-values.yaml` is read
-- **THEN** `jsonData.derivedFields` contains a regex entry targeting `datasourceUid` `tempo` whose `matcherRegex` finds the trace id in a Service JSON line
-- **AND** it contains a label entry targeting `datasourceUid` `tempo` whose `matcherRegex` matches `trace_id`
-
 ### Requirement: devops-cli dashboard includes an error stream panel
 The `k8s/devops/dashboards/devops-cli.json` dashboard SHALL include a logs panel that shows the log records of `devops-cli` in Loki at the levels error, critical and fatal, and no warnings.
 
@@ -132,11 +124,11 @@ The dashboard `k8s/devops/dashboards/devops-cli.json` SHALL have the multi-value
 - **THEN** each `devops_cli_*` series in the query has a selector that starts with `job=~"$job"`
 
 ### Requirement: A devops-cli pod names its cluster and its namespace
-Each devops-cli container in the render of `k8s/devops` SHALL set `K8S_CONTEXT` to the cluster name in `k8s/monitoring/k8s-monitoring-values.yaml` and `POD_NAMESPACE` to the namespace of its object. The tracer SHALL put the value of `K8S_CONTEXT` in the resource attribute `k8s.cluster.name` and the value of `POD_NAMESPACE` in the span attribute `k8s.namespace.name`.
+Each devops-cli container in the render of `k8s/devops` SHALL set `K8S_CONTEXT` to one cluster name, the same in each container, and `POD_NAMESPACE` to the namespace of its object. The tracer SHALL put the value of `K8S_CONTEXT` in the resource attribute `k8s.cluster.name` and the value of `POD_NAMESPACE` in the span attribute `k8s.namespace.name`.
 
 #### Scenario: The manifests are rendered
-- **WHEN** `kubectl kustomize k8s/devops` renders the Deployments, the CronJobs and the WorkflowTemplate
-- **THEN** each devops-cli container sets `K8S_CONTEXT` to the cluster name of the monitoring stack, and `POD_NAMESPACE` from the Downward API, or as the plain value `devops` in the runner template
+- **WHEN** `kubectl kustomize k8s/devops` renders the Deployments, the CronJobs and the WorkflowTemplates
+- **THEN** each devops-cli container sets `K8S_CONTEXT` to the same cluster name, and `POD_NAMESPACE` from the Downward API, or as the plain value `devops` in the runner template
 
 #### Scenario: A pod starts a span
 - **WHEN** `K8S_CONTEXT` and `POD_NAMESPACE` are set and a span starts
@@ -236,53 +228,6 @@ Both CronJob templates SHALL set OTEL_RESOURCE_ATTRIBUTES to service.instance.id
 #### Scenario: Each CronJob container names the runner instance
 - **WHEN** The runtime test reads the container environment of the two CronJob templates.
 - **THEN** Each container sets OTEL_RESOURCE_ATTRIBUTES to service.instance.id=devops-cli-job.
-
-### Requirement: Two metric streams in one Prometheus series fire an alert
-The Prometheus server SHALL fire DevopsCliMetricStreamsShareSeries with the severity warning when two target_info series of one job and instance stay for 30 minutes in a 15 minute lookback. The description SHALL tell the reader to compare the labels of the two series, and SHALL name a different telemetry_sdk_* label, another different label, a host_name label and the 15 minutes after which the alert clears.
-
-#### Scenario: Two streams share a job and instance
-- **WHEN** promtool evaluates two target_info series with the same job and instance.
-- **THEN** The alert does not fire at 29 minutes, and fires at 30 minutes with the job and instance labels, the warning severity, the summary and the description.
-
-#### Scenario: Two sparse writers share a job and instance
-- **WHEN** promtool evaluates two target_info series of one job and instance that each get one sample in 15 minutes, at different minutes.
-- **THEN** The alert fires at 40 minutes.
-
-### Requirement: One stream and a short overlap stay quiet
-The DevopsCliMetricStreamsShareSeries alert SHALL stay quiet for one target_info series, for a pod change in which two series overlap for 10 minutes, and for two series of a job outside devops-cli.* and roadmap-service.
-
-#### Scenario: One series or a short overlap
-- **WHEN** promtool evaluates one target_info series, or two target_info series of one job and instance that overlap for 10 minutes.
-- **THEN** The alert does not fire, also at 34 minutes, the last minute at which the lookback holds the old series.
-
-#### Scenario: A job outside the matcher
-- **WHEN** promtool evaluates two target_info series of one instance of the job llm-gateway for 40 minutes.
-- **THEN** The alert does not fire.
-
-### Requirement: The alert selects only a served series
-The alert expression SHALL select only a series that the stack serves, and the served-series list SHALL name target_info.
-
-#### Scenario: The served-series check reads the new rule
-- **WHEN** The alert tests check every expression against the served series.
-- **THEN** The check reports no unserved series for DevopsCliMetricStreamsShareSeries.
-
-### Requirement: The rule set, the case file and the runbook list the alert
-The alert rule set SHALL list DevopsCliMetricStreamsShareSeries in its own group, the promtool case file SHALL test it, and the runbook table SHALL give its row with the action in a cell that GFM renders. Each row of the Alerting table of `k8s/README.md` SHALL have no more cells than its header.
-
-#### Scenario: The baseline and the case file list the alert
-- **WHEN** The alert tests read the rule set, the promtool case file and the runbook table.
-- **THEN** The baseline lists the alert with the warning severity, the case file names it, and the runbook has a row for it.
-
-#### Scenario: The rendered runbook row holds the action
-- **WHEN** The test parses the Alerting table with markdown-it-py.
-- **THEN** Each row renders all cells of its source line, and the rendered cells of the alert row name target_info, the job, the instance, the label comparison, 30m and warning.
-
-### Requirement: The collector deletes the host name of devops-cli metrics before it adds the deltas
-The metrics pipeline of the OpenTelemetry collector SHALL run a transform processor after memory_limiter and before delta_to_cumulative that deletes the resource attribute host.name where telemetry.sdk.name is the SDK name of the tracer, so that an old and a new devops-cli build of one workload send one stream.
-
-#### Scenario: The rule runs before the deltas are added
-- **WHEN** The test reads the metrics pipeline of `k8s/otel/values.yaml` and the metric Resource that the tracer exports.
-- **THEN** The processors before delta_to_cumulative are memory_limiter and transform/metric_resource, and transform/metric_resource deletes host.name from the resource where telemetry.sdk.name equals the exported SDK name.
 
 ### Requirement: A group body sends the sub-command histogram point
 A command group that runs its own body with no sub-command SHALL send one point to `devops_cli_subcommand_duration_seconds`, with the group in `command` and in `sub_command` and `ok` or `error` in `status`. A run with a sub-command SHALL send one point from that sub-command, and the group body SHALL send none.

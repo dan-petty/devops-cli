@@ -5,17 +5,6 @@ What devops-cli does with the LLM gateway: the route status and the failover of 
 
 ## Requirements
 
-### Requirement: Every gateway route names a model that its tier serves
-Each default route of `devops ai gateway`, and the route that a failover of each virtual model records, SHALL name a model that a deployment of the gateway config sends to a serving tier that the route's Ollama Service selects.
-
-#### Scenario: The default routes
-- **WHEN** `devops ai gateway routes` lists a new route table
-- **THEN** each route names a model that the gateway config sends to a serving tier of the route's Service
-
-#### Scenario: The route that a failover records
-- **WHEN** each virtual model fails over on a new route table
-- **THEN** the route that the failover records names a model that the gateway config sends to a serving tier of the route's Service
-
 ### Requirement: A failover to direct Ollama keeps the model of the default route
 When a virtual model fails over to `direct-ollama`, the route that the failover records SHALL name the target model of the virtual model's default route, on the default Ollama Service, with the backend type `failover:ollama`.
 
@@ -49,53 +38,6 @@ When a virtual model fails over to `direct-ollama`, the route that the failover 
 - **WHEN** `devops ai gateway failover devops-chat --reset` runs, or `devops ai gateway failover` runs with no virtual model and no `--reset`
 - **THEN** the command exits 2
 
-### Requirement: The default fallback model is a model that the default Ollama tier serves
-The default fallback model of `devops ai failover` and `devops ai chaos-model`, and the default model of the harness model slots, SHALL be a model that a deployment of the gateway config sends to a serving tier that the default Ollama Service selects.
-
-#### Scenario: The CLI default and the harness slots
-- **WHEN** `devops ai failover` and `devops ai chaos-model` run with no fallback model, and a harness model slot or sub-agent slot is made with no model
-- **THEN** each names a model that the gateway config sends to a serving tier of the default Ollama Service
-
-### Requirement: Each Open WebUI default model is a group that the gateway serves
-Each model that the `DEFAULT_MODELS` of the Open WebUI values names SHALL be a model group of the gateway config with a deployment on a serving tier. The Open WebUI values SHALL NOT set `MODEL_FILTER_LIST`, which Open WebUI does not read.
-
-#### Scenario: The Open WebUI values
-- **WHEN** the Open WebUI values are read
-- **THEN** each model of `DEFAULT_MODELS` is a gateway group with a deployment on a serving tier, and the values set no `MODEL_FILTER_LIST`
-
-#### Scenario: A model that the gateway does not serve
-- **WHEN** the check reads `qwen2.5-coder:7b`, `devops-flagship` or an Ollama model name that is no group
-- **THEN** it names each of them, and it passes `devops-chat` and `qwen3.8:27b`
-
-### Requirement: Each default model of the CLI is a model that the default Ollama tier and the gateway serve
-The default of `ai.model`, each chat model of `devops ai bundle-models`, and the model that a task benchmark runs when it gets no candidate SHALL be a model that a deployment of the gateway config sends to a serving tier that the default Ollama Service selects. Each SHALL also be a model group of the gateway config with a deployment on a serving tier.
-
-#### Scenario: The defaults with no configuration
-- **WHEN** the CLI runs with no `ai.model` set, `devops ai bundle-models` runs, and a task benchmark gets no candidate
-- **THEN** each names a model that the gateway config sends to a serving tier of the default Ollama Service, and a gateway group with a deployment on a serving tier
-
-#### Scenario: The embedding model
-- **WHEN** `devops ai bundle-models` lists the default embedding model
-- **THEN** a deployment of the gateway config sends it to a serving tier that the default embedding Service selects, and not to the tier of the default Ollama Service
-
-#### Scenario: The benchmark with no candidate
-- **WHEN** a task benchmark gets an empty list of candidates
-- **THEN** it runs the configured `ai.model`
-
-### Requirement: Each virtual model of the GPU matrix is a group that the gateway serves
-The virtual model of each hardware profile and of each Service alias that `devops k8s gpu-matrix` shows SHALL be a model group of the gateway config with a deployment on a serving tier.
-
-#### Scenario: The GPU matrix
-- **WHEN** `devops k8s gpu-matrix` reads its profiles and Service aliases
-- **THEN** each virtual model is a gateway group with a deployment on a serving tier, and a 70B profile names `devops-reasoning`
-
-### Requirement: The gateway routes embeddings with simple-shuffle across order 1 tiers
-The gateway configuration SHALL configure a routing group for the `qwen3-embedding:0.6b` model with `routing_strategy: simple-shuffle`, spreading sequential and parallel batches across all order 1 serving tiers.
-
-#### Scenario: Gateway router settings
-- **WHEN** the gateway configuration is loaded
-- **THEN** `router_settings.routing_groups` contains a group for `qwen3-embedding:0.6b` with `simple-shuffle` routing strategy
-
 ### Requirement: A saved route table keeps only failover state
 The saved route table in `<data dir>/agent/gateway_state.json` SHALL keep only routes whose `backend_type` begins with `failover:`. When loading the route table, every non-failover route SHALL be taken from `DEFAULT_GATEWAY_ROUTES`. A non-failover route present in an existing saved route table SHALL NOT replace the default route.
 
@@ -106,13 +48,6 @@ The saved route table in `<data dir>/agent/gateway_state.json` SHALL keep only r
 #### Scenario: Route table loads with a saved failover route
 - **WHEN** a saved route file holds a route with a `failover:*` backend type
 - **THEN** the router initializes with the saved failover route for that virtual model
-
-### Requirement: The gateway routes qwen3.8:27b and devops-chat only to 48gib and 64gib tiers
-The gateway configuration SHALL NOT deploy `qwen3.8:27b` or `devops-chat` to the 16gib serving tier. Deployments for `qwen3.8:27b` and `devops-chat` SHALL only target serving tiers with at least 48 GiB total VRAM.
-
-#### Scenario: Gateway deployments for qwen3.8:27b and devops-chat
-- **WHEN** the gateway configuration is loaded
-- **THEN** every deployment for `qwen3.8:27b` and `devops-chat` targets `ollama-48gib-fast` or `ollama-64gib-standard`, and no deployment targets `ollama-16gib-fast`
 
 ### Requirement: The MCP gateway tools publish no URL
 The MCP tools `ai_gateway_status`, `ai_gateway_routes` and `ai_gateway_probe_backend` SHALL publish no gateway URL and no backend URL. `ai_gateway_status` and `ai_gateway_routes` SHALL publish only `provider`. `ai_gateway_probe_backend` SHALL publish only `backend`. A call that gives a URL SHALL fail and send no request.
@@ -156,104 +91,6 @@ The model query of a gateway SHALL send the AI API key only to a configured gate
 - **THEN** the error says that this gateway got no key, because the key goes only to the configured gateway
 - **AND** the error holds the host and port of that gateway and no URL
 
-### Requirement: Gateway routes devops-triage to the standard tier
-The LiteLLM gateway configuration SHALL define a `devops-triage` model group with one deployment: `ollama_chat/qwen3.8:27b` on the 64 GiB standard tier.
-
-#### Scenario: The devops-triage route
-- **WHEN** the gateway configuration is loaded
-- **THEN** `devops-triage` routes to `ollama_chat/qwen3.8:27b` on `http://ollama-64gib-standard.llm.svc.cluster.local:11434`
-
-### Requirement: Gateway fallbacks include triage and background targets
-The gateway router settings fallbacks SHALL include `devops-triage: [qwen3.8:27b]` and `devops-background: [qwen3.8:27b]`.
-
-#### Scenario: Fallback routes
-- **WHEN** `devops-triage` or `devops-background` fails all retries
-- **THEN** the request falls back to `qwen3.8:27b`
-
-### Requirement: Each chat deployment of the gateway declares the window of its tier
-Each `ollama_chat` deployment of the gateway config SHALL set `max_input_tokens` in its top-level `model_info`, equal to the `OLLAMA_CONTEXT_LENGTH` of its tier. No deployment SHALL set `model_info` inside `litellm_params`.
-
-#### Scenario: The windows of the chat deployments
-- **WHEN** the gateway config is loaded
-- **THEN** each `ollama_chat` deployment has a `model_info.max_input_tokens` equal to the context length of the tier that its `api_base` names
-
-#### Scenario: A model_info inside litellm_params
-- **WHEN** a deployment of the gateway config sets `model_info` inside `litellm_params`
-- **THEN** the check names that deployment
-
-### Requirement: The gateway has no context-window fallback
-The router settings of the gateway config SHALL NOT set `context_window_fallbacks`. No deployment has a window above the 262144 tokens of `ollama-48gib-fast`.
-
-#### Scenario: The router settings
-- **WHEN** the gateway config is loaded
-- **THEN** `router_settings` has no `context_window_fallbacks`, and `enable_pre_call_checks` is true
-
-### Requirement: Every Ollama tier sets one KV cache type
-Each DaemonSet in `k8s/llm/profiles/ollama-profiles.yaml` SHALL set `OLLAMA_KV_CACHE_TYPE` to `q8_0`. The KV cache type changes the vectors of an embedding model, so every tier that the gateway sends embeddings to SHALL make the same vector for the same input.
-
-#### Scenario: The KV cache type of the nine tiers
-- **WHEN** a check reads the `OLLAMA_KV_CACHE_TYPE` value of every container of every DaemonSet in `k8s/llm/profiles/ollama-profiles.yaml`
-- **THEN** it finds nine values, and each of them is `q8_0`
-
-### Requirement: Hosted groups call a provider with an optional key
-The gateway config SHALL serve the groups `gemini-3.8-flash`, `claude-sonnet-5-5`, `claude-haiku-5-5` and `deepseek-v4.1-flash-1017`. Each SHALL name a `gemini`, `anthropic` or `openrouter` backend with no `api_base`, set its window, and read its key from a variable of the gateway Deployment that is an optional key of the Secret `llm-gateway-secrets`. A hosted group with more than one deployment SHALL give each deployment its own `order`.
-
-#### Scenario: A hosted group without its key
-- **WHEN** the gateway starts with no `GEMINI_API_KEY`
-- **THEN** it serves every group, and a call to `gemini-3.8-flash` fails with an error that names the missing key
-
-#### Scenario: The OpenRouter group without its key
-- **WHEN** the gateway starts with no `OPENROUTER_API_KEY`
-- **THEN** it serves every group, and a call to `deepseek-v4.1-flash-1017` fails with an error that names the missing key
-
-#### Scenario: Two deployments with one order
-- **WHEN** a test edit gives both deployments of `deepseek-v4.1-flash-1017` the order 1
-- **THEN** the hosted-group check fails
-
-### Requirement: A Claude group sets its prices and drops refused parameters
-A Claude group SHALL set its input and output prices, because the cost map of the pinned image lacks the model. It SHALL drop `temperature`, `top_p` and `top_k`, which the provider API refuses. It SHALL set `supports_native_structured_output` and `supports_response_schema`, so that a structured reply uses the native format and not a forced tool call, which the API refuses for Sonnet 5.5.
-
-#### Scenario: A Claude call with sampling parameters
-- **WHEN** a caller sends `temperature` and `top_p` to `claude-sonnet-5-5`
-- **THEN** the request to the provider holds neither
-
-#### Scenario: A structured reply from a Claude group
-- **WHEN** a caller sends a `response_format` with a JSON schema to `claude-sonnet-5-5`
-- **THEN** the gateway answers with JSON that matches the schema, and sends no forced tool call
-
-### Requirement: The gateway reaches providers on port 443 only
-The gateway NetworkPolicy SHALL admit TCP 443 to public addresses for hosted calls. It SHALL exclude every private, carrier-grade NAT and metadata range, and it SHALL hold no other ipBlock.
-
-#### Scenario: A widened egress rule
-- **WHEN** the hosted egress rule gains port 80, loses a private range from its exclusions, or another ipBlock is added
-- **THEN** the egress check fails
-
-### Requirement: Hosted groups join no pool
-No pool, context-window fallback or routing group of the gateway config SHALL name a hosted group, and no fallback SHALL send a group that is not hosted to a hosted group, so a prompt leaves the cluster for a provider only when its caller names a hosted group. A fallback from one hosted group to another hosted group MAY exist.
-
-#### Scenario: A fallback to a hosted group
-- **WHEN** a fallback chain sends `devops-review` to `claude-haiku-5-5`
-- **THEN** the hosted-group check fails
-
-#### Scenario: A failed Sonnet call
-- **WHEN** a call to `claude-sonnet-5-5` fails
-- **THEN** the gateway answers it with `deepseek-v4.1-flash-1017`
-
-### Requirement: GPU architecture thresholds set the tiers of old GPUs
-`k8s/llm/profiles/gpu-thresholds.yaml` SHALL hold `embedding_only` and `per_gpu`, both `pascal`, each a value of `nvidia.com/gpu.architecture`. A tier in `k8s/llm/profiles/tier-templates/` SHALL be at or below a threshold when the newest architecture that it accepts is that architecture or an older one. A tier newer than both thresholds SHALL run as its template says.
-
-#### Scenario: The tracked values
-- **WHEN** the thresholds file is loaded
-- **THEN** both values are `pascal`
-
-#### Scenario: A tier newer than both thresholds
-- **WHEN** a tier that accepts `pascal` is rendered with the thresholds `maxwell` and `kepler`
-- **THEN** its DaemonSet equals its template, and it has no embedding deployment
-
-#### Scenario: An unknown architecture
-- **WHEN** a threshold names an architecture that the label does not have
-- **THEN** the load fails and names the value
-
 ### Requirement: An embedding-only tier serves embedding models first
 A tier at or below `embedding_only` SHALL keep one model loaded, SHALL set `LLAMA_ARG_THREADS` to 1, SHALL have the speed tier `embed` and a name with `embed`, and each of its gateway deployments SHALL have order 1. The render SHALL fail and name each group when a generation deployment names such a tier.
 
@@ -291,58 +128,6 @@ The render SHALL fail for a threshold newer than the newest architecture of the 
 - **WHEN** a threshold is `volta` and the newest architecture of the templates is `pascal`
 - **THEN** the render fails and names `volta`
 
-### Requirement: The tracked manifests are the output of the render
-The regions between the `rendered` lines of the profiles, the services and the gateway config SHALL equal the output of `devops ai gateway render` for the tracked thresholds and templates. Without `--apply`, the command SHALL show the diff and write no file.
-
-#### Scenario: The tracked files
-- **WHEN** the render reads the tracked thresholds, templates and manifests
-- **THEN** its output equals the tracked manifests
-
-#### Scenario: A second render
-- **WHEN** the output of a render is rendered again with the same inputs
-- **THEN** the output does not change
-
-#### Scenario: A lower threshold
-- **WHEN** an output of a higher threshold is rendered with a lower one
-- **THEN** the output equals a render of the lower threshold from empty regions
-
-### Requirement: The 48 GiB and 64 GiB tiers load one model for good
-The DaemonSets `ollama-48gib` and `ollama-64gib` SHALL set `OLLAMA_CONTEXT_LENGTH` to 262144, the native context length of `qwen3.8:27b`, `OLLAMA_NUM_PARALLEL` to 1, `OLLAMA_MAX_LOADED_MODELS` to 1 and `OLLAMA_KEEP_ALIVE` to `-1`.
-
-#### Scenario: The settings of the two tiers
-- **WHEN** the profiles are read
-- **THEN** both tiers set the four values above
-
-### Requirement: The gateway sends the 48 GiB and 64 GiB tiers one model
-Every gateway deployment that calls a Service which selects `ollama-48gib` or `ollama-64gib` SHALL name `ollama_chat/qwen3.8:27b`. No embedding deployment SHALL call either tier. A tier rendered from a template above the `embedding_only` threshold SHALL get no embedding deployment, and the 48 GiB template SHALL keep one model loaded.
-
-#### Scenario: A second model on a tier
-- **WHEN** a gateway deployment sends `qwen3-coder:30b`, `gemma4:31b` or an embedding model to `ollama-48gib-fast` or `ollama-64gib-standard`
-- **THEN** the check that reads the gateway config fails
-
-#### Scenario: A chat tier from a template
-- **WHEN** a tier template is rendered above the `embedding_only` threshold
-- **THEN** the render writes no embedding deployment for it
-
-#### Scenario: Embeddings keep their tiers
-- **WHEN** the gateway config is loaded
-- **THEN** `qwen3-embedding:0.6b` has deployments on `ollama-24gib-embed-gpu0` and `-gpu1` at order 1, and on no other tier
-
-### Requirement: The gateway sends the 16 GiB tier nothing
-The GPU placement table of `k8s/README.md` SHALL mark `ollama-16gib` as not serving. No gateway deployment, review slot, route of the GPU matrix or devcontainer setting SHALL name a Service that selects that tier. The DaemonSet `ollama-16gib` and its Services SHALL stay in the profiles.
-
-#### Scenario: The consumers of the tier
-- **WHEN** the gateway config, `DEFAULT_GATEWAY_REVIEW_SLOTS`, the routes of the GPU matrix and the devcontainer are read
-- **THEN** none names `ollama-16gib` or `ollama-16gib-fast`, and the DaemonSet and the Services are in the profiles
-
-#### Scenario: The review pool
-- **WHEN** the gateway config and the defaults are read
-- **THEN** `DEFAULT_GATEWAY_REVIEW_CONCURRENCY` is 2, and each deployment of `devops-review` and `devops-background` has the window 262144
-
-#### Scenario: A tier that stops serving
-- **WHEN** the check runs with a tier that consumers reach marked as not serving
-- **THEN** the check names each consumer that reaches that tier alone
-
 ### Requirement: A request to a Claude group carries an output cap
 The CLI SHALL set `max_tokens` on every request to a Claude group of the gateway, to a value above the Anthropic default of 4096 output tokens, so that the reply of a stage plan is not cut. A request to a model that is not a Claude group SHALL set no `max_tokens`, and keeps the limit of its gateway entry.
 
@@ -365,97 +150,8 @@ The CLI SHALL set `parallel_tool_calls` to false on every request with tools to 
 - **WHEN** an agent sends a request to `devops-chat` or to `deepseek-v4.1-flash-1017` through the gateway
 - **THEN** the request body holds no `parallel_tool_calls`
 
-### Requirement: The dated DeepSeek group falls back to the undated model with the same provider filter
-The group `deepseek-v4.1-flash-1017` SHALL have two deployments: order 1 calls `openrouter/deepseek/deepseek-v4.1-flash-1017` with `allowed_fails: 0` and `cooldown_time: 120`, and order 2 calls `openrouter/deepseek/deepseek-v4.1-flash`. A call that neither deployment can answer SHALL fall back to the group `deepseek-v4.1-flash`. Each deployment of both groups SHALL keep the fp8 and `data_collection: deny` filters, the same window and `supports_response_schema`.
-
-#### Scenario: A stall of the dated model moves the next call
-- **WHEN** order 1 sends a 408 inside the stream of a call
-- **THEN** that call fails, and the next call goes to order 2 in less than 1 s
-
-#### Scenario: A timeout of the dated group falls back
-- **WHEN** a call of `deepseek-v4.1-flash-1017` comes while both of its deployments are cooled
-- **THEN** the gateway sends the call to `deepseek-v4.1-flash`
-
-#### Scenario: The fallback keeps the privacy filter
-- **WHEN** the gateway config is read
-- **THEN** each deployment of both DeepSeek groups asks OpenRouter for fp8 weights and `data_collection: deny`
-
-#### Scenario: Both groups take a structured reply
-- **WHEN** the gateway config is read
-- **THEN** each deployment of both DeepSeek groups sets `supports_response_schema: true`
-
-### Requirement: A Claude group caches its prompt prefix
-A Claude group SHALL set `cache_control_injection_points` in its `litellm_params` with a point on the system messages (`location: message`, `role: system`) and a point on the last message (`location: message`, `index: -1`), and with at most the 4 points that Anthropic allows. No other group SHALL set `cache_control_injection_points`.
-
-#### Scenario: The cache points of the Claude groups
-- **WHEN** the gateway test reads `k8s/llm/gateway/config.yaml`
-- **THEN** `claude-sonnet-5-5` and `claude-haiku-5-5` each hold the system point and the last-message point, and the hosted-group check reports no problem
-
-#### Scenario: A Claude group loses its cache points
-- **WHEN** a test edit removes `cache_control_injection_points` from `claude-sonnet-5-5`
-- **THEN** the hosted-group check reports that `claude-sonnet-5-5` caches no system prompt
-
-#### Scenario: A Claude group loses its last-message point
-- **WHEN** a test edit removes the point with `index: -1` from `claude-haiku-5-5`
-- **THEN** the hosted-group check reports that `claude-haiku-5-5` caches no history of an agent run
-
-#### Scenario: A Claude group sets more points than Anthropic allows
-- **WHEN** a test edit gives `claude-haiku-5-5` five points
-- **THEN** the hosted-group check reports that `claude-haiku-5-5` sets more cache points than Anthropic allows
-
-#### Scenario: Another group sets a cache point
-- **WHEN** a test edit gives `deepseek-v4.1-flash-1017` a cache point
-- **THEN** the hosted-group check reports that only a Claude group sets cache points
-
-### Requirement: The gateway router maps local and provider model aliases
-`k8s/llm/gateway/config.yaml` SHALL configure `model_group_alias` under `router_settings`. It SHALL map models with the `local/` prefix to the local model groups, and models with provider prefixes to the hosted model groups. Every target in `model_group_alias` SHALL name an existing entry in `model_list`.
-
-#### Scenario: Local model alias routing
-- **WHEN** a client sends a request to `local/devops-chat`, `local/devops-coder`, or `local/qwen3.8:27b`
-- **THEN** the gateway router maps the request to the corresponding local model group
-
-#### Scenario: Hosted provider alias routing
-- **WHEN** a client sends a request to `anthropic/claude-sonnet-5-5`, `gemini/gemini-3.8-flash`, or `openrouter/deepseek/deepseek-v4.1-flash-1017`
-- **THEN** the gateway router maps the request to the corresponding hosted model group
-
-#### Scenario: Every alias target exists
-- **WHEN** the gateway configuration is validated
-- **THEN** every alias target names an entry defined in `model_list`
-
-### Requirement: One documented call for each hosted group
-The LLM Gateway section of `k8s/README.md` SHALL give one chat-completion `curl` call for each hosted group: `claude-sonnet-5-5`, `claude-haiku-5-5`, `gemini-3.8-flash` and `deepseek-v4.1-flash-1017`.
-
-#### Scenario: Each group has its call
-- **WHEN** a test reads the smoke section of `k8s/README.md`
-- **THEN** each hosted group names one `curl` call to `/v1/chat/completions`
-
-### Requirement: Each call sends only the gateway key
-The documented calls SHALL send the gateway master key in `Authorization`, SHALL name the provider key of each group, and SHALL send no provider key in a header.
-
-#### Scenario: The provider key of each group is named
-- **WHEN** a test reads the smoke section
-- **THEN** the table names `ANTHROPIC_API_KEY` for both Claude groups, `GEMINI_API_KEY` for the Gemini group and `OPENROUTER_API_KEY` for the DeepSeek group
-
-#### Scenario: No provider key reaches the gateway
-- **WHEN** a test reads each documented call
-- **THEN** each call sends `Authorization: Bearer $KEY` and no header names a provider key
-
-### Requirement: A documented structured call
-The smoke section SHALL give one call to `claude-sonnet-5-5` with a `response_format` of type `json_schema` and a schema of a small object.
-
-#### Scenario: The structured call is in the file
-- **WHEN** a test reads the smoke section
-- **THEN** one call to `claude-sonnet-5-5` holds `response_format` with `json_schema`
-
-### Requirement: The documented run and its record
-The smoke section SHALL give the steps that run the five calls after the gateway rolls, record each result and open a fix issue.
-
-#### Scenario: The steps name the record and the fix issue
-- **WHEN** a test reads the smoke section
-- **THEN** it names the roll onto the new image, a comment on the upgrade issue for each result, and `devops gh issue create --label source/agent` with no priority label
-
 ### Requirement: A gateway attempt ends before the deadline of the call
-The router `timeout` of `k8s/llm/gateway/config.yaml` and the `timeout` of each deployment SHALL be less than the defaults of `ai.request_timeout_seconds` and `roadmap.implement.request_timeout_seconds`, so the gateway ends a stuck attempt and can retry it or fall back before the client ends the call. The default of `ai.request_timeout_seconds` SHALL be less than `CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS` and the `activeDeadlineSeconds` of `k8s/devops/cronjob-runner.yaml`.
+The default of `ai.request_timeout_seconds` SHALL be less than `CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS` and the `activeDeadlineSeconds` of `k8s/devops/cronjob-runner.yaml`. The gateway config of the environment tree sets the router timeout, which has to be less than the call deadlines.
 
 #### Scenario: The timeouts nest
 - **WHEN** a person runs `kubectl -n llm get configmap -l app.kubernetes.io/name=llm-gateway -o yaml` and `kubectl -n devops get cronjob devops-cli-runner -o yaml` on the cluster
@@ -472,49 +168,12 @@ The router `timeout` of `k8s/llm/gateway/config.yaml` and the `timeout` of each 
 - **WHEN** `ai.max_retries` is 3 and each connect to the gateway fails
 - **THEN** the transport saw 4 calls, and the client raises `AIClientError`
 
-### Requirement: Health checks cover only the hosted DeepSeek groups
-The gateway SHALL run background health checks every 60 s with health-check routing for the groups `deepseek-v4.1-flash-1017` and `deepseek-v4.1-flash` only. Each of their deployments SHALL end its check in 30 s. A deployment that sets its own `cooldown_time` SHALL set it to at least the interval plus the check time. No Ollama group SHALL get a health check.
-
-#### Scenario: A stalled check moves the new calls
-- **WHEN** order 1 of `deepseek-v4.1-flash-1017` gives no reply to its health check in 30 s
-- **THEN** the next calls of the group go to order 2, and no call fails on order 1 first
-
-#### Scenario: A recovered deployment gets its calls back
-- **WHEN** a later health check of order 1 passes, and order 1 is not cooled
-- **THEN** the next calls of the group go to order 1 again
-
-#### Scenario: The scope of the checks
-- **WHEN** the gateway config is read
-- **THEN** the checked groups are the two DeepSeek groups, and no checked deployment calls an Ollama tier
-
-### Requirement: The router counts failures below the LiteLLM default
-`router_settings.allowed_fails` SHALL be above 0 and below 3, the LiteLLM default. At the default, LiteLLM 1.103.11 counts no failures and never cools a group with one deployment.
-
-#### Scenario: An offline Ollama tier
-- **WHEN** a group with one deployment and a fallback fails on each retry of a call
-- **THEN** the gateway cools the deployment, and the next calls go to the fallback with no wait
-
-#### Scenario: The value of the gateway config
-- **WHEN** the gateway config is read
-- **THEN** `router_settings.allowed_fails` is above 0 and below 3
-
 ### Requirement: A rendered tier keeps the annotations of its template that control no render
 The render SHALL drop the annotations `llm.devops.io/gpu-count` and `llm.devops.io/embedding-model` of a tier template, which control the render, and SHALL keep each other annotation of the template on each tier that it writes, such as the reason of a kube-linter exception.
 
 #### Scenario: A template with a kube-linter exception
 - **WHEN** a tier template holds the two control annotations and the annotation `ignore-check.kube-linter.io/run-as-non-root`, and the render writes it at both thresholds or above both
 - **THEN** each tier that the render writes holds only the annotation `ignore-check.kube-linter.io/run-as-non-root`
-
-### Requirement: Guard against a one-model tier
-A test MUST fail and name the tier when the Service of `DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL` selects a tier that loads one chat model.
-
-#### Scenario: The embedding URL names the 48 GiB tier
-- **WHEN** `DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL` names the Service of a tier in `SINGLE_MODEL_TIERS`
-- **THEN** the test fails and names that tier.
-
-#### Scenario: The embedding URL names the embedding tier
-- **WHEN** `DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL` names the Service of a tier that loads an embedding model
-- **THEN** the test passes.
 
 ### Requirement: Live gateway status queries model info and marks static fallbacks not checked
 When `GET /model/info` answers, `devops ai gateway status` SHALL authenticate with the configured AI API key (`get_ai_api_key`) and render each served group and deployment while preserving recorded failover routes in `gateway_state.json`. When `GET /model/info` does not answer, `devops ai gateway status` SHALL fall back to `DEFAULT_GATEWAY_ROUTES` and mark each fallback row as `not checked`.
@@ -527,9 +186,24 @@ When `GET /model/info` answers, `devops ai gateway status` SHALL authenticate wi
 - **WHEN** `devops ai gateway status` runs and `GET /model/info` fails or times out
 - **THEN** `DEFAULT_GATEWAY_ROUTES` render with `not checked` (`checked: false`)
 
-### Requirement: Gateway virtual models and default routes match served config groups
-Every `virtual_model` in `DEFAULT_GATEWAY_ROUTES` and every entry in `CONST_AI_GATEWAY_VIRTUAL_MODELS` (including `qwen3-embedding:0.6b` in place of the unserved alias) SHALL be a declared `model_name` in `k8s/llm/gateway/config.yaml`.
+### Requirement: The render follows the thresholds of the environment tree
+`devops ai gateway render` SHALL read `embedding_only` and `per_gpu` from `llm/profiles/gpu-thresholds.yaml` of the environment tree, each a value of `nvidia.com/gpu.architecture`. A tier template SHALL be at or below a threshold when the newest architecture that it accepts is that architecture or an older one. A tier newer than both thresholds SHALL run as its template says, with no embedding deployment.
 
-#### Scenario: Absent virtual model fails the drift check
-- **WHEN** the gateway config drift helper evaluates a virtual model name absent from `k8s/llm/gateway/config.yaml`
-- **THEN** it returns the absent name and fails the route check
+#### Scenario: A tier newer than both thresholds
+- **WHEN** a tier that accepts `pascal` is rendered with the thresholds `maxwell` and `kepler`
+- **THEN** its DaemonSet equals its template, and it has no embedding deployment
+
+#### Scenario: An unknown architecture
+- **WHEN** a threshold names an architecture that the label does not have
+- **THEN** the load fails and names the value
+
+### Requirement: A render writes only the rendered regions
+`devops ai gateway render` SHALL write only the regions between the `rendered` lines of the profiles, the services and the gateway config of the tree. Without `--apply`, it SHALL show the diff and write no file.
+
+#### Scenario: A second render
+- **WHEN** the output of a render is rendered again with the same inputs
+- **THEN** the output does not change
+
+#### Scenario: A lower threshold
+- **WHEN** an output of a higher threshold is rendered with a lower one
+- **THEN** the output equals a render of the lower threshold from empty regions

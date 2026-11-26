@@ -21,7 +21,7 @@ The fail-to-pass workflow SHALL start only for a pull request into `main` that c
 - **THEN** it holds `github.event.pull_request.user.login != 'dan-petty-renovate[bot]'` and names no other author, so the fix pull requests of the Service App keep the check
 
 #### Scenario: A change outside the code under src
-- **WHEN** the path filter of the workflow is evaluated for `tests/ci/test_fail_to_pass.py`, `k8s/otel/values.yaml`, `Dockerfile`, `src/devops_cli/ai/knowledge_base/devops_cli/tasks/testing.md`, `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `src/devops_cli/review/rules/rules.lock` and the files of a release pull request
+- **WHEN** the path filter of the workflow is evaluated for `tests/ci/test_fail_to_pass.py`, `k8s/devops/kustomization.yaml`, `Dockerfile`, `src/devops_cli/ai/knowledge_base/devops_cli/tasks/testing.md`, `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `src/devops_cli/review/rules/rules.lock` and the files of a release pull request
 - **THEN** the workflow does not start for any of them, and it starts for `src/devops_cli/ci/fail_to_pass.py` and for `tests/gate/runner.py`, which `uv run devops ci fail-to-pass --base main` names as a module that no row runs
 
 #### Scenario: A gate module pull request
@@ -33,7 +33,7 @@ The fail-to-pass workflow SHALL start only for a pull request into `main` that c
 - **THEN** the `paths` list holds `tests/gate/**` and no longer holds `tests/gate/*_checks/**`
 
 #### Scenario: A gate check pull request
-- **WHEN** the path filter of the workflow is evaluated for `tests/gate/k8s_checks/otel_collector.py`
+- **WHEN** the path filter of the workflow is evaluated for `tests/gate/k8s_checks/network_policies.py`
 - **THEN** the workflow starts, and the comment of the workflow names `tests/gate/*_checks/` and holds no sentence that only `src/` can make a test fail on base
 
 ### Requirement: The replay reads no title, label or body
@@ -115,7 +115,7 @@ request that is not a fix.
 `devops ci fail-to-pass` SHALL list each added or changed module directly under `tests/gate/<row>_checks/`, other than `__init__.py` and other than a module that only loses checks. For each row of these modules, it SHALL run `tests.gate.<row>` once on the base tree with the tests of the head, and once on the head tree. It SHALL run no other gate module.
 
 #### Scenario: The k8s row
-- **WHEN** `uv run devops ci fail-to-pass --base main` runs on a change to `tests/gate/k8s_checks/otel_collector.py`
+- **WHEN** `uv run devops ci fail-to-pass --base main` runs on a change to `tests/gate/k8s_checks/network_policies.py`
 - **THEN** the command runs `tests.gate.k8s` on the base tree and on the head tree, and no other gate module
 
 #### Scenario: A test-only fix
@@ -123,14 +123,14 @@ request that is not a fix.
 - **THEN** the command runs the pytest replay of that file, starts no gate row, and writes the same report as before the gate replay
 
 #### Scenario: A module that only loses checks next to a changed module
-- **WHEN** `tests/gate/k8s_checks/monitoring.py` only loses one check, and `uv run devops ci fail-to-pass --base main` runs on a change to `tests/gate/k8s_checks/otel_collector.py`
-- **THEN** the command runs `tests.gate.k8s` on both trees, and the report names `tests/gate/k8s_checks/otel_collector.py` and not `tests/gate/k8s_checks/monitoring.py` as a changed gate check
+- **WHEN** `tests/gate/k8s_checks/deploy_stack.py` only loses one check, and `uv run devops ci fail-to-pass --base main` runs on a change to `tests/gate/k8s_checks/network_policies.py`
+- **THEN** the command runs `tests.gate.k8s` on both trees, and the report names `tests/gate/k8s_checks/network_policies.py` and not `tests/gate/k8s_checks/deploy_stack.py` as a changed gate check
 
 ### Requirement: A gate case that fails on base and passes on head proves the fix
 `devops ci fail-to-pass` SHALL count a case of a changed check module as a proof when the base run fails it, the head run does not fail it, and both runs count the same cases. The report SHALL name each changed check module and each such case.
 
 #### Scenario: A k8s gate check fails on base
-- **WHEN** the fix changes `tests/gate/k8s_checks/otel_collector.py`, and the `k8s` row fails one case of that module on the base tree and passes it on the head tree
+- **WHEN** the fix changes `tests/gate/k8s_checks/network_policies.py`, and the `k8s` row fails one case of that module on the base tree and passes it on the head tree
 - **THEN** the command exits 0, and the report names the case as failed on base and passed on head, names the module, and holds no `no changed test files` text
 
 #### Scenario: A gate check passes on both trees
@@ -145,7 +145,7 @@ request that is not a fix.
 `devops ci fail-to-pass` MUST exit 1 when the base run of a row fails a case of a check module that the fix does not change. The report SHALL name that case.
 
 #### Scenario: An unrelated gate failure
-- **WHEN** the `k8s` row fails `other_module.check_other` on the base tree, and the fix changes only `tests/gate/k8s_checks/otel_collector.py`
+- **WHEN** the `k8s` row fails `other_module.check_other` on the base tree, and the fix changes only `tests/gate/k8s_checks/network_policies.py`
 - **THEN** the command exits 1, and the report names `other_module.check_other` as a failure of a module that the fix does not change
 
 ### Requirement: A gate row that cannot run refuses the replay

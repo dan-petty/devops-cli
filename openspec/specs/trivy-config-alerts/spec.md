@@ -16,7 +16,7 @@ The alert filer SHALL list each open code scanning alert whose tool is `Trivy-co
 The filer SHALL group the open alerts by rule id and file path, and it SHALL put the group with the worst severity first.
 
 #### Scenario: Two alerts of one rule in one file
-- **WHEN** two open alerts hold the rule id `KSV-0017` and the path `k8s/gpu-feature-discovery/daemonset.yaml`
+- **WHEN** two open alerts hold the rule id `KSV-0017` and the path `k8s/devops/cronjob.yaml`
 - **THEN** the filer gives one group, and the body of the group names both alert numbers
 
 ### Requirement: A group that an open issue names gets no new issue
@@ -60,46 +60,6 @@ The `trivy config` scan SHALL name `.trivyignore.yaml` of its directory with `--
 #### Scenario: A directory with the file
 - **WHEN** the scan starts in a directory that holds `.trivyignore.yaml`
 - **THEN** the command holds `--ignorefile` and the path of that file, and Trivy hides a finding of an entry whose `expired_at` is later than today
-
-### Requirement: The privileged GPU workload holds a dated ignore entry
-The repository SHALL hold one `misconfigurations` entry of `.trivyignore.yaml` for the rule `KSV-0017` on the path `k8s/gpu-feature-discovery/daemonset.yaml`, with a `statement` that names the privileged GPU device and sysfs access of the workload and the tracking issue #5646, and an `expired_at` date no more than 3 days after the entry.
-
-#### Scenario: The entry of the privileged GPU workload
-- **WHEN** a test reads the ignore file of the repository
-- **THEN** it finds one misconfiguration entry of the rule KSV-0017 and the path of the GPU feature discovery DaemonSet, and the entry holds a statement with the tracking issue #5646 and an expiry date
-
-#### Scenario: A second entry for another rule
-- **WHEN** another judged alert adds a second misconfiguration entry to the ignore file
-- **THEN** the test still finds the KSV-0017 entry of the GPU feature discovery DaemonSet and passes
-
-### Requirement: The sysfs mount of the GPU workload holds a dated ignore entry
-The repository SHALL hold one `misconfigurations` entry of `.trivyignore.yaml` for the rule `KSV-0121` on the path `k8s/gpu-feature-discovery/daemonset.yaml`, with a `statement` that names the sysfs host path mount of the workload and the tracking issue #5646, and an `expired_at` date no more than 3 days after the entry.
-
-#### Scenario: The entry of the sysfs host path mount
-- **WHEN** a test reads the ignore file of the repository
-- **THEN** it finds one misconfiguration entry of the rule KSV-0121 and the path of the GPU feature discovery DaemonSet, and the entry holds a statement with the tracking issue #5646 and an expiry date
-
-#### Scenario: Existing entries for other rules
-- **WHEN** another judged alert adds or keeps other misconfiguration entries in the ignore file
-- **THEN** the test still finds the KSV-0121 entry of the GPU feature discovery DaemonSet and passes
-
-### Requirement: The default pod security context of the GPU workload holds a dated ignore entry
-The repository SHALL hold one `misconfigurations` entry of `.trivyignore.yaml` for the rule `KSV-0118` on the path `k8s/gpu-feature-discovery/daemonset.yaml`, with a `statement` that names the default pod security context of the workload and the tracking issue #5646, and an `expired_at` date no more than 3 days after the entry.
-
-#### Scenario: The entry of the default pod security context
-- **WHEN** a test reads the ignore file of the repository
-- **THEN** it finds one misconfiguration entry of the rule KSV-0118 and the path of the GPU feature discovery DaemonSet, and the entry holds a statement with the tracking issue #5646 and an expiry date
-
-#### Scenario: Existing entries for other rules
-- **WHEN** another judged alert adds or keeps other misconfiguration entries in the ignore file
-- **THEN** the test still finds the KSV-0118 entry of the GPU feature discovery DaemonSet and passes
-
-### Requirement: The GPU feature discovery workload sets a read-only root file system
-The `k8s/gpu-feature-discovery/daemonset.yaml` manifest SHALL configure `readOnlyRootFilesystem: true` in the container `securityContext` of `gpu-feature-discovery`.
-
-#### Scenario: The manifest sets a read-only root file system
-- **WHEN** `uv run devops k8s lint k8s/gpu-feature-discovery` runs kube-linter on the manifests
-- **THEN** kube-linter reports no writable root file system for `gpu-feature-discovery`, and `devops scan` reports no `trivy config` finding KSV-0014 for it
 
 ### Requirement: The harbor template Dockerfile holds a dated ignore entry
 The repository SHALL hold one `misconfigurations` entry of `.trivyignore.yaml` for the rule `DS-0029` on the path `.venv/lib/python3.14/site-packages/harbor/cli/template-adapter/task-template/environment/Dockerfile`, with a `statement` that names the harbor task-template Dockerfile and issue #5947, and an `expired_at` date no more than 3 days after the entry.

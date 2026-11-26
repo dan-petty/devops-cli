@@ -26,13 +26,42 @@ The module `src/devops_cli/k8s/cluster_secrets.py` MUST contain no environment S
 - **WHEN** the test `tests/k8s/test_cluster_secret_source.py` runs `git grep -n -E 'stack=(BASE_STACK|"(chat|gitea|infra)")' src/`
 - **THEN** the command finds no match, and `git grep -n 'name="valkey-' src/devops_cli/k8s/cluster_secrets.py` finds only `valkey-devops-auth` and `valkey-runs-auth`.
 
-### Requirement: Push-secrets uses the environment file
-`devops k8s push-secrets` MUST load the environment rows from `cluster-secrets.toml` and append the product rows. When running in a repository checkout where the environment root lacks `cluster-secrets.toml`, the loader SHALL resolve the fixture file `tests/fixtures/cluster-secrets.toml` from the repository root when running from either source or an installed package.
+### Requirement: Push-secrets reads the environment file of the tree
+The cluster Secret table SHALL be the rows of `cluster-secrets.toml` of the environment tree, then the product rows. A command that needs the table of a tree with no such file SHALL stop with a `ConfigurationError` that names the file, `--k8s-dir` and `infra.repos`, and MUST NOT read another file in its place.
 
 #### Scenario: A fixture environment tree
-- **WHEN** the test `tests/k8s/test_cluster_secret_push.py` runs with `--k8s-dir` pointing at a fixture environment tree
-- **THEN** the plan contains each fixture row and each product row, and `uv run pytest tests/k8s -q -k cluster_secret` passes.
+- **WHEN** `devops k8s push-secrets --dry-run` runs with `--k8s-dir` at a fixture environment tree
+- **THEN** the plan holds each fixture row and each product row
 
-#### Scenario: Running in an installed package environment
-- **WHEN** `load_cluster_secrets_table()` runs from an installed package where `__file__` is in site-packages and the working directory is inside a repository checkout
-- **THEN** the loader locates `tests/fixtures/cluster-secrets.toml` and returns all 23 cluster secret rows.
+#### Scenario: A tree with no Secret table
+- **WHEN** `devops k8s push-secrets` runs with `--plan` or `--dry-run` on a tree with no `cluster-secrets.toml`, also in a checkout that holds `tests/fixtures/cluster-secrets.toml`
+- **THEN** it exits non-zero and names `cluster-secrets.toml`, `--k8s-dir` and `infra.repos`
+
+#### Scenario: A deploy reads the table before the cluster
+- **WHEN** `devops k8s deploy-stack --stack llm` runs with a push on a tree with no `cluster-secrets.toml`
+- **THEN** it exits 1 and starts no `kubectl` and no `helm`
+
+### Requirement: A command that needs only product rows needs no environment tree
+`devops config set <key> --generate` for a key that a product row generates, and `devops k8s bootstrap-roadmap-key`, SHALL read the product rows only. `--generate` for another key SHALL read the table of the environment tree.
+
+#### Scenario: A product key with no tree
+- **WHEN** `devops config set crawl4ai.api_token --generate` runs with no environment tree
+- **THEN** it stores the token
+
+#### Scenario: An environment key with no tree
+- **WHEN** `devops config set grafana.password --generate` runs with no environment tree
+- **THEN** it exits non-zero, stores nothing and names `--k8s-dir`
+
+### Requirement: An optional feature Secret is in the Secret table
+`OPTIONAL_FEATURE_SECRETS` SHALL name `monitoring/grafana-image-renderer`, so a missing renderer token stops only panel images. `k8s/README.md` SHALL say that a pull request which adds a Secret reference names the push command as its first line.
+
+#### Scenario: The list and the table
+- **WHEN** a test reads `OPTIONAL_FEATURE_SECRETS` and the table of the fixture environment tree
+- **THEN** each name of the list is a Secret of the table
+
+### Requirement: The product Secret table holds no key of the object store
+`CLUSTER_SECRETS` SHALL hold no row whose name starts with `object-store-`. The key pair of a writer comes from an ESO `Password` generator of the tenant chart, not from the keyring.
+
+#### Scenario: The product rows
+- **WHEN** a test reads `CLUSTER_SECRETS` in `src/devops_cli/k8s/cluster_secrets.py`
+- **THEN** no row has a name that starts with `object-store-`

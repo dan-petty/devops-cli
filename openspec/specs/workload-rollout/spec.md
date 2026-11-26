@@ -22,10 +22,3 @@ The HTTP app of `devops mcp serve --transport streamable-http` SHALL answer `GET
 #### Scenario: A tool call on the route
 - **WHEN** a client posts a `tools/list` request to `/healthz`
 - **THEN** the answer is 405, and no tool runs
-
-### Requirement: A second gateway replica needs shared cooldowns and a disruption budget
-Deployment `llm/llm-gateway` SHALL run more than one replica only when `router_settings.redis_host` shares the cooldowns of the router and a PodDisruptionBudget selects the gateway. With one replica, the gateway SHALL have no PodDisruptionBudget, and `k8s/README.md` SHALL give the reason for one replica.
-
-#### Scenario: One replica
-- **WHEN** a person runs `kubectl -n llm get deploy,pdb` on the cluster
-- **THEN** Deployment `llm-gateway` has one replica, no PodDisruptionBudget selects the gateway, the router sets no `redis_host`, and the README gives the reason

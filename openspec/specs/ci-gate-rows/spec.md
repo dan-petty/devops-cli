@@ -259,13 +259,6 @@ A fresh interpreter that imports `devops_cli.dry_run.state` SHALL load neither `
 - **WHEN** a fresh interpreter imports `devops_cli.main`
 - **THEN** `devops_cli.lang.en.messages` and `devops_cli.lang.en.errors` are not in its modules and `devops_cli.lang.en.help` is
 
-### Requirement: The kube-linter row lints the Applications of the tree
-The check registry of `devops ci` SHALL hold a row `kube-linter` whose command is `uv run devops k8s lint`, with no TARGET, so that the row lints the build of each path source of the Argo CD Applications with the checks of `.kube-linter.yaml`. The row SHALL come before the rows of `tests/gate`.
-
-#### Scenario: The row runs the lint of the tree
-- **WHEN** the test reads the check spec of the row `kube-linter`
-- **THEN** its command is `uv run devops k8s lint`, it has no other command, and it comes before the row `k8s` in the registry
-
 ### Requirement: A row line shows the name that --only and --skip take
 
 The `devops ci` gate SHALL print each row line with its literal name in square brackets, escaped
@@ -293,44 +286,34 @@ carry it.
 - **WHEN** a row name holds brackets
 - **THEN** the printed line holds the literal name and reads no part of it as markup
 
-### Requirement: The charts row renders the chart sources, and the k8s row stays local
-The table of `devops ci` SHALL hold a row `charts` that runs the `main` of `tests/gate/charts.py`. The row SHALL render the chart source of an Argo CD Application with `helm template` once, and every check of the row SHALL read that one render. A check that starts `helm` or a container engine, or that needs the network, SHALL be in the `charts` row and not in the `k8s` row, so that the `k8s` row needs only `kubectl` and the files of the checkout.
-
-#### Scenario: Two checks read one chart render
-- **WHEN** the two Tempo checks of the `charts` row ask for the render of `k8s/argocd/apps/tempo.yaml`
-- **THEN** `helm template` runs once for that Application
-
-#### Scenario: The k8s row starts no helm and no docker
-- **WHEN** I run `uv run devops ci --check --only k8s` with a `helm` and a `docker` first on PATH that exit 1
-- **THEN** The row passes
-
-### Requirement: The k8s row refuses a change to an environment path
-The `k8s` row of `devops ci` SHALL refuse a branch that changes an environment path, until step 17 of `docs/HOMELAB_REPO_SWITCH.md` deletes the environment files. An environment path SHALL be a file of `k8s` outside `k8s/devops` and `k8s/overlays/homelab/devops` that is not a Markdown file. The row SHALL read the changed paths from `git diff --name-only --no-renames origin/main...HEAD`, and SHALL fail when git cannot give them.
-
-#### Scenario: A change to an environment file
-- **WHEN** the branch changes `k8s/llm/valkey.yaml` and `docs/a.md`
-- **THEN** the check fails with one finding that names `k8s/llm/valkey.yaml`
-- **AND** its message names dan-petty/homelab
-
-#### Scenario: A new environment file
-- **WHEN** the branch adds `k8s/new-app/deployment.yaml`
-- **THEN** the check fails with one finding that names `k8s/new-app/deployment.yaml`
-
-#### Scenario: A move out of the environment
-- **WHEN** the branch moves `k8s/llm/valkey.yaml` to `k8s/devops/valkey.yaml`, so git gives both paths
-- **THEN** the check fails with one finding that names `k8s/llm/valkey.yaml`
-
-#### Scenario: The product base, a document and a file outside k8s
-- **WHEN** the branch changes `k8s/devops/kustomization.yaml`, `k8s/overlays/homelab/devops/kustomization.yaml`, `k8s/README.md` and `src/devops_cli/cli.py`
-- **THEN** the check passes
-
-#### Scenario: git cannot give the changed paths
-- **WHEN** `git diff` exits with status 128, because the checkout has no `origin/main`
-- **THEN** the check fails, and its message names the status, the error of git and `origin/main`
-
 ### Requirement: The table holds a hadolint row that runs the pre-commit hook
 The table of `devops ci` SHALL hold a row `hadolint` whose command runs `uv run pre-commit run hadolint --all-files`.
 
 #### Scenario: The row is the hadolint pre-commit hook
 - **WHEN** `devops ci --only hadolint --dry-run` runs
 - **THEN** the plan shows `uv run pre-commit run hadolint --all-files`
+
+### Requirement: The kube-linter row lints the product base
+The check registry of `devops ci` SHALL hold a row `kube-linter` whose command is `uv run devops k8s lint k8s/devops`, so that the row lints the build of the product base with the checks of `.kube-linter.yaml`. The row SHALL come before the rows of `tests/gate`.
+
+#### Scenario: The row runs the lint of the product base
+- **WHEN** a test reads the check spec of the row `kube-linter`
+- **THEN** its command is `uv run devops k8s lint k8s/devops`, it has no other command, and it comes before the row `k8s` in the registry
+
+### Requirement: The k8s row refuses a tracked environment file
+The `k8s` row of `devops ci` SHALL fail when git tracks under `k8s/` a file that is not in `k8s/devops/` and is not a Markdown document, and SHALL name each such file. The check SHALL read the paths of the git index only, and no manifest.
+
+#### Scenario: A tracked file outside the product base
+- **WHEN** the rule reads a fixture git tree that tracks `k8s/llm/values.yaml`, `k8s/catalog.toml` and `k8s/devops-copy/service.yaml`
+- **THEN** it names the three files
+
+#### Scenario: The product base, a document and an untracked file
+- **WHEN** the fixture tree tracks `k8s/devops/service.yaml` and `k8s/llm/README.md`, and holds an untracked file under `k8s/`
+- **THEN** the rule names none of them
+
+### Requirement: The k8s row refuses an in-cluster image registry in the product base
+No object that a YAML file of `k8s/devops/` declares or that its kustomization renders SHALL run the Distribution image (Docker Hub's `registry`), be the Namespace `registry`, or be in namespace `registry`. The `k8s` row SHALL fail on such an object.
+
+#### Scenario: The product objects
+- **WHEN** `uv run devops ci --check --only k8s` runs
+- **THEN** the row passes only when no object of the product base is one of these

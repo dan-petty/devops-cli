@@ -126,13 +126,6 @@ Each key of `argocd/argocd-notifications-secret` SHALL be optional. A missing va
 - **WHEN** namespace `argocd` exists and neither setting nor the keyring entry has a value
 - **THEN** the push exits 0, writes no Secret, and names `devops config set argocd.github_app_id`, `devops config set argocd.github_app_installation_id` and `devops config set argocd.github_app_private_key`
 
-### Requirement: The Argo CD chart creates no notifications Secret
-The Argo CD values SHALL set `notifications.secret.create` to false, so the push is the one owner of `argocd-notifications-secret`, and the `homelab` AppProject SHALL ignore that Secret as an orphan.
-
-#### Scenario: The values and the project
-- **WHEN** `k8s/argocd/values.yaml` and `k8s/argocd/apps/projects.yaml` are read
-- **THEN** `notifications.secret.create` is false and the `homelab` project's `orphanedResources.ignore` holds Secret `argocd-notifications-secret`
-
 ### Requirement: A derived entry is built from other values of the same push
 A cluster Secret table entry MAY have a derived source: a template whose fields are keyring, setting or literal sources. The push SHALL resolve every entry that is not derived first. It SHALL then fill each field with the value of its source, quoted with `urllib.parse.quote(value, safe="")`, and SHALL compare the result with the live value as for any other entry. The push SHALL NOT adopt, generate or store a derived value in the keyring.
 
@@ -202,14 +195,6 @@ The Secret read of the sync MUST refuse a context name that holds a shell metach
 #### Scenario: The infra stack deploys against an ARN context
 - **WHEN** `devops k8s deploy-stack --stack infra --no-wait --no-push-secrets` runs with the context `arn:aws:eks:us-east-1:123456789012:cluster/prod`
 - **THEN** the command exits with status 0, its output holds no `Must be a valid RFC 1123 name` message, and `kubectl get secret` gets `--context` with the ARN
-
-### Requirement: Secret monitoring/grafana-admin holds a secret-key entry
-Secret `monitoring/grafana-admin` SHALL hold `secret-key` from keyring `grafana_secret_key`, generated with `token_urlsafe(32)` when the keyring holds no value. The Grafana values SHALL map `GF_SECURITY_SECRET_KEY` to this key via `envValueFrom`.
-
-#### Scenario: Secret entry and Helm value mapping
-- **WHEN** the cluster secret table and Grafana values are read
-- **THEN** Secret `monitoring/grafana-admin` defines `secret-key` with generator `token_urlsafe(32)`
-- **AND** `k8s/monitoring/grafana-values.yaml` maps `GF_SECURITY_SECRET_KEY` to `grafana-admin` `secret-key`
 
 ### Requirement: Secret monitoring/grafana-admin holds a llm-gateway-key entry
 Secret `monitoring/grafana-admin` SHALL hold entry `llm-gateway-key` from keyring source `llm_gateway_master_key` with generator prefix `sk-`.

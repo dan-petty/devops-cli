@@ -6,32 +6,25 @@ Where the monitoring content of the devops-cli product lives: the Grafana dashbo
 ## Requirements
 
 ### Requirement: The product dashboards have their own generator
-`k8s/devops/dashboards/kustomization.yaml` SHALL generate the ConfigMap `grafana-devops-cli-dashboards` in namespace `monitoring` from `devops-cli.json`, `ai-spend.json` and `project-metrics.json`, with no content hash, with the label `grafana_dashboard: "1"` and with the annotation `grafana_folder: "dan-petty/devops-cli"`. `k8s/monitoring/dashboards/kustomization.yaml` SHALL list `../../devops/dashboards`, so Application `monitoring` and `kubectl apply -k k8s/monitoring` apply the ConfigMap.
+`k8s/devops/dashboards/kustomization.yaml` SHALL generate the ConfigMap `grafana-devops-cli-dashboards` in namespace `monitoring` from each dashboard of the folder, with no content hash, with the label `grafana_dashboard: "1"` and with the annotation `grafana_folder: "dan-petty/devops-cli"`. The environment repository applies that folder.
 
 #### Scenario: The generators of the dashboards
-- **WHEN** a test reads the dashboards kustomization of `k8s/monitoring` and each kustomization that it lists
-- **THEN** the generators make the same ConfigMaps, with the same files, namespace and labels, as one generator for each group, and `grafana-devops-cli-dashboards` comes from `k8s/devops/dashboards`
+- **WHEN** `kubectl kustomize k8s/devops/dashboards` renders the folder
+- **THEN** the output is the one ConfigMap `grafana-devops-cli-dashboards`, with a key for each JSON file of the folder, its namespace, label and annotation
 
 ### Requirement: Application devops does not own the product dashboards
-Neither `k8s/devops/kustomization.yaml` nor the overlay of Application `devops` SHALL reach `k8s/devops/dashboards`, because then two Applications own one ConfigMap and sync it in turn.
+`k8s/devops/kustomization.yaml` SHALL NOT reach `k8s/devops/dashboards`, because then two Applications own one ConfigMap and sync it in turn.
 
 #### Scenario: Application devops leaves the ConfigMap to Application monitoring
-- **WHEN** a test follows the resources of `k8s/overlays/homelab/devops`
-- **THEN** it reaches `k8s/devops` and does not reach `k8s/devops/dashboards`
+- **WHEN** `kubectl kustomize k8s/devops` renders the product base
+- **THEN** the render holds no ConfigMap `grafana-devops-cli-dashboards`
 
 ### Requirement: The product alert rules have their own values file
-The product rule file `k8s/devops/monitoring/prometheus-rules-values.yaml` SHALL hold, under `serverFiles.devops_cli_alerting_rules.yml`, each rule group that selects a `devops_cli_` series and the four `slo-` groups of this change, and no group of the environment values file SHALL select a `devops_cli_` series.
+The product rule file `k8s/devops/monitoring/prometheus-rules-values.yaml` SHALL hold, under `serverFiles.devops_cli_alerting_rules.yml`, each rule group that selects a `devops_cli_` series and the four `slo-` groups of this change.
 
 #### Scenario: The product file holds the groups that watch a devops_cli series
 - **WHEN** `uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` runs
-- **THEN** the command exits 0, the product file holds each group that selects a `devops_cli_` series and the four `slo-` groups, and no group of the environment values file selects one
-
-### Requirement: The server loads the product rule file
-`serverFiles.prometheus.yml.rule_files` of `k8s/monitoring/prometheus-values.yaml` SHALL name the 4 rule files of the chart and `/etc/config/devops_cli_alerting_rules.yml`. Application `prometheus` SHALL give the chart the product file after the environment values. A group name SHALL be unique over the rule files that the server loads, and promtool SHALL accept each file.
-
-#### Scenario: The server loads both rule files
-- **WHEN** a test reads both values files
-- **THEN** `rule_files` is `/etc/config/recording_rules.yml`, `/etc/config/alerting_rules.yml`, `/etc/config/rules`, `/etc/config/alerts` and `/etc/config/devops_cli_alerting_rules.yml`, and the files with groups are `alerting_rules.yml` and `devops_cli_alerting_rules.yml`
+- **THEN** the command exits 0, the product file holds each group that selects a `devops_cli_` series and the four `slo-` groups
 
 ### Requirement: The shared row work series have a recording group
 The group `roadmap-service-recording` of `serverFiles.devops_cli_alerting_rules.yml` SHALL hold one recording rule for each covered row work selector: the failed jobs of the last hour, the budget used ratio and the suspended rows. Each rule SHALL select `job=~"roadmap-service|roadmap-.+"`.
@@ -71,17 +64,6 @@ The promtool test file of `roadmap-service-recording` SHALL hold a `promql_expr_
 #### Scenario: The cases of the recording group pass
 - **WHEN** `uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` runs
 - **THEN** the command exits 0, each record value has a case, and a case that evaluates more rounds than `MAX_PROMTOOL_ROUNDS` fails the check
-
-### Requirement: One Sloth spec for each SLO of the product
-The product SHALL hold one Sloth `prometheus/v1` spec under `k8s/devops/monitoring/slos/` for each of the four SLOs, and each spec SHALL name a service that the catalog data holds, the objective of its SLO and the 28-day window.
-
-#### Scenario: Each SLO has one spec
-- **WHEN** `uv run devops ci --check --only k8s` runs
-- **THEN** the command exits 0, the four specs of the folder each name a service of the catalog data, and each holds the objective of its SLO and the 28-day window
-
-#### Scenario: A spec with a service outside the catalog fails
-- **WHEN** a spec names a service that the catalog data does not hold and `uv run devops ci --check --only k8s` runs
-- **THEN** the command exits 1 and names the spec file and the service that the catalog data does not hold
 
 ### Requirement: The SLO rule groups are the output of the renderer
 The four `slo-` groups of the product rule file SHALL equal the render of the specs, the `k8s` row MUST fail when a spec changes and the groups are not rendered again, and `SERVED_SERIES` SHALL hold each record name of the four groups.
@@ -133,3 +115,28 @@ The Alerting table of `k8s/README.md` SHALL give a row for each alert of the fou
 #### Scenario: Each SLO alert has a row
 - **WHEN** `uv run devops ci --check --only k8s` runs
 - **THEN** the command exits 0, and each alert name of the four `slo-` groups has a row with the four cells
+
+### Requirement: Each row of the Alerting table fits its header
+Each row of the Alerting table of `k8s/README.md` SHALL have no more cells than its header.
+
+#### Scenario: A row with one cell too many
+- **WHEN** `uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` reads a row that holds more cells than the header
+- **THEN** the check fails and names the row
+
+### Requirement: Each product SLO has one Sloth spec
+The product SHALL hold one Sloth `prometheus/v1` spec under `k8s/devops/monitoring/slos/` for each of the four SLOs, and each spec SHALL name its service, the objective of its SLO and the 28-day window.
+
+#### Scenario: Each SLO has one spec
+- **WHEN** `uv run devops ci --check --only k8s` runs
+- **THEN** the command exits 0, and the four specs of the folder load and render
+
+### Requirement: The k8s row builds the product dashboards
+The `k8s` row SHALL build `k8s/devops/dashboards`, and SHALL refuse a build whose ConfigMap does not hold each JSON file of the folder, and dashboards that the dashboard linter refuses together, such as two with one uid.
+
+#### Scenario: The committed folder
+- **WHEN** `uv run devops ci --check --only k8s` runs
+- **THEN** the checks of the dashboards folder report a pass
+
+#### Scenario: A dashboard file that the kustomization does not list
+- **WHEN** `uv run devops ci --check --only k8s` runs on a folder that holds a JSON file that its kustomization does not list
+- **THEN** it exits non-zero and names the check of the folder

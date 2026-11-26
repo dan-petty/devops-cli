@@ -31,20 +31,6 @@ The HTTP broker's default User-Agent SHALL be `devops-cli/<release>` of the inst
 - **WHEN** the broker builds the headers of a request that sets no User-Agent
 - **THEN** the User-Agent is `devops-cli/<release>`
 
-### Requirement: The gateway writes the caller on its series
-The gateway config SHALL set `litellm_settings.enable_end_user_cost_tracking_prometheus_only` to `true`.
-
-#### Scenario: The gateway config
-- **WHEN** `k8s/llm/gateway/config.yaml` is read
-- **THEN** `litellm_settings.enable_end_user_cost_tracking_prometheus_only` is `true`
-
-### Requirement: Open WebUI calls models only through the gateway
-The Open WebUI values SHALL name no Ollama URL, and SHALL connect its OpenAI API and its RAG embeddings to the gateway.
-
-#### Scenario: The Open WebUI values
-- **WHEN** `k8s/llm/values-open-webui.yaml` is read
-- **THEN** it has no `ollamaUrls`, its OpenAI base URL is the gateway's, and its RAG embedding engine is `openai` at the gateway's URL
-
 ### Requirement: The request and token counts take gateway traffic from the gateway
 AI Requests in Range SHALL count the gateway's chat and embedding requests with a 2xx status, and devops-cli's requests with `provider!="gateway"` and `cached="false"`. Tokens Processed in Range SHALL count the gateway's total tokens, and devops-cli's tokens with `provider!="gateway"`, `server!="cache"` and `type!="reasoning"`. Neither SHALL select devops-cli's `provider="gateway"` series.
 
@@ -82,11 +68,11 @@ Each gateway series that `ai-spend.json` reads SHALL be in the LiteLLM capture w
 - **THEN** a chat call, an embedding call and a pydantic-ai agent call each send `x-litellm-end-user-id: devops-cli`
 
 ### Requirement: No query reads the dropped labels
-Every query of `k8s/devops/dashboards/ai-spend.json` and `k8s/monitoring/dashboards/llm-stack.json` and every alert expression of `k8s/monitoring/prometheus-values.yaml` that reads a `litellm_` series MUST NOT group by or filter on `client_ip` or `user_agent`.
+Every query of `k8s/devops/dashboards/ai-spend.json` that reads a `litellm_` series MUST NOT group by or filter on `client_ip` or `user_agent`.
 
 #### Scenario: The dashboards and the alerts ignore the labels
-- **WHEN** a check reads the target expressions of both dashboards and the `serverFiles.alerting_rules.yml` expressions of the Prometheus values
-- **THEN** no expression names `client_ip` or `user_agent`
+- **WHEN** `uv run devops ci --check --only k8s` reads the target expressions of `ai-spend.json`
+- **THEN** no `litellm_` expression names `client_ip` or `user_agent`
 
 ### Requirement: The spend panels take gateway spend from the gateway
 Cloud Spend in Range, the spend target of each projection, Spend: USD per hour and Spend by provider and model: USD per hour SHALL read the gateway's spend counter `litellm_spend_metric_total` for a call through the gateway, and `devops_cli_ai_spend_usd_total{provider!="gateway"}` for a call that did not go through the gateway. No spend panel SHALL select devops-cli's `provider="gateway"` spend. Each stat SHALL fall back to 0 for each counter.
@@ -124,28 +110,9 @@ The panel Spend by provider and model: USD per hour SHALL name the hosted provid
 - **WHEN** a test reads the targets of the panel
 - **THEN** the legends are `{{api_provider}}: {{model}}` and `{{provider}}: {{model}}`
 
-### Requirement: The gateway excludes the caller address and user agent at the source
-The LLM gateway config SHALL set `litellm_settings.prometheus_exclude_labels` to `client_ip` and `user_agent`, before `litellm_settings.callbacks`. LiteLLM SHALL write no `client_ip` and no `user_agent` label on any `litellm_` series, and SHALL add the counts of all callers into one series, so that no two gateway series collide in Prometheus. The `http` endpoint of the LLM gateway ServiceMonitor SHALL hold no `metricRelabelings` entry.
-
-#### Scenario: The gateway manifests render
-- **WHEN** `uv run devops ci --check --only k8s` renders Application `llm`, and a person reads the render
-- **THEN** the row passes, the gateway ConfigMap sets `prometheus_exclude_labels` to `client_ip` and `user_agent` before `callbacks`, and the `http` endpoint of ServiceMonitor `llm-gateway` holds no `metricRelabelings`
-
-#### Scenario: The gateway series carry no caller labels
-- **WHEN** a person runs `count({job="llm-gateway", client_ip!=""})`, `count({job="llm-gateway", user_agent!=""})` and `count({job="llm-gateway", __name__="litellm_deployment_total_requests_total"})` in Prometheus after the Argo CD sync of Application `llm`
-- **THEN** the first two queries return no series, and the third returns a count above 0
-
-#### Scenario: Prometheus refuses no gateway sample
-- **WHEN** a person runs `sum(increase(prometheus_remote_storage_samples_failed_total{job="integrations/alloy"}[24h]))` in Prometheus 24 h after the Argo CD sync of Application `llm`
-- **THEN** the query gives 0, and `ALERTS{alertname="AlloyRemoteWriteSamplesFailed"}` returns no series
-
-#### Scenario: Each target keeps its scrapes
-- **WHEN** a person runs the Loki query `sum(count_over_time({namespace="monitoring", container="alloy"} |= "duplicate sample" [24h]))` and the PromQL query `sum by(job)(count_over_time(up[2h])) / on(job) group_left count by(job)(max_over_time(up[2h]))` 24 h after the Argo CD sync of Application `llm`
-- **THEN** the Loki query gives 0, and the PromQL query gives 120 for `roadmap-service` and `valkey-devops`
-
 ### Requirement: The label reader checks run in the k8s row
-The two checks that no dashboard query and no alert expression names `client_ip` or `user_agent` SHALL run in the `k8s` row of `devops ci`, which the Static Analysis check runs.
+The check that no query of the spend dashboard names `client_ip` or `user_agent` SHALL run in the `k8s` row of `devops ci`, which the Static Analysis check runs.
 
 #### Scenario: The k8s row reports the checks
 - **WHEN** `uv run devops ci --check --only k8s` runs the `check_*` functions under `tests/gate/k8s_checks/`
-- **THEN** `check_no_dashboard_query_uses_the_dropped_labels` and `check_no_alert_expression_uses_the_dropped_labels` report a pass
+- **THEN** `check_no_dashboard_query_uses_the_dropped_labels` reports a pass

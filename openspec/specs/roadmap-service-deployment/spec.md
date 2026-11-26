@@ -24,19 +24,19 @@ The ConfigMap that a deploy renders SHALL hold `service.github_requests_per_hour
 - **THEN** the `service` section of the rendered config holds no `github_requests_per_hour`
 
 ### Requirement: The implement job runs on a hosted gateway group
-The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL set the model of `ai.tasks.implement` and the one tier of each step class of `roadmap.implement.ladder` to a hosted group that `k8s/llm/gateway/config.yaml` serves. The `context_window` of the task SHALL NOT be above the `max_input_tokens` of that group, and SHALL hold the default step budget with the turn reserve.
+The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL set the model of `ai.tasks.implement` and the one tier of each step class of `roadmap.implement.ladder` to a hosted gateway group. The `context_window` of the task SHALL hold the default step budget with the turn reserve.
 
 #### Scenario: The template is read
-- **WHEN** the template is validated as settings and the gateway config is read
-- **THEN** the model of the task `implement` and each tier of each step class are a hosted group in the `model_list` of the gateway config, and the two step classes have a ladder
+- **WHEN** the template is validated as settings
+- **THEN** the model of the task `implement` and each tier of each step class are a group of `CONST_AI_GATEWAY_HOSTED_MODELS`, and the two step classes have a ladder
 
 #### Scenario: Each step class has the one DeepSeek tier
 - **WHEN** the template is validated as settings
 - **THEN** the ladder of each step class holds the one tier `openrouter/deepseek/deepseek-v4.1-flash-1017`, and a comment above the ladder says that a Sonnet tier is a later trial
 
 #### Scenario: The window fits
-- **WHEN** the window of the task `implement` is compared with the window of its group and with the step budget plus the turn reserve
-- **THEN** the window is not above the window of the group and is not below the step budget plus the turn reserve
+- **WHEN** the window of the task `implement` is compared with the step budget plus the turn reserve
+- **THEN** the window is not below the step budget plus the turn reserve
 
 ### Requirement: The stage task has its own entry
 The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL list `stage` as its own key of `ai.tasks` with the model `openrouter/deepseek/deepseek-v4.1-flash-1017` and `context_window` 256000.
@@ -73,19 +73,6 @@ The ConfigMap template SHALL set `ai.price_overrides` for both reference models,
 #### Scenario: The rendered template is read for prices
 - **WHEN** the ConfigMap is rendered from the repository's template and validated as settings
 - **THEN** `ai.price_overrides` holds 0.035 and 1.50 for `qwen3.8:27b` and 0.01 and 0 for `qwen/qwen3-embedding-8b`
-
-### Requirement: The LLM gateway serves typesafe/jev-1.14 and the bridge resolves System One and auto models
-`k8s/llm/gateway/config.yaml` SHALL serve `typesafe/jev-1.14` as the authenticated pass-through `POST /v1/systemone` to the System One endpoint of OpenRouter, with the OpenRouter key from the environment of the gateway, and SHALL NOT list it in `model_list`. The path of `SystemOneModel` under `ai.gateway_url` SHALL be that path. `resolve_pydantic_ai_model` SHALL resolve `typesafe/jev-1.14` to `SystemOneModel` and `"auto"` to a `FallbackModel` of a `DecisionModel`.
-
-#### Scenario: The gateway config and model bridge are inspected
-- **WHEN** the model that the bridge builds for `typesafe/jev-1.14` posts one request, `k8s/llm/gateway/config.yaml` is loaded, and `resolve_pydantic_ai_model` resolves `typesafe/jev-1.14` and `auto`
-- **THEN** the path of the request is the `path` of an entry of `general_settings.pass_through_endpoints` that targets the System One endpoint of OpenRouter with `auth: true`
-- **AND** `model_list` holds no entry named `typesafe/jev-1.14`
-- **AND** `resolve_pydantic_ai_model` returns a `SystemOneModel` for `typesafe/jev-1.14` and a `FallbackModel` wrapping `DecisionModel` for `auto`
-
-#### Scenario: The client reads the answer of OpenRouter
-- **WHEN** the answer holds `id`, `provider` and `usage.cost` next to `model`, `answers` and `usage`
-- **THEN** the client returns the answers and the usage without an error
 
 ### Requirement: The devops stack includes the role-scoped MCP server and disables workload telemetry banners
 `k8s/devops/kustomization.yaml` and `MANIFESTS_BY_STACK["devops"]` SHALL include `k8s/devops/mcp-server/` (`deployment.yaml`, `service.yaml`, `networkpolicy.yaml`, `networkpolicy-client.yaml`), and `mcp-server`, `cronjob-runner`, and `roadmap-service` SHALL set `DO_NOT_TRACK=1`, `OPENSPEC_TELEMETRY=0`, `OPENSPEC_NO_UPDATE_CHECK=1`, and `PYDANTIC_AI_NO_BANNER=1`.
@@ -165,7 +152,7 @@ Each job task of `k8s/devops/configmap.example.yaml` except `intake` and `retitl
 
 #### Scenario: The window of each job
 - **WHEN** the template is read
-- **THEN** the `context_window` of each job task except `intake` and `retitle` is 256000, the template has no entry `analysis`, `verification` or `triage`, and the window of `stage` is not above the `max_input_tokens` of the gateway group of the model of `stage` in `k8s/llm/gateway/config.yaml`
+- **THEN** the `context_window` of each job task except `intake` and `retitle` is 256000, and the template has no entry `analysis`, `verification` or `triage`
 
 #### Scenario: The comment of the trial is read
 - **WHEN** the lines above the task `stage` in the template are read
@@ -231,8 +218,20 @@ The Service image of `Dockerfile` SHALL carry the `node` binary of a digest-pinn
 - **THEN** the major version equals the content of `.node-version`, because `service-deps` copies the `node` binary from the digest-pinned `node` stage
 
 ### Requirement: Documented gateway key of the Service and Jobs
-The `The roadmap Service's virtual key` bullet of `k8s/README.md` SHALL state that only the roadmap Service Deployment reads `DEVOPS_CLI_AI_API_KEY` from Secret `roadmap-service-llm-key`, while the stage Job and the runner Jobs read `DEVOPS_CLI_AI_API_KEY` from Secret `devops-cli`, naming the owner decision of 2026-11-20 (`#2695`, comment `7045868447`).
+The `devops/roadmap-service-llm-key` bullet of the Cluster Secrets section of `k8s/README.md` SHALL state that only the roadmap Service Deployment reads `DEVOPS_CLI_AI_API_KEY` from Secret `roadmap-service-llm-key`, while the stage Job and the runner Jobs read `DEVOPS_CLI_AI_API_KEY` from Secret `devops-cli`, naming the owner decision of 2026-11-20 (`#2695`, comment `7045868447`).
 
 #### Scenario: Stage and runner Job keys in README
-- **WHEN** a reader inspects the `The roadmap Service's virtual key` bullet of `k8s/README.md`
+- **WHEN** a reader inspects the `devops/roadmap-service-llm-key` bullet of `k8s/README.md`
 - **THEN** the bullet states that both the stage Job and the runner Jobs read `DEVOPS_CLI_AI_API_KEY` from Secret `devops-cli`, Deployment `devops/roadmap-service` reads `DEVOPS_CLI_AI_API_KEY` from Secret `roadmap-service-llm-key`, the 2026-11-20 owner decision (`#2695`, comment `7045868447`) is named, and no claim says the stage Job uses its own virtual key
+
+### Requirement: The bridge resolves typesafe/jev-1.14 and auto to decision models
+`resolve_pydantic_ai_model` SHALL resolve `typesafe/jev-1.14` to `SystemOneModel` and `"auto"` to a `FallbackModel` of a `DecisionModel`. `SystemOneModel` SHALL post to `systemone` under `ai.gateway_url`, which the gateway of the environment tree serves as a pass-through.
+
+#### Scenario: The model bridge is inspected
+- **WHEN** the model that the bridge builds for `typesafe/jev-1.14` posts one request, and `resolve_pydantic_ai_model` resolves `typesafe/jev-1.14` and `auto`
+- **THEN** the path of the request ends in `/systemone` under `ai.gateway_url`
+- **AND** `resolve_pydantic_ai_model` returns a `SystemOneModel` for `typesafe/jev-1.14` and a `FallbackModel` wrapping `DecisionModel` for `auto`
+
+#### Scenario: The client reads the answer of OpenRouter
+- **WHEN** the answer holds `id`, `provider` and `usage.cost` next to `model`, `answers` and `usage`
+- **THEN** the client returns the answers and the usage without an error
