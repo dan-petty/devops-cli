@@ -313,6 +313,28 @@ def test_a_source_of_the_check_on_the_allowlist_is_written_as_official_documenta
     ) == (["Official documentation:", f"- {official}"], official)
 
 
+def test_a_documentation_page_of_a_directory_is_read_as_the_search_gave_its_url(
+    store: InMemoryRoadmapStore, config: Callable[..., Any], web: WebFake
+) -> None:
+    """The search gives the page of a directory with its last slash, and the model cites it with
+    no slash. The host answers the URL with the slash only, so the step requests that one."""
+    _mode(config, "on")
+    number = _item(store)
+    directory = "https://docs.python.org/3/library/"
+    _serve(web, directory)
+    web.page(directory, "<html>library</html>")
+    web.redirect(directory.rstrip("/"), directory)
+    reply = NONE.model_copy(update={"sources": [directory.rstrip("/")]})
+
+    apply_alternatives(store, _plan(store, Script(SEARCH, reply)))
+
+    read = [url for url in web.requested if url.startswith("https://docs.python.org/")]
+    assert (read, _block(store, number)[-2:]) == (
+        [directory],
+        ["Official documentation:", f"- {directory}"],
+    )
+
+
 # ── Rechecks ──────────────────────────────────────────────────────────────────
 
 
