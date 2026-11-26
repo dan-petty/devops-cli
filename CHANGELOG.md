@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.222.0](https://github.com/dan-petty/devops-cli/compare/v0.221.15...v0.222.0) (2026-11-26)
+
+
+### Features
+
+* **k8s:** add the valkey-roadmap instance, its setting and ACL users ([#7302](https://github.com/dan-petty/devops-cli/issues/7302)) ([168f2ad](https://github.com/dan-petty/devops-cli/commit/168f2ad3a90fc62754be066bc9bad02dca5e7f3d))
+
 ## [0.221.15](https://github.com/dan-petty/devops-cli/compare/v0.221.14...v0.221.15) (2026-11-26)
 
 
