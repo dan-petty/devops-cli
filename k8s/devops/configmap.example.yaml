@@ -204,14 +204,17 @@ data:
         url: http://mcp-server.devops.svc.cluster.local:8001
       # valkey-roadmap in this namespace (k8s/devops/valkey-roadmap): the store of the shared state
       # of the roadmap jobs, with the brain index as its first data (ADR 0021 section 3, #7294).
-      # Its user default is off. A pod sends a user only when its template sets
-      # DEVOPS_CLI_ROADMAP_STATE_USER and reads the password of that user from Secret
-      # devops/valkey-roadmap-auth as DEVOPS_CLI_ROADMAP_STATE_PASSWORD, never from this ConfigMap.
-      # No pod has them, and no code reads the store, so no pod calls this URL now. The change that
-      # adds the first client also gives its pod the label valkey-client: "true" and an egress rule
-      # to the store (docs/CLUSTER.md, valkey-roadmap).
+      # Its user default is off. `username` names the ACL user brain, which writes the brain
+      # index: the alternatives row of the Service pod is the writer (#4676). A pod sends the
+      # user only with its password, which the pod reads from Secret devops/valkey-roadmap-auth
+      # as DEVOPS_CLI_ROADMAP_STATE_PASSWORD, never from this ConfigMap. Only the Service pod has
+      # that variable, the label valkey-client: "true" and an egress rule to the store, so no
+      # other pod reaches it. A pod that only reads the index sets
+      # DEVOPS_CLI_ROADMAP_STATE_USER to agent in its template, which wins over this value, with
+      # the password of that user (docs/CLUSTER.md, valkey-roadmap).
       state:
         url: valkey://valkey-roadmap.devops.svc.cluster.local:6379/0
+        username: brain
       stage:
         filter:
           - status=ready

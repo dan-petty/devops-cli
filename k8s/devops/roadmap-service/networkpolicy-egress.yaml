@@ -4,6 +4,12 @@
 # and a Job pod keeps no token. The `kubernetes` Service resolves to the node's address on 6443,
 # which no namespace selector matches, so the peer is an ipBlock with the cloud metadata address
 # excluded, as argo-workflows/networkpolicy.yaml of dan-petty/homelab does.
+#
+# The pod also reaches valkey-roadmap, where its alternatives row writes the brain index (#4676).
+# `devops-default-perimeter-egress` gives no path to the store. The rule names the pods of the
+# store in this namespace and TCP 6379, and nothing wider, so it is no wider than the ingress
+# rule of the store: valkey-ingress-roadmap admits the pod by its label valkey-client: "true"
+# (docs/CLUSTER.md, valkey-roadmap).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -26,3 +32,10 @@ spec:
       ports:
         - protocol: TCP
           port: 6443
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: valkey
+      ports:
+        - protocol: TCP
+          port: 6379
