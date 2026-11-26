@@ -115,11 +115,12 @@ def check_the_runner_pod_is_restricted_and_mounts_no_token() -> None:
 def check_the_runner_container_knows_it_is_a_runner_and_takes_its_credentials_from_the_secret() -> (
     None
 ):
-    """Only `prepare` and `publish` read the App key, and only `agent` the model key (#3700)."""
+    """Only `prepare` and `publish` read the App key and the password of the cache (#7293), and
+    only `agent` the model key (#3700)."""
     containers = _runner_containers()
     service = _object("Deployment", "roadmap-service")["spec"]["template"]["spec"]["containers"][0]
     default = _cronjob_pod("devops-cli")["containers"][0]
-    app_key, model_key = sorted(CONST_ROADMAP_STAGE_JOB_SECRET_KEYS, reverse=True)
+    cache_key, app_key, model_key = sorted(CONST_ROADMAP_STAGE_JOB_SECRET_KEYS, reverse=True)
 
     def keys(container: dict[str, Any]) -> list[str]:
         return [
@@ -138,7 +139,7 @@ def check_the_runner_container_knows_it_is_a_runner_and_takes_its_credentials_fr
     ) == (
         dict.fromkeys(containers, "true"),
         [],
-        {"prepare": [app_key], "agent": [model_key], "publish": [app_key]},
+        {"prepare": [app_key, cache_key], "agent": [model_key], "publish": [app_key, cache_key]},
         {"/config/devops-cli.yaml"},
         [],
         [],

@@ -390,6 +390,9 @@ APP_KEY = "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY"
 MODEL_KEY = "DEVOPS_CLI_AI_API_KEY"
 
 
+CACHE_KEY = "DEVOPS_CLI_VALKEY_PASSWORD"
+
+
 def _key_in(name: str, key: str) -> Mutation:
     entry = {"name": key, "valueFrom": {"secretKeyRef": {"name": "devops-cli", "key": key}}}
     return lambda job: _named(job, name)["env"].append(entry)
@@ -442,6 +445,7 @@ def _plain_env_in(name: str, variable: str, value: str) -> Mutation:
         pytest.param(_key_in("agent", APP_KEY), "valueFrom", id="app-key-in-agent"),
         pytest.param(_key_in("prepare", MODEL_KEY), "valueFrom", id="model-key-in-prepare"),
         pytest.param(_key_in("publish", MODEL_KEY), "valueFrom", id="model-key-in-publish"),
+        pytest.param(_key_in("agent", CACHE_KEY), "valueFrom", id="cache-key-in-agent"),
         pytest.param(
             _mount_in("agent", "state", "/run/roadmap/state"), "mounts only", id="state-in-agent"
         ),
@@ -802,7 +806,7 @@ def check_the_stage_job_from_the_template_passes_in_every_image_form() -> None:
             _set_env_from({"secretRef": {"name": "devops-cli"}}), "envFrom", id="env-from"
         ),
         pytest.param(
-            _add_secret_key("devops-cli", "DEVOPS_CLI_VALKEY_PASSWORD"), "valueFrom", id="3rd-key"
+            _add_secret_key("devops-cli", "DEVOPS_CLI_QDRANT_API_KEY"), "valueFrom", id="4th-key"
         ),
         pytest.param(
             _add_secret_key("devops-cli", "DEVOPS_CLI_MCP_STAGE_TOKEN"),
@@ -918,11 +922,10 @@ def check_the_stage_job_may_read_exactly_the_keys_of_the_constant() -> None:
 def check_each_container_of_a_runner_job_may_read_exactly_its_key_of_the_constant() -> None:
     """A runner Job reads the keys of `CONST_ROADMAP_STAGE_JOB_SECRET_KEYS` (#6518): on the three
     containers (#3700) `agent` reads only the model key, and `prepare` and `publish` only the App
-    key. The policy refuses another key of the Secret, such as the password of the cache or an
-    MCP token."""
+    key and the password of the cache (#7293). The policy refuses another key of the Secret, such
+    as an MCP token, and it refuses the password of the cache in `agent`."""
     keys = (
         *CONST_ROADMAP_STAGE_JOB_SECRET_KEYS,
-        "DEVOPS_CLI_VALKEY_PASSWORD",
         "DEVOPS_CLI_MCP_IMPLEMENT_TOKEN",
     )
 
@@ -938,8 +941,12 @@ def check_each_container_of_a_runner_job_may_read_exactly_its_key_of_the_constan
         for name in ("prepare", "agent", "publish")
     }
 
-    assert sorted(CONST_ROADMAP_STAGE_JOB_SECRET_KEYS) == sorted((APP_KEY, MODEL_KEY))
-    assert admitted == {"prepare": [APP_KEY], "agent": [MODEL_KEY], "publish": [APP_KEY]}
+    assert sorted(CONST_ROADMAP_STAGE_JOB_SECRET_KEYS) == sorted((APP_KEY, MODEL_KEY, CACHE_KEY))
+    assert admitted == {
+        "prepare": [APP_KEY, CACHE_KEY],
+        "agent": [MODEL_KEY],
+        "publish": [APP_KEY, CACHE_KEY],
+    }
 
 
 ENV_FROM_SECRET = {"secretRef": {"name": "devops-cli"}}
@@ -1178,7 +1185,7 @@ def check_a_planner_job_with_a_secret_env_from_is_refused() -> None:
     assert any("envFrom" in message for message in _refusals(job))
 
 
-@pytest.mark.parametrize("key", CONST_ROADMAP_STAGE_JOB_SECRET_KEYS)
+@pytest.mark.parametrize("key", [APP_KEY, MODEL_KEY, CACHE_KEY])
 def check_a_planner_job_with_a_key_of_the_secret_is_refused(key: str) -> None:
     """A runner Job and a stage Job may read these keys with `valueFrom` (#6518), but a planner
     run Job reads no key of the Secret (ADR 0018)."""

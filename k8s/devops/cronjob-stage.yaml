@@ -112,6 +112,13 @@ spec:
                     secretKeyRef:
                       name: devops-cli
                       key: DEVOPS_CLI_AI_API_KEY
+                # The password of the cache Valkey (`valkey.password`): without it each read of
+                # the shared tier of the project brain fails and goes to GitHub (#7293).
+                - name: DEVOPS_CLI_VALKEY_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: devops-cli
+                      key: DEVOPS_CLI_VALKEY_PASSWORD
                 # The telemetry of a stage Job has the `job` roadmap-stage in Prometheus (ADR 0022).
                 - name: OTEL_SERVICE_NAME
                   value: roadmap-stage

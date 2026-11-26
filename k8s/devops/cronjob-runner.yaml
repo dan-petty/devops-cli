@@ -99,6 +99,13 @@ spec:
                     secretKeyRef:
                       name: devops-cli
                       key: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY
+                # The password of the cache Valkey: a phase that reads GitHub as the App reads
+                # the shared tier of the project brain first (#7293). `agent` gets no such key.
+                - name: DEVOPS_CLI_VALKEY_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: devops-cli
+                      key: DEVOPS_CLI_VALKEY_PASSWORD
               volumeMounts:
                 # The run folder: the clone and the inputs of the agent in `work/`.
                 - name: run
@@ -253,6 +260,13 @@ spec:
                     secretKeyRef:
                       name: devops-cli
                       key: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY
+                # The password of the cache Valkey: a phase that reads GitHub as the App reads
+                # the shared tier of the project brain first (#7293). `agent` gets no such key.
+                - name: DEVOPS_CLI_VALKEY_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: devops-cli
+                      key: DEVOPS_CLI_VALKEY_PASSWORD
               volumeMounts:
                 # `publish` reads the state and the outputs as data, and writes neither.
                 - name: run

@@ -171,7 +171,8 @@ spec:
     # `valueFrom` reads one key of any Secret, which `envFrom` does not allow. A stage Job and a
     # runner Job (#6518) read the keys of `CONST_ROADMAP_STAGE_JOB_SECRET_KEYS`, each in the
     # variable of its name. On the three containers, only `agent` reads the model key, and only
-    # `prepare` and `publish` read the App key (#3700). A planner run Job reads no key.
+    # `prepare` and `publish` read the App key (#3700) and the password of the cache Valkey
+    # (#7293, owner decision of 2026-11-26). A planner run Job reads no key.
     - expression: >-
         variables.containers.all(c, !has(c.env) ||
         c.env.all(e, !has(e.valueFrom) || (!variables.planner &&
@@ -179,11 +180,11 @@ spec:
         !has(e.valueFrom.configMapKeyRef) && !has(e.valueFrom.resourceFieldRef) &&
         e.valueFrom.secretKeyRef.name == "devops-cli" &&
         e.valueFrom.secretKeyRef.key in ["DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY",
-        "DEVOPS_CLI_AI_API_KEY"] &&
+        "DEVOPS_CLI_AI_API_KEY", "DEVOPS_CLI_VALKEY_PASSWORD"] &&
         e.name == e.valueFrom.secretKeyRef.key &&
         (!variables.phases || (c.name == "agent") ==
         (e.valueFrom.secretKeyRef.key == "DEVOPS_CLI_AI_API_KEY")))))
-      message: An env entry must not use valueFrom, but a runner Job and a stage Job read the keys DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY and DEVOPS_CLI_AI_API_KEY of Secret devops-cli, each in the variable of its name. On the three containers, only agent reads DEVOPS_CLI_AI_API_KEY, and only prepare and publish read DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY.
+      message: An env entry must not use valueFrom, but a runner Job and a stage Job read the keys DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY, DEVOPS_CLI_AI_API_KEY and DEVOPS_CLI_VALKEY_PASSWORD of Secret devops-cli, each in the variable of its name. On the three containers, only agent reads DEVOPS_CLI_AI_API_KEY, and only prepare and publish read DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY and DEVOPS_CLI_VALKEY_PASSWORD.
       reason: Forbidden
     # A stage Job of the Service runs the stage job of one item and nothing else, with the keys of
     # the Secret. `devops k8s run-job` of a person is not evaluated, so this rule does not limit it.

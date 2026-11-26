@@ -107,10 +107,10 @@ def check_the_stage_pod_has_time_to_check_in_after_a_sigterm() -> None:
     assert _pod(STAGE_TEMPLATE.cronjob)["terminationGracePeriodSeconds"] == 120
 
 
-def check_the_stage_container_takes_two_keys_of_the_secret_and_no_other_value() -> None:
-    """The private key of the App and the key of the gateway. The MCP client of the stage job is
-    off (`roadmap.stage.mcp`), so the pod has no MCP token: the server accepts one token for every
-    role."""
+def check_the_stage_container_takes_three_keys_of_the_secret_and_no_other_value() -> None:
+    """The private key of the App, the key of the gateway and the password of the cache Valkey
+    (#7293). The MCP client of the stage job is off (`roadmap.stage.mcp`), so the pod has no MCP
+    token: the server accepts one token for every role."""
     env = _stage_container()["env"]
     sourced = [entry for entry in env if "valueFrom" in entry]
 
@@ -121,6 +121,7 @@ def check_the_stage_container_takes_two_keys_of_the_secret_and_no_other_value() 
     assert CONST_ROADMAP_STAGE_JOB_SECRET_KEYS == (
         "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY",
         "DEVOPS_CLI_AI_API_KEY",
+        "DEVOPS_CLI_VALKEY_PASSWORD",
     )
 
 
