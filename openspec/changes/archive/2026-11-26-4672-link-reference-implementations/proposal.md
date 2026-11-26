@@ -14,12 +14,12 @@ The owner asked on 2026-11-11 for an open search that finds good reference imple
 - The change adds behavior that a consumer observes (a setting, a block text, a job record key, a metric), so it has a spec delta. The block line of a skip class changes from `no search` to `no model call`.
 
 ## Capabilities
-- `roadmap-alternatives`: 11 added requirements for the reference step, and the requirement of the skip class modified. The inventory requirements stay in force.
+- `roadmap-alternatives`: 12 added requirements for the reference step, and the requirement of the skip class modified. The inventory requirements stay in force.
 
 ## Impact
 - A run of the alternatives check sends, for each item, at most 3 requests to GitHub's code search and at most 15 other reads (GitHub, deps.dev, a documentation host). The code search quota of GitHub is 10 requests a minute.
 - With the default mode `plan`, no issue text and no job record changes. The result line of the job gets the count `references`.
-- The cluster ConfigMap needs no change for mode `plan`. The switch to `on` is #6588.
+- The ConfigMap example names `references: plan`. The cluster ConfigMap needs no change for mode `plan`, which is the default. The switch to `on` is #6588.
 - No new dependency.
 - The change fits one pull request.
 - Internal code that the change deletes: none.
@@ -31,7 +31,7 @@ The owner asked on 2026-11-11 for an open search that finds good reference imple
 - `render_permalink` (`src/devops_cli/citation.py:207`) gives the form `https://github.com/<owner>/<repo>/blob/<sha>/<path>#L<a>-L<b>`, and `repository_file` raises `GitHubFileNotFoundError` on a 404.
 - `MCPToolset` of pydantic-ai 2.75.0 takes an `http_client` and has `direct_call_tool`. A test sends the connection of the provider through `devops_cli.http.entry`, and a refused connection gives `RoadmapMcpUnavailableError`.
 - The deps.dev API documents `GET /v3alpha/systems/{system}/packages/{name}/versions/{version}:dependents` with `directDependentCount` (docs.deps.dev/api/v3alpha, read 2026-11-26). No request went to deps.dev or to grep.app: the first live read is the proof of mode `plan` after the release.
-- The living spec holds 68 requirements, and the limit is 80. The delta adds 11.
+- The living spec holds 68 requirements, and the limit is 80. The delta adds 12.
 
 ## Existing Tool Considered
 sudosubin/grep-app-cli (`https://github.com/sudosubin/grep-app-cli`), MIT, maintained, and the grep.app MCP server (`https://mcp.grep.app`). The alternatives check of 2026-11-23 gave the verdict `partly`: grep.app finds code hits, and it has no gates, no rank, no permalink check, no documentation allowlist and no issue writing. grep.app publishes no terms and no rate limits. So it is the optional provider `mcp-code` for a public repository, through the MCP client of pydantic-ai that the project already has, and GitHub's code search is the default. The project builds the rest at the written cost of about 250,000 tokens and 5 hours (#4672). deps.dev gives the dependents and the linked packages, and `packaging` reads the versions.

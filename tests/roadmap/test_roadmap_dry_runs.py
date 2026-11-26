@@ -672,6 +672,47 @@ def test_the_alternatives_dry_run_lists_the_reads_of_the_reference_step(
     assert ([row in listed for row in step], len(by_default), when_off) == ([True] * 5, 7, [])
 
 
+def test_the_alternatives_dry_run_lists_the_mcp_and_the_decision_requests_when_configured(
+    config: Callable[..., Any],
+) -> None:
+    """With an MCP server and the decision point configured, the reference step also sends a
+    tool call to the server and a request to the decision model (#4672). Neither is in the plan
+    of the default settings."""
+    from devops_cli.roadmap.alternatives import dry_run_alternatives
+
+    def extra() -> list[tuple[str, tuple[str, ...], str]]:
+        return [
+            (request.method, request.argv, request.repeat.rpartition("; ")[2])
+            for request in dry_run_alternatives(REPO).requests
+            if request.method in ("MCP tool call", "decision model call")
+        ]
+
+    by_default = extra()
+    config(
+        ai={"decision_model": "typesafe/jev-1.14"},
+        roadmap={
+            "alternatives": {"references_mcp_url": "https://mcp.example.com/mcp"},
+            "decisions": {"brain.reference_relevance": "shadow"},
+        },
+    )
+
+    assert (by_default, extra()) == (
+        [],
+        [
+            (
+                "MCP tool call",
+                ("POST", "https://mcp.example.com/mcp"),
+                "for each query of the reference step, at most 3 for an item",
+            ),
+            (
+                "decision model call",
+                (),
+                "for each link that the reference step keeps, at most 3 for an item",
+            ),
+        ],
+    )
+
+
 def test_the_alternatives_dry_run_names_no_project_board() -> None:
     from devops_cli.roadmap.request_plan import alternatives_requests
 

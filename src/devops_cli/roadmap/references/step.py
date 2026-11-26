@@ -2,28 +2,37 @@
 links, inside the bounds of the step.
 
 **The run.** The step merges the rule queries of the item text with the queries of the model reply
-and sends each query to one code search provider, in turn. One repository search then gives the
-facts of the repositories of all code hits. The step keeps the code hits that pass the gates
-(`candidates`), the repositories with the most stars first. For each one it reads the head commit
-and the rank facts, while the bound allows. It ranks the candidates and verifies the file of each
-one at the head commit of its repository with `repository_file`. A verified file gives a permalink from `render_permalink`. The link starts at
-the first line that holds the longest word of the query, or at line 1. The step keeps at most
-`CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_LINKS` permalinks.
+and sends each query to one code search provider, in turn. Each query passed the guard of the web
+search (`queries`). One repository search then gives the facts of the repositories of all code
+hits. The step keeps the code hits that pass the gates (`candidates`), the repositories with the
+most stars first. For each one it reads the head commit and the rank facts, while the bound
+allows. It ranks the candidates and verifies the file of each one at the head commit of its
+repository with `repository_file`. A verified file gives a permalink from `render_permalink`. The
+link starts at the first line that holds the longest word of the query, or at line 1. The step
+keeps at most `CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_LINKS` permalinks.
 
 **Documentation.** A documentation hit is a page that a provider found or a source of the check.
 The step keeps it only when its URL is `https`, its host is on
 `CONST_ROADMAP_ALTERNATIVES_REFERENCE_DOC_DOMAINS`, the item does not link it already and one
-request of the page through `devops_cli.http.entry` at the public egress level answers 200.
+request of the page through `devops_cli.http.entry` at the public egress level answers 200. The
+request is for the URL as its source gave it, and it follows no redirect. The step keeps at most 3
+documentation links, beside the permalinks, and reads at most 3 pages for an item.
 
 **Bounds.** One item gets at most 3 code searches and 15 fact reads, and the step makes no
 generative call. A fact read is each request that is no code search. The reads of the candidates
-leave a reserve for the verification of the links. The step runs in a thread of its own and its
-caller waits at most `CONST_ROADMAP_ALTERNATIVES_REFERENCE_SECONDS`. After that the step is
-stopped: it sends no new request, and its caller gets no link.
+leave a reserve for the verification of the links. The step runs in a daemon thread of its own and
+its caller waits at most `CONST_ROADMAP_ALTERNATIVES_REFERENCE_SECONDS`. After that the step is
+stopped: it sends no new request, a request in flight ends at its own timeout, and its caller gets
+no link.
 
 **It fails soft.** A failed search, a failed read, a spent GitHub quota and a passed time bound
-each give a warning in the log and fewer links, never an error of the check. The counter
-`devops_cli_brain_references_total` counts each search by provider and result.
+each give a warning in the log and fewer links, never an error of the check. An error of the work
+that is no project error ends the thread of the step, which reports it, and the step gives no
+link. The counter `devops_cli_brain_references_total` counts each search by provider and result.
+
+**A failed step is no step with no link.** `References.complete` is false when the step did not
+run, failed or passed its bound, and when a search or a read of the item did not answer. The check
+then keeps the links that an earlier check wrote (`recorded_references`).
 
 **Modes.** `off` runs nothing. `plan` writes each verified link to the log and counts it with the
 result `verified`. `on` gives the links to the check, whose writer writes them and counts each with

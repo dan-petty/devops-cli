@@ -34,7 +34,7 @@ The check SHALL give the verdict `not-applicable`, with no model call and no web
 ## ADDED Requirements
 
 ### Requirement: Rule queries come from the item body
-The reference step SHALL build its queries from the code spans, the import lines and the package names of the item body, and SHALL add at most 3 `reference_queries` from the same model reply. The step SHALL take a rule query and a query of the model in turn. A query SHALL be plain words with no colon and no quote.
+The reference step SHALL build its queries from the code spans, the import lines and the package names of the item body, and SHALL add at most 3 `reference_queries` from the same model reply. The step SHALL take a rule query and a query of the model in turn. A query SHALL be plain words with no colon and no quote, and SHALL pass the query guard of the web search before it reaches a provider.
 
 #### Scenario: A body with an import line and a code span
 - **WHEN** the body holds `from pydantic_ai import Agent` and the code span `pydantic-ai`, and the fake reply holds 4 `reference_queries`
@@ -44,8 +44,16 @@ The reference step SHALL build its queries from the code spans, the import lines
 - **WHEN** the body holds the code span `repo:example/closed "token"`
 - **THEN** the query is `repo example/closed token`
 
+#### Scenario: A query that the guard refuses
+- **WHEN** the body holds the code spans `mail ops@example.com` and `pydantic-ai`
+- **THEN** the step sends the query `pydantic-ai` only, and the counter has a point with the provider `step` and the result `refused`
+
+#### Scenario: A URL that the URL parser refuses
+- **WHEN** the body holds the text `https://[cluster-ip]:6443/healthz`
+- **THEN** the text names no URL, the step runs, and the check writes the verdict of the item
+
 ### Requirement: The step bounds its searches, its fact reads and its time
-The step SHALL send at most 3 code searches and 15 fact reads for each item, and SHALL make no generative call of its own. The step SHALL stop after 120 s, and the check SHALL still write the verdict of the item.
+The step SHALL send at most 3 code searches and 15 fact reads for each item, and SHALL make no generative call of its own. One search SHALL be one request. The step SHALL stop after 120 s, and the check SHALL still write the verdict of the item.
 
 #### Scenario: More queries than the limit
 - **WHEN** the rule queries give 5 code searches for one item
@@ -59,6 +67,10 @@ The step SHALL send at most 3 code searches and 15 fact reads for each item, and
 - **WHEN** a fake provider holds a request open past the time bound of the step
 - **THEN** the step stops with no link, the check writes the verdict, and no error stops the run
 
+#### Scenario: A short page that links a next page
+- **WHEN** GitHub answers a code search with one file and a link to a next page
+- **THEN** the fake GitHub session records one request for that search
+
 ### Requirement: GitHub search is the default provider
 The step SHALL search code with `GET /search/code` and repositories with `GET /search/repositories`, through the paced GitHub session, at no more than 10 and 30 requests a minute. The step SHALL use these two GitHub providers only for a private repository.
 
@@ -71,7 +83,7 @@ The step SHALL search code with `GET /search/code` and repositories with `GET /s
 - **THEN** the provider list holds the 2 GitHub providers, and the optional provider gets no connection
 
 ### Requirement: A down optional provider does not stop the check
-The step SHALL drop an optional provider whose server refuses the connection at the start of a run, and the check SHALL still write the verdict of the item. An optional MCP toolset SHALL make one connection attempt.
+The step SHALL drop an optional provider whose server refuses the connection at the start of a run, and the check SHALL still write the verdict of the item. An optional MCP toolset SHALL make one connection attempt. An optional provider that fails at a search SHALL leave the run, and its query SHALL go to the GitHub code search inside the 3 code searches.
 
 #### Scenario: The optional server is down at start
 - **WHEN** the MCP server of `roadmap.alternatives.references_mcp_url` refuses the connection at the start
@@ -80,6 +92,14 @@ The step SHALL drop an optional provider whose server refuses the connection at 
 #### Scenario: The optional server answers
 - **WHEN** the search tool of the server gives an answer with two links to files on GitHub
 - **THEN** the provider `mcp-code` gives two code hits, each with its repository and its path
+
+#### Scenario: The tool listing answers with an error
+- **WHEN** the server answers `tools/list` with an error, or does not answer in the bound of a tool call
+- **THEN** the provider raises the unavailable error, and the provider list holds the 2 GitHub providers
+
+#### Scenario: A call of the optional provider fails
+- **WHEN** the second query of an item goes to the optional provider and its call fails
+- **THEN** the same query goes to the GitHub code search, the item sends no more than 3 code searches, and the next item sends the optional provider no query
 
 ### Requirement: The gates drop an unusable hit
 The step SHALL keep a hit only when it is a code hit and its repository is public, not archived, not a fork, pushed within 365 days, OSI-licensed, not this repository and not linked already in the item.
@@ -92,6 +112,14 @@ The step SHALL keep a hit only when it is a code hit and its repository is publi
 - **WHEN** the code hits name this repository, a repository that the item links, and a Markdown file
 - **THEN** the step sends no repository search and no fact read
 
+#### Scenario: A source file with a plain-text media type
+- **WHEN** a code hit names the file `src/agent.c`
+- **THEN** the hit is a code hit, and the step links it
+
+#### Scenario: A path with a dot segment
+- **WHEN** a code hit names the path `src/../agent.py`
+- **THEN** the step drops the hit and sends no read for it
+
 ### Requirement: The step ranks the candidates
 The step SHALL rank the candidates by the sum of the logarithm of their stars, the logarithm of their deps.dev direct dependents, the number of PyPI packages of the SBOM whose source they are, and 1 for the tests they hold.
 
@@ -100,14 +128,18 @@ The step SHALL rank the candidates by the sum of the logarithm of their stars, t
 - **THEN** the candidate with tests ranks first
 
 ### Requirement: A permalink is verified at the head SHA
-The step SHALL render each permalink with `render_permalink` and SHALL keep it only when `repository_file` answered its path at the head SHA of its repository, and SHALL keep at most 3.
+The step SHALL render each permalink with `render_permalink` and SHALL keep it only when `repository_file` answered its path at the head SHA of its repository, and SHALL keep at most 3. The line of a link SHALL count line feeds only, as GitHub counts the lines of a file.
 
 #### Scenario: A path that the head SHA does not hold
 - **WHEN** the fake store raises `GitHubFileNotFoundError` for the path of a candidate at the head SHA
 - **THEN** the step drops that permalink and keeps the other verified ones
 
+#### Scenario: A file with a form feed
+- **WHEN** the first line of a file holds a form feed and the second line holds the query
+- **THEN** the permalink starts at line 2
+
 ### Requirement: The references setting holds off, plan and on
-The setting `roadmap.alternatives.references` SHALL hold `off`, `plan` or `on`, and SHALL default to `plan`. Mode `off` SHALL run no step. Mode `plan` SHALL write the verified links to the log and add the counter points only, and SHALL change no issue text and no job record. Mode `on` SHALL write at most 3 verified permalinks in the block and in the comment, and SHALL record them in `alternatives.refs` of the job record.
+The setting `roadmap.alternatives.references` SHALL hold `off`, `plan` or `on`, and SHALL default to `plan`. Mode `off` SHALL run no step. Mode `plan` SHALL write the verified links to the log and add the counter points only, and SHALL change no issue text and no job record. Mode `on` SHALL write the verified links in the block and in the comment, and SHALL record them in `alternatives.refs` of the job record.
 
 #### Scenario: The default setting
 - **WHEN** the setting is not set
@@ -122,11 +154,30 @@ The setting `roadmap.alternatives.references` SHALL hold `off`, `plan` or `on`, 
 - **THEN** the block, the comment and `alternatives.refs` hold the 3 permalinks of the form `https://github.com/<owner>/<repo>/blob/<sha>/<path>#L<a>-L<b>`
 
 ### Requirement: Official documentation comes from the allowlist
-The step SHALL accept a documentation hit only when its host is on `CONST_ROADMAP_ALTERNATIVES_REFERENCE_DOC_DOMAINS`, its URL is `https`, and one request of its page through the HTTP entry at the public egress level answers 200.
+The step SHALL accept a documentation hit only when its host is on `CONST_ROADMAP_ALTERNATIVES_REFERENCE_DOC_DOMAINS`, its URL is `https`, and one request of its page through the HTTP entry at the public egress level answers 200. The request SHALL be for the URL as its source gave it, and SHALL follow no redirect. The step SHALL keep at most 3 documentation links, beside the at most 3 permalinks, and SHALL read at most 3 pages for an item.
 
 #### Scenario: A host that is not on the allowlist
 - **WHEN** a documentation hit names `example.com` and the allowlist holds `docs.python.org`
 - **THEN** the step drops the hit and sends no request to `example.com`
+
+#### Scenario: The page of a directory
+- **WHEN** a source of the check is `https://docs.python.org/3/library/` and the host answers that URL with 200
+- **THEN** the step requests the URL with its last slash and keeps the link
+
+#### Scenario: More pages than the page reads
+- **WHEN** 6 sources of the check are on the allowlist and no page answers
+- **THEN** the step reads 3 pages, and the code candidates keep their fact reads
+
+### Requirement: A check that writes no link keeps the links of an earlier check
+The check SHALL write the links of the reference step only in mode `on`, and only when the step ran to its end or found a link. A step that failed or passed its bound, and a step in mode `plan` or `off`, SHALL leave the links of the block and `alternatives.refs` as they are.
+
+#### Scenario: A failed step in mode on
+- **WHEN** the setting is `on`, the record of an item holds one permalink, and the code search of the recheck fails
+- **THEN** the block and `alternatives.refs` hold that permalink after the write, and the counter gets no new point with the result `linked`
+
+#### Scenario: A recheck in mode plan
+- **WHEN** the record of an item holds a permalink and a documentation link, and the setting changes to `plan` or `off`
+- **THEN** the block and `alternatives.refs` are the same after the recheck
 
 ### Requirement: The reference relevance runs in shadow
 The step SHALL register the decision point `brain.reference_relevance` with one Jev question, and SHALL run it in the `shadow` mode so its band changes no rank. The settings SHALL refuse the mode `on` of the point while its cuts hold no fit.

@@ -29,6 +29,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
     CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_CODE_SEARCHES,
     CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_FACT_READS,
+    CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_LINKS,
     CONST_ROADMAP_ALTERNATIVES_REFERENCE_SEARCH_RESULTS,
     CONST_ROADMAP_LABELS_PATH,
     CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS,
@@ -501,12 +502,21 @@ def refine_requests(
     return tuple(reads), tuple(writes)
 
 
+# The name of the decision point of the reference step, as `roadmap.decisions` holds it. The
+# plan reads the setting only: the module of the point imports the decision model.
+_REFERENCE_RELEVANCE = "brain.reference_relevance"
+
+
 def _reference_requests(store: StoreRequests, subject: str) -> Requests:
     """What the reference step of the alternatives check reads for one item (#4672): the code
     searches and the one repository search on the GitHub session, the facts and the file of each
     candidate through gh, the two deps.dev reads of its rank, and the page of a documentation
-    link. Mode `off` reads nothing."""
-    if load_settings().roadmap.alternatives.references == "off":
+    link. With `roadmap.alternatives.references_mcp_url` set, a query also goes to the code
+    search tool of that MCP server. With the decision point `brain.reference_relevance` not `off`
+    and a decision model configured, each kept link sends one request to the decision model.
+    Mode `off` reads nothing."""
+    settings = load_settings()
+    if settings.roadmap.alternatives.references == "off":
         return []
     texts = MESSAGES.roadmap
     rep, methods, targets = texts.plan_repeat, texts.plan_methods, texts.plan_targets
@@ -571,6 +581,28 @@ def _reference_requests(store: StoreRequests, subject: str) -> Requests:
             repeat=facts,
         ),
     ]
+    mcp_url = settings.roadmap.alternatives.references_mcp_url
+    if mcp_url:
+        reads.insert(
+            1,
+            PlannedRequest(
+                method=methods["mcp"],
+                target=targets["reference_mcp_search"].format(subject=subject),
+                argv=("POST", mcp_url),
+                repeat=searches,
+            ),
+        )
+    decides = settings.roadmap.decisions.get(_REFERENCE_RELEVANCE, "off") != "off"
+    if decides and settings.ai.decision_model:
+        reads.append(
+            PlannedRequest(
+                method=methods["decision"],
+                target=targets["reference_relevance"].format(subject=subject),
+                repeat=rep["reference_link"].format(
+                    limit=CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_LINKS
+                ),
+            )
+        )
     return within(reads, texts.plan_conditions["references_on"])
 
 

@@ -70,6 +70,41 @@
 - [x] 10.2 Describe the reference step in `docs/roadmap/alternatives.md`: the modes, the queries, the providers, the gates, the rank, the verification, the documentation allowlist, the bounds, the counter and the decision point
   - Verification: `$ uv run devops ci --check --only docs`
 
+## 11. Behavior: the step fails soft and keeps what it wrote
+
+- [x] 11.1 Write failing tests: a URL that the URL parser refuses stops no step and no check, an error that is no project error gives no link, the thread of the step is a daemon, a failed step in mode `on` and a recheck in mode `plan` or `off` keep the recorded links, a documentation page is read as its source gave it and at most 3 times, and a line ends at a line feed only
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_page_fetch.py tests/roadmap/references/test_reference_step.py tests/roadmap/test_roadmap_alternatives_references.py`
+- [x] 11.2 Skip a refused URL candidate in `urls_in_order`, run the step in a daemon thread, add `References.complete` and `recorded_references`, write the links only for a complete step in mode `on`, and pass the sources as their search gave them
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_page_fetch.py tests/roadmap/references/test_reference_step.py tests/roadmap/test_roadmap_alternatives_references.py`
+
+## 12. Behavior: the queries, the gates and the searches
+
+- [x] 12.1 Write failing tests: a query that the guard of the web search refuses reaches no provider, a `.c` file is a code hit, a path with an empty or a dot segment is dropped, and one search is one request for a short page that links a next page
+  - Verification: `$ uv run devops ci test tests/roadmap/references/test_reference_queries.py tests/roadmap/references/test_reference_step.py tests/roadmap/stores/test_roadmap_github_store_reference_search.py`
+- [x] 12.2 Pass each query through `_guard` of `ai/web_search.py`, test the suffix of a path against `_PROSE_SUFFIXES`, drop a path with an empty or a dot segment, and read one page of a search with `rest`
+  - Verification: `$ uv run devops ci test tests/roadmap/references/test_reference_queries.py tests/roadmap/references/test_reference_step.py tests/roadmap/stores/test_roadmap_github_store_reference_search.py`
+
+## 13. Behavior: the errors of the optional MCP provider
+
+- [x] 13.1 Write failing tests: a tool listing that answers with an error or does not answer in the bound is unavailable, a failed call ends the connection, a failed close stops no run, and a query that the optional provider fails goes to the GitHub code search
+  - Verification: `$ uv run devops ci test tests/roadmap/references/test_reference_mcp_provider.py tests/roadmap/references/test_reference_providers.py`
+- [x] 13.2 Turn the named errors of the MCP libraries into `RoadmapMcpUnavailableError` in `_unavailable`, bound the connection and the tool listing, guard the close in `open_providers`, and send a failed query to the first code provider
+  - Verification: `$ uv run devops ci test tests/roadmap/references/test_reference_mcp_provider.py tests/roadmap/references/test_reference_providers.py`
+
+## 14. Behavior: the dry run of the configured requests
+
+- [x] 14.1 Write a failing test: the dry run lists the MCP tool call and the decision model call when they are configured, and neither by default
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_dry_runs.py`
+- [x] 14.2 Add the two rows to `_reference_requests` of `request_plan.py`
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_dry_runs.py`
+
+## 15. Manifest and documents
+
+- [x] 15.1 Add `references: plan` with its comment to the `alternatives` block of `k8s/devops/configmap.example.yaml`
+  - Verification: `$ uv run devops ci --check --only k8s`
+- [x] 15.2 Describe the guard, the kept links, the page reads, the two link bounds and the errors of the optional provider in `docs/roadmap/alternatives.md`, and regenerate the telemetry reference
+  - Verification: `$ uv run devops ci --check --only docs`
+
 ## Workflow follow-up
 
 - The switch of `roadmap.alternatives.references` to `on` is #6588.

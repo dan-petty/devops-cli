@@ -6316,6 +6316,10 @@ class RoadmapMessages:
             "reference_facts": "the head commit and the facts of the repository {subject}",
             "reference_file": "the file of a reference in {subject} at its head commit",
             "reference_documentation": "a page of official documentation for {subject}",
+            "reference_mcp_search": (
+                "a code search of the MCP server for the references of {subject}"
+            ),
+            "reference_relevance": ("the answer of the decision model about a link of {subject}"),
             "model_run": "the model's run on {subject}",
             "record": "the job record of {subject}, in its body",
             "set_field": "set {field} on {subject}: its labels and its job record, in one write",
@@ -6346,6 +6350,8 @@ class RoadmapMessages:
             "pypi": "PyPI read",
             "deps_dev": "deps.dev read",
             "documentation": "documentation read",
+            "mcp": "MCP tool call",
+            "decision": "decision model call",
             "model": "model call",
         }
     )
@@ -6443,6 +6449,9 @@ class RoadmapMessages:
             ),
             "reference_fact": (
                 "for each fact read of the reference step, at most {limit} for an item"
+            ),
+            "reference_link": (
+                "for each link that the reference step keeps, at most {limit} for an item"
             ),
             "stage_item": "for each item the run stages, up to the limit",
             "fix_plan_item": "for each Staged item with a plan pull request, until one qualifies",
