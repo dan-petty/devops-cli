@@ -124,7 +124,7 @@ RUNS_INDEX = NodePortSpec(
     port=DEFAULT_VALKEY_PORT,
     port_name="valkey",
     port_label="Valkey",
-    manifest="k8s/llm/valkey-runs.yaml",
+    manifest="llm/valkey-runs.yaml of the environment tree",
 )
 
 

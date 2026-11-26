@@ -18,7 +18,7 @@ metadata:
       docs/guidelines/kubernetes.md (Bounded) asks for each Job (#6068).
     ignore-check.kube-linter.io/latest-tag: >-
       Argo CD Image Updater sets the digest of the image in Application devops
-      (k8s/argocd/image-updater-values.yaml, #6068).
+      (argocd/image-updater-values.yaml of dan-petty/homelab, #6068).
     ignore-check.kube-linter.io/no-liveness-probe: >-
       A Job runs to its end, and activeDeadlineSeconds stops a Job that hangs (#6068).
     ignore-check.kube-linter.io/no-readiness-probe: A Job serves no traffic (#6068).

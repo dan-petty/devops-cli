@@ -53,8 +53,9 @@ def k8s_image_pins(
     allowance of the network's public address. A git source of another public repository is
     fetched at its revision. Exits 1, before it resolves an image, when an image has no digest and
     the latest tag or no tag, unless Image Updater moves it or --managed names its repository.
-    Exits 1 when a registry does not hold an image or refuses the read. The CI job `image-pins`
-    runs the check on a pull request that changes k8s/."""
+    Exits 1 when a registry does not hold an image or refuses the read. Exits 1 too when the tree
+    holds no Application, or the renders name no image. The CI job `image-pins` runs the check of
+    the folder `k8s/devops` on a pull request that changes it."""
     set_dry_run(dry_run)
     pins = (
         collect_kustomization_pins(target, managed=managed or ())

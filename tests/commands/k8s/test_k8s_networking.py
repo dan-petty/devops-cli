@@ -23,7 +23,11 @@ from devops_cli.commands.k8s.networking import (
 from devops_cli.commands.k8s.stack_lifecycle import (
     deploy_stack,
 )
-from devops_cli.config.defaults import DEFAULT_QDRANT_URL
+from devops_cli.config.defaults import (
+    DEFAULT_OLLAMA_CLUSTER_SERVICE,
+    DEFAULT_OLLAMA_PORT,
+    DEFAULT_QDRANT_URL,
+)
 from devops_cli.config.settings import Settings
 from tests.support.config_writes import written_keys
 from tests.support.fakes.kubernetes import FakeCluster, service
@@ -263,6 +267,53 @@ def test_collect_port_forward_services() -> None:
     assert (len(services_infra), len(services_llm)) == (6, 4)
 
 
+@pytest.mark.parametrize(
+    ("answering", "saved"),
+    [
+        pytest.param(False, None, id="forward-does-not-answer"),
+        pytest.param(True, [f"http://localhost:{DEFAULT_OLLAMA_PORT}"], id="forward-answers"),
+    ],
+)
+def test_ollama_is_forwarded_and_detected_through_one_service(
+    answering: bool,
+    saved: list[str] | None,
+    cluster: FakeCluster,
+    process_fake: ProcessFake,
+    tcp_probe: TcpProbe,
+) -> None:
+    """port-forward and configure-urls address the Service of the default Ollama tier (#953). It
+    has no address outside the cluster, so configure-urls sets `ai.ollama_urls` only when the
+    forward answers on localhost."""
+    ports = dict.fromkeys(("ollama", "open_webui", "qdrant", "valkey"), DEFAULT_OLLAMA_PORT)
+    cluster.core.answers["list_namespaced_service"] = [
+        service(DEFAULT_OLLAMA_CLUSTER_SERVICE, "llm", port=DEFAULT_OLLAMA_PORT)
+    ]
+    process_fake.answer("kubectl", ProcessAnswer(returncode=1))
+    process_fake.answer("minikube", ProcessAnswer(returncode=1))
+    if answering:
+        tcp_probe.listen("localhost", DEFAULT_OLLAMA_PORT)
+    configured: dict[str, str] = {}
+    settings = Settings()
+
+    _configure_llm_stack_urls(None, settings, configured)
+
+    forwarded = _collect_port_forward_services(["llm"], ports)[0]
+    reads = [
+        (request["namespace"], request["name"])
+        for method, request in cluster.core.calls
+        if method == "read_namespaced_service"
+    ]
+    assert (
+        forwarded,
+        ("llm", DEFAULT_OLLAMA_CLUSTER_SERVICE) in reads,
+        settings.ai.ollama_urls if "ai.ollama_urls" in configured else None,
+    ) == (
+        ("llm", f"svc/{DEFAULT_OLLAMA_CLUSTER_SERVICE}", DEFAULT_OLLAMA_PORT, DEFAULT_OLLAMA_PORT),
+        True,
+        saved,
+    )
+
+
 def _port_forwards(process_fake: ProcessFake) -> list[tuple[str, ...]]:
     """The `kubectl port-forward` children that a command started."""
     return [
@@ -277,21 +328,21 @@ def _service_reads(cluster: FakeCluster) -> int:
 
 @pytest.mark.usefixtures("keyring_store", "tcp_probe", "clock")
 def test_deploy_stack_defaults_do_not_port_forward_or_configure_urls(
-    cluster: FakeCluster, process_fake: ProcessFake
+    cluster: FakeCluster, process_fake: ProcessFake, env_tree: Path
 ) -> None:
     """deploy_stack does not invoke port-forward or configure-urls unless requested."""
     process_fake.answer("helm version", ProcessAnswer(stdout="v3.17.0\n"))
     seen: list[tuple[int, int]] = []
 
-    deploy_stack(stack="infra", push_secrets=False)
+    deploy_stack(stack="infra", k8s_dir=env_tree, push_secrets=False)
     seen.append((len(_port_forwards(process_fake)), _service_reads(cluster)))
 
-    deploy_stack(stack="infra", push_secrets=False, port_forward=True)
+    deploy_stack(stack="infra", k8s_dir=env_tree, push_secrets=False, port_forward=True)
     seen.append((len(_port_forwards(process_fake)), _service_reads(cluster)))
 
     forwards_before = len(_port_forwards(process_fake))
     reads_before = _service_reads(cluster)
-    deploy_stack(stack="infra", push_secrets=False, configure_urls=True)
+    deploy_stack(stack="infra", k8s_dir=env_tree, push_secrets=False, configure_urls=True)
     seen.append(
         (
             len(_port_forwards(process_fake)) - forwards_before,

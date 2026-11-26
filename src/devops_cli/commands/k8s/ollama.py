@@ -109,8 +109,8 @@ def ollama_prune_cmd(
     """Remove Ollama models that no tier of a node serves. The tiers are those of the gateway
     config and the Services of the environment tree."""
     env = resolve_environment(k8s_dir)
-    gateway_path = env.gateway_config
-    services_path = env.llm_services
+    gateway_path = env.require(env.gateway_config)
+    services_path = env.require(env.llm_services)
 
     if dry_run or is_dry_run():
         gateway_text = gateway_path.read_text(encoding="utf-8")

@@ -4,9 +4,6 @@ import json
 from typing import Any
 
 from devops_cli.core.templating import render_json_template
-from tests.support.paths import REPO_ROOT
-
-K8S_DIR = REPO_ROOT / "k8s"
 
 # What turns off OpenSpec's PostHog events and its npm registry check, besides DO_NOT_TRACK=1,
 # which stops both on its own: OPENSPEC_TELEMETRY=0 does too, and OPENSPEC_NO_UPDATE_CHECK=1

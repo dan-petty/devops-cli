@@ -44,6 +44,7 @@ from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import PlannedProcessResult, run_subprocess
 from devops_cli.core.serialization import YAML_SAFE_LOADER
 from devops_cli.docker.registry import image_reference, tag_digest
+from devops_cli.dry_run.state import is_dry_run
 from devops_cli.exceptions.docker import RegistryReadError
 from devops_cli.exceptions.k8s import ImagePinError
 from devops_cli.exceptions.security import SSRFBlockedError
@@ -58,6 +59,7 @@ from devops_cli.k8s.app_sources import (
 from devops_cli.k8s.argocd_gate import discover_argocd_applications
 from devops_cli.k8s.environment import EnvironmentTree
 from devops_cli.k8s.template import build_manifest_path
+from devops_cli.lang import MESSAGES
 
 # The tag of a reference that names none.
 _DEFAULT_TAG = "latest"
@@ -291,6 +293,7 @@ def collect_image_pins(
     """Render every Argo CD Application of the environment tree `env`, a few at a time, and sort
     the images they name. A git source of the origin of `env.repo` (or `origin_url`) reads the
     checkout. `managed` names more repositories whose tag the deploy sets."""
+    env.require_applications()
     documents = sorted(discover_argocd_applications(env.application_dirs).items())
     origin = normalize_git_url(origin_url or repository_origin(env.repo))
     with tempfile.TemporaryDirectory(prefix="image-pins-") as tmp:
@@ -302,6 +305,7 @@ def collect_image_pins(
                     documents,
                 )
             )
+    _require_images(renders, str(env.root))
     pins = _sorted_pins(renders, managed)
     return replace(pins, planned=(*trees.planned, *pins.planned))
 
@@ -320,7 +324,15 @@ def collect_kustomization_pins(path: Path, *, managed: Iterable[str] = ()) -> Im
         tuple(updater_repositories(rendered)),
         planned,
     )
+    _require_images([render], str(path))
     return _sorted_pins([render], managed)
+
+
+def _require_images(renders: list[_Render], source: str) -> None:
+    """Refuse renders that name no image: a check that read none proved nothing. A dry run builds
+    nothing, so it has none to count."""
+    if not is_dry_run() and not any(render.images for render in renders):
+        raise ImagePinError(MESSAGES.k8s.image_pins_none.format(source=source))
 
 
 def _sorted_pins(renders: list[_Render], extra_managed: Iterable[str] = ()) -> ImagePins:

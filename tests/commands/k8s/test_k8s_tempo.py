@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -59,7 +60,7 @@ def test_k8s_configure_urls_tempo_dry_run(runner: CliRunner) -> None:
 
 
 def test_k8s_deploy_stack_shows_tempo_connection_info(
-    cli: Any, cluster: FakeCluster, process_fake: ProcessFake, keyring_store: Any
+    cli: Any, cluster: FakeCluster, process_fake: ProcessFake, keyring_store: Any, env_tree: Path
 ) -> None:
     """deploy-stack for infra prints where Tempo and Pyroscope listen."""
     process_fake.answer(
@@ -67,7 +68,8 @@ def test_k8s_deploy_stack_shows_tempo_connection_info(
         ProcessAnswer(returncode=0, stdout="v3.17.0\n"),
     )
 
-    result = cli(["k8s", "deploy-stack", "--stack", "infra", "--no-push-secrets"])
+    argv = ["k8s", "deploy-stack", "--stack", "infra", "--no-push-secrets"]
+    result = cli([*argv, "--k8s-dir", str(env_tree)])
 
     assert (
         result.exit_code,

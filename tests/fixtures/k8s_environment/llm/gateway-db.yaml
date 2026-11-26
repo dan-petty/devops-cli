@@ -1,0 +1,6 @@
+# A custom resource of a kind that the cluster stand-in of the tests does not serve.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: gateway-db
+  namespace: llm

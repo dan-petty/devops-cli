@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -59,7 +60,7 @@ def test_the_devops_stack_applies_the_searxng_service_monitor() -> None:
 
 
 def test_deploy_stack_devops_dry_run(
-    isolate_devops_cli_config: Path, process_fake: ProcessFake
+    isolate_devops_cli_config: Path, process_fake: ProcessFake, env_tree: Path
 ) -> None:
     """Verify deploy-stack --stack devops includes devops manifests in dry-run output."""
     from devops_cli.config.settings import reset_settings_cache
@@ -69,7 +70,9 @@ def test_deploy_stack_devops_dry_run(
     reset_settings_cache()
     set_dry_run(True)
     try:
-        result = runner.invoke(app, ["deploy-stack", "--stack", "devops"])
+        result = runner.invoke(
+            app, ["deploy-stack", "--stack", "devops", "--k8s-dir", str(env_tree)]
+        )
         assert (
             result.exit_code,
             "devops/configmap.yaml" in result.output,
@@ -82,7 +85,7 @@ def test_deploy_stack_devops_dry_run(
 
 
 def test_deploy_stack_domain_option_in_dry_run(
-    isolate_devops_cli_config: Path, process_fake: ProcessFake
+    isolate_devops_cli_config: Path, process_fake: ProcessFake, env_tree: Path
 ) -> None:
     """Verify deploy-stack propagates domain option in dry-run output."""
     from devops_cli.config.settings import reset_settings_cache
@@ -93,12 +96,12 @@ def test_deploy_stack_domain_option_in_dry_run(
     set_dry_run(True)
     try:
         result = runner.invoke(
-            app, ["deploy-stack", "--stack", "devops", "--domain", "example.com"]
+            app,
+            ["deploy-stack", "--stack", "devops", "--domain", "example.com"]
+            + ["--k8s-dir", str(env_tree)],
         )
-        assert (
-            result.exit_code,
-            "example.com" in result.output,
-        ) == (0, True)
+        details = json.loads(result.output[result.output.index("{") :])["details"]
+        assert (result.exit_code, details["domain"]) == (0, "example.com")
     finally:
         set_dry_run(False)
 

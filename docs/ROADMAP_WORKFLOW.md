@@ -504,7 +504,7 @@ A rule with no row applies as the guideline says.
 | AW-G1 | #5199 (the shared command gate) and the record of #5241. Until the gate exists, the runner pod is the sandbox ([CONTEXT.md](../CONTEXT.md), Runner). |
 | AW-G2 | [SECURITY.md](../SECURITY.md#zero-trust-security--egress-safety-principles), item 15 |
 | AW-G3 | [ADR 0021](adr/0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md#rules-of-these-rows), section 8, rule 2 |
-| AW-O1 | [docs/TELEMETRY.md](TELEMETRY.md#distributed-tracing--w3c-context-propagation) (LLM Content Gating) and [k8s/README.md](../k8s/README.md#gateway-spans) |
+| AW-O1 | [docs/TELEMETRY.md](TELEMETRY.md#distributed-tracing--w3c-context-propagation) (LLM Content Gating) and `k8s/README.md` of dan-petty/homelab (Gateway spans) |
 | AW-O2 | The result lines ([job success](roadmap/job-success.md)). #5168 adds the model calls and the cost to each line. |
 | AW-O3 | #4724: read the AI spend from the gateway counter |
 | Spans | `devops roadmap explain <issue> --trace` prints the trace of the last run of the implement job of an item. No command prints the trace of another job. |

@@ -34,6 +34,8 @@ Minikube is an open-source tool that implements a local single-node Kubernetes c
 
 ### DevOps CLI Minikube Automation
 ```bash
+# Bootstrap, deploy and teardown read the environment tree: the checkout of the infra repo in
+# infra.repos, or --k8s-dir <tree> (--dir <tree> for bootstrap).
 # Bootstrap local Minikube cluster with defaults and GPU passthrough
 devops k8s bootstrap
 

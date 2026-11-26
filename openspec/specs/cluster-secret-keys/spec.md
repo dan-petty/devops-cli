@@ -1,7 +1,7 @@
 # cluster-secret-keys Specification
 
 ## Purpose
-The cluster Secret keys check: manifests and Helm values files under `k8s/` that reference a Secret of the generator table must reference only keys that have a row in that Secret's entries.
+The cluster Secret keys check: a manifest or a Helm values file that references a Secret of the generator table must name only a key that the table has a row for, and `k8s/README.md` names the live check before a merge.
 
 ## Requirements
 

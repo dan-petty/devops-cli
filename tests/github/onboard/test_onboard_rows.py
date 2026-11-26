@@ -309,6 +309,74 @@ def test_a_dirty_checkout_refuses_the_service_row(
     assert onboard_github.calls("deploy-stack") == []
 
 
+def test_the_deploy_reads_the_tree_that_the_row_checked(
+    onboard_github: OnboardHarness, infra_checkout: Path
+) -> None:
+    _run(onboard_github, confirm=True)
+
+    deploys = [*onboard_github.calls("push-secrets"), *onboard_github.calls("deploy-stack")]
+    assert [call.argv[-2:] for call in deploys] == [("--k8s-dir", str(infra_checkout))] * 2
+
+
+def _in_infra(infra_checkout: Path, *prefix: str) -> Any:
+    """A matcher of the git commands that run in the infra checkout."""
+    return lambda call: call.cwd == infra_checkout.parent and call.argv[: len(prefix)] == prefix
+
+
+@pytest.mark.parametrize(
+    ("command", "answer", "reason"),
+    [
+        (("git", "status"), ProcessAnswer(stdout=" M k8s/a.yaml\n"), "has 1 changed files"),
+        (("git", "status"), ProcessAnswer(returncode=128), "git status failed"),
+        (("git", "fetch"), ProcessAnswer(returncode=128), "git fetch origin main failed"),
+        (("git", "rev-parse", "HEAD"), ProcessAnswer(stdout="f" * 40), "HEAD is not origin/main"),
+    ],
+    ids=["dirty", "broken", "unreachable", "stale"],
+)
+def test_a_dirty_or_stale_infra_checkout_refuses_the_service_row(
+    onboard_github: OnboardHarness,
+    infra_checkout: Path,
+    command: tuple[str, ...],
+    answer: ProcessAnswer,
+    reason: str,
+) -> None:
+    onboard_github.processes.answer(_in_infra(infra_checkout, *command), answer)
+
+    report = _run(onboard_github, confirm=True)
+
+    row = _row(report, 13)
+    assert (row.state, str(infra_checkout) in row.reason, reason in row.reason) == (
+        RowState.REFUSED,
+        True,
+        True,
+    ), row.reason
+    assert load_settings().service.repos == []
+    assert onboard_github.calls("push-secrets") == onboard_github.calls("deploy-stack") == []
+
+
+@pytest.mark.parametrize(
+    ("removed", "named"),
+    [
+        ("argocd/apps/agents.yaml", "argocd/apps"),
+        ("cluster-secrets.toml", "cluster-secrets.toml"),
+        ("../.git", "git checkout"),
+        ("../.devops/project.toml", "infra.repos"),
+    ],
+    ids=["no-application", "no-secret-table", "no-checkout", "no-tree"],
+)
+def test_a_hollow_environment_tree_refuses_the_service_row(
+    onboard_github: OnboardHarness, infra_checkout: Path, removed: str, named: str
+) -> None:
+    path = (infra_checkout / removed).resolve()
+    shutil.rmtree(path) if path.is_dir() else path.unlink()
+
+    report = _run(onboard_github, confirm=True)
+
+    row = _row(report, 13)
+    assert (row.state, named in row.reason) == (RowState.REFUSED, True), row.reason
+    assert onboard_github.calls("push-secrets") == onboard_github.calls("deploy-stack") == []
+
+
 def test_a_hook_that_sends_every_event_is_present(onboard_github: OnboardHarness) -> None:
     _store_hook_secret(onboard_github)
 

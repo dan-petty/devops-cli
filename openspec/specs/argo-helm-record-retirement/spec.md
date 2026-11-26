@@ -1,7 +1,7 @@
 # argo-helm-record-retirement Specification
 
 ## Purpose
-Which Helm release records `devops argo cd apps retire-helm-records` deletes after Argo CD adopts a chart, which records it keeps, what it reads, and that the AppProject reports a left-over record.
+Which Helm release records `devops argo cd apps retire-helm-records` deletes after Argo CD adopts a chart, which records it keeps, and what it reads.
 
 ## Requirements
 

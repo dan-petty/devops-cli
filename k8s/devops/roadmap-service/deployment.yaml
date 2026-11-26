@@ -9,7 +9,7 @@ metadata:
   annotations:
     ignore-check.kube-linter.io/latest-tag: >-
       Argo CD Image Updater sets the digest of the image in Application devops
-      (k8s/argocd/image-updater-values.yaml, #6068).
+      (argocd/image-updater-values.yaml of dan-petty/homelab, #6068).
 spec:
   # One replica. The Service acts as GitHub App devops-cli-service (ADR 0015) on each repository
   # in service.repos. Argo CD self-heals this value, so a scale by hand does not stay. To stop
@@ -145,7 +145,8 @@ spec:
               value: service.instance.id=$(POD_NAME)
             # The spans and the log records name the cluster (`k8s.cluster.name`) and the
             # namespace (`k8s.namespace.name`) from these two values. The cluster name is the
-            # name in k8s/monitoring/k8s-monitoring-values.yaml; without it, they name minikube.
+            # name in monitoring/k8s-monitoring-values.yaml of dan-petty/homelab;
+            # without it, they name minikube.
             - name: K8S_CONTEXT
               value: homelab-k3s
             - name: POD_NAMESPACE

@@ -5,9 +5,9 @@
 #
 # A day that brings more than 24 items to a person is over the daily cap: the person cannot read,
 # decide and answer them, so the inbox grows and the older items wait longer.
-# The collector starts a stream again from zero after an hour with no sample (k8s/otel/values.yaml,
-# max_stale), so the increase over a day is a lower bound of that day's inflow, and the rule never
-# counts a sample twice.
+# The collector starts a stream again from zero after an hour with no sample (max_stale of
+# otel/values.yaml of dan-petty/homelab), so the increase over a day is a lower bound of that
+# day's inflow, and the rule never counts a sample twice.
 #
 # The infra stack installs the PrometheusRule CRD (prometheus-operator-crds, HELM_RELEASES_BY_STACK).
 # The label release names the Prometheus release of the monitoring namespace, which selects the

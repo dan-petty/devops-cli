@@ -1,8 +1,8 @@
 """The agents of the cluster (#1154): the RBAC audit of a ServiceAccount bound to the view role.
 
-The form of the manifests under `k8s/agents/` is the work of the `k8s` row of `devops ci` and of
-kube-linter, and `devops k8s rbac-audit` audits the live bindings (#6060). deploy-stack applies
-the build of the Application `agents` (#6681).
+The manifests of that ServiceAccount belong to the environment tree, which devops-cli does not
+ship. `devops k8s rbac-audit` audits the live bindings (#6060). deploy-stack applies the build of
+the Application `agents` (#6681).
 """
 
 from __future__ import annotations

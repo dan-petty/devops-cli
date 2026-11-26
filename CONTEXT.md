@@ -298,7 +298,7 @@ The facts of one repository that devops-cli reads: its type and the layout of it
 _Avoid_: project config, repo settings, manifest
 
 **Environment tree**:
-The Kubernetes folder of an infra repo: what one cluster runs, such as its Argo CD Applications, the values of its charts and its dashboards. A command takes its root from `--k8s-dir`, else from the profile fact `kubernetes.dir` of the repository of the current folder, else of the one infra repo that gives it. The product base `k8s/devops`, which devops-cli ships, is not part of it.
+The Kubernetes folder of an infra repo: what one cluster runs, such as its Argo CD Applications, the values of its charts and its dashboards. A command takes its root from `--k8s-dir`, else from the profile fact `kubernetes.dir` of the repository of the current folder, else of the one infra repo that gives it. The product base `k8s/devops`, which devops-cli ships, is not part of it. devops-cli holds no environment tree: the environment of the homelab cluster lives only in dan-petty/homelab.
 _Avoid_: homelab config
 
 **Managed project**:

@@ -2211,7 +2211,7 @@ CONST_PYTHON_TEMPLATE_STRING_PREFIXES: Final[frozenset[str]] = frozenset({"f", "
 # Provider ids whose GenAI `gen_ai.provider.name` well-known value differs from the id.
 # Every other id is a custom value the conventions allow, and is written unchanged.
 CONST_GENAI_PROVIDER_NAMES: Final[dict[str, str]] = {"claude": "anthropic"}
-# The cluster's collector, as k8s/otel deploys it.
+# The cluster's collector, as otel/ of the environment tree deploys it.
 CONST_OTEL_COLLECTOR_NAMESPACE = "otel"
 # The labels the opentelemetry-collector chart gives the `otel-collector` release's pods. Both
 # are needed: Tempo runs in the same namespace and listens on the same OTLP ports.
@@ -2220,8 +2220,8 @@ CONST_OTEL_COLLECTOR_POD_LABELS: Final[dict[str, str]] = {
     "app.kubernetes.io/instance": "otel-collector",
 }
 CONST_OTEL_COLLECTOR_SERVICE = "otel-collector-opentelemetry-collector"
-# The Valkey holding the shared run index (k8s/llm/valkey-runs.yaml), and the Kubernetes object
-# that holds its password.
+# The Valkey holding the shared run index (llm/valkey-runs.yaml of the environment tree), and the
+# Kubernetes object that holds its password.
 CONST_RUNS_INDEX_NAMESPACE = "llm"
 CONST_RUNS_INDEX_SERVICE = "valkey-runs"
 CONST_RUNS_INDEX_AUTH_OBJECT = "valkey-runs-auth"
@@ -2704,7 +2704,6 @@ CONST_GATE_MODULE_ROWS: Final[dict[str, str]] = {
     "ruff_config": "lint",
     "construct_gate": "constructs",
     "k8s": "k8s",
-    "charts": "charts",
     "tree": "test-tree",
     "startup_imports": "startup-imports",
     "swallowed_failures": "swallowed-failures",
@@ -3306,8 +3305,8 @@ CONST_AI_GATEWAY_VIRTUAL_MODELS: Final[tuple[str, ...]] = (
     "qwen3-embedding:0.6b",
 )
 # The gateway groups that a local deployment answers, from the `model_list` of
-# `k8s/llm/gateway/config.yaml`. A reply that names one of them is local, and a model with the
-# `local/`, `ollama/` or `ollama_chat/` prefix is local too (#4886).
+# `llm/gateway/config.yaml` of the environment tree. A reply that names one of them is local, and
+# a model with the `local/`, `ollama/` or `ollama_chat/` prefix is local too (#4886).
 CONST_AI_GATEWAY_LOCAL_GROUPS: Final[tuple[str, ...]] = (
     "devops-chat",
     "devops-coder",
@@ -6081,7 +6080,6 @@ CONST_CI_CHECK_ROW_NAMES: Final[tuple[str, ...]] = (
     "bwrap",
     "kube-linter",
     "k8s",
-    "charts",
     "test-tree",
     "startup-imports",
     "swallowed-failures",

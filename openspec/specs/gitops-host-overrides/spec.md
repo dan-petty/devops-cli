@@ -1,7 +1,7 @@
 # gitops-host-overrides Specification
 
 ## Purpose
-Which hosts and container environment values the deploy-time overrides set on the homelab Argo CD Applications, how the overrides stay in place through a sync of the app-of-apps `cluster`, and the alert that fires when a live Ingress routes a host under the placeholder domain of git.
+How devops-cli treats the hosts and the environment values that Argo CD sets on the Applications of the environment tree: where the Argo CD gate permits the placeholder domain, and that `devops k8s deploy-stack` writes no override on a cluster that Argo CD manages.
 
 ## Requirements
 

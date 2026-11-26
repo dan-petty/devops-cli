@@ -78,8 +78,8 @@ jobs:
         run: npm ci --ignore-scripts
 
       # The tools of the devtools image for the gate and the scan: tofu (#5862) and osv-scanner;
-      # kube-linter, which runs the `kube-linter` row on the build of each path source of the Argo CD
-      # Applications (#6068); and Trivy, which runs `trivy-config`, the IaC scan of the Security Scan
+      # kube-linter, which runs the `kube-linter` row on the build of the product base k8s/devops
+      # (#6068); and Trivy, which runs `trivy-config`, the IaC scan of the Security Scan
       # step, in the place of Checkov (#2214). The job stays on the runner host, because the `bwrap`
       # row needs the sandbox of the host, which a container job cannot make (#6416). The next step
       # puts the directory of the commands first on PATH for the steps after it.
@@ -105,9 +105,8 @@ jobs:
         run: uv run devops ci --check --no-cache --skip test,outdated,actionlint
 
       # The scan skips Trivy's filesystem scan, `trivy`, which took 194 s over this tree. The audit
-      # row of the quality gate checks the dependencies. It skips kube-linter, which reads only the
-      # root kustomization of a tree that it is given: the `kube-linter` row of the gate lints the
-      # build of each Application (#6068).
+      # row of the quality gate checks the dependencies. It skips kube-linter: the `kube-linter` row
+      # of the gate lints the build of the product base k8s/devops (#6068).
       - name: Security Scan
         if: always()
         run: uv run devops scan report --sarif .data/scan.sarif --skip bandit,trivy,kubelinter
@@ -861,13 +860,12 @@ jobs:
           exit 1
 
   # The token build of docs/DESIGN.md: the pinned Style Dictionary builds the token files of
-  # design/tokens/ with the configs of design/sd/, `make dashboards` builds the service dashboards
-  # of k8s/monitoring/dashboards/services.toml with the token colors (#5184), and the job fails
-  # when a committed output is not the build, or when a test of tests/design fails. The job runs
-  # for every pull request but the release pull request, and does its steps only when a path of
-  # its filter changed, so on any other pull request it reports success. The filter holds the
-  # inputs of the build, its outputs, and the files whose colors the design tests check. npm
-  # installs the lock outside the checkout, so no node_modules shows in the diff. The design tests
+  # design/tokens/ with the configs of design/sd/, and the job fails when a committed output is not
+  # the build, or when a test of tests/design fails. The job runs for every pull request but the
+  # release pull request, and does its steps only when a path of its filter changed, so on any
+  # other pull request it reports success. The filter holds the inputs of the build, its outputs,
+  # and the files whose colors the design tests check. npm installs the lock outside the checkout,
+  # so no node_modules shows in the diff. The design tests
   # run in one process: they take seconds, and pytest workers take longer to start. Each step limit
   # is shorter than the job limit, and the bound of one design test is shorter than its step, so
   # pytest-timeout names a test that hangs.
@@ -895,8 +893,6 @@ jobs:
               - 'package-lock.json'
               - 'src/devops_cli/design/**'
               - 'docs/assets/css/**'
-              - 'k8s/monitoring/dashboards/**'
-              - 'src/devops_cli/grafana/service_dashboard.py'
               - '.github/labels.yml'
               - 'Makefile'
               - '.github/workflows/ci.yml'
@@ -930,18 +926,13 @@ jobs:
         timeout-minutes: 1
         run: make design-tokens
 
-      - name: Build the Service Dashboards
-        if: steps.changes.outputs.design == 'true'
-        timeout-minutes: 1
-        run: make dashboards
-
       # `git add --intent-to-add` makes a new output that is not committed show in the diff.
       - name: Check the Committed Token Outputs
         if: steps.changes.outputs.design == 'true'
         timeout-minutes: 1
         run: |
-          git add --intent-to-add -- docs/assets/css src/devops_cli/design k8s/monitoring/dashboards
-          git diff --exit-code -- docs/assets/css src/devops_cli/design k8s/monitoring/dashboards
+          git add --intent-to-add -- docs/assets/css src/devops_cli/design
+          git diff --exit-code -- docs/assets/css src/devops_cli/design
 
       - name: Run the Design Tests
         if: steps.changes.outputs.design == 'true'

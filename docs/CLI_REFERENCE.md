@@ -118,8 +118,9 @@ The command groups of `devops` and their commands. The page of each group in `co
 |  | `devops k8s lint [OPTIONS] <target>` | Lint Kubernetes manifests with kube-linter. With no TARGET, build each path source of the
 Argo CD Applications of the environment tree as Argo CD builds it, and lint the builds in one
 run with the .kube-linter.yaml of the repository that holds the tree. A git source of another
-public repository is fetched at its revision. Exits 1 on a finding, and when kube-linter did not
-run. The k8s row of devops ci runs it. |
+public repository is fetched at its revision. With TARGET, lint it with the .kube-linter.yaml
+of the repository that holds it. Exits 1 on a finding, when kube-linter did not run, and when
+it found no Kubernetes object. The kube-linter row of devops ci lints k8s/devops. |
 |  | `devops k8s audit [OPTIONS]` | Sanitize active K8s/Minikube cluster resource health using Derailed Popeye. |
 |  | `devops k8s check-deprecated [OPTIONS] <target>` | Scan manifests for deprecated/removed K8s API versions using Fairwinds Pluto. |
 |  | `devops k8s image-pins [OPTIONS] <target>` | Render each Argo CD Application of the environment tree, or the kustomization folder
@@ -128,8 +129,9 @@ it: a HEAD request of its manifest, which Docker Hub does not count against the 
 allowance of the network's public address. A git source of another public repository is
 fetched at its revision. Exits 1, before it resolves an image, when an image has no digest and
 the latest tag or no tag, unless Image Updater moves it or --managed names its repository.
-Exits 1 when a registry does not hold an image or refuses the read. The CI job `image-pins`
-runs the check on a pull request that changes k8s/. |
+Exits 1 when a registry does not hold an image or refuses the read. Exits 1 too when the tree
+holds no Application, or the renders name no image. The CI job `image-pins` runs the check of
+the folder `k8s/devops` on a pull request that changes it. |
 |  | `devops k8s catalog [OPTIONS]` | Generate or check the Kubernetes service catalog from rendered Argo CD Applications, catalog.toml, Sloth SLO specs, service dashboards, and UI annotations. |
 |  | `devops k8s crawl4ai-check [OPTIONS]` | Check that the Crawl4AI service refuses internal targets. It sends each of five routes
 (/md, /html, /screenshot, /pdf and /llm) to each of five internal targets (the metadata
@@ -239,7 +241,6 @@ the probe measured nothing. |
 |  | `devops ci bwrap [OPTIONS]` | Run the bwrap check. |
 |  | `devops ci kube-linter [OPTIONS]` | Run the kube-linter check. |
 |  | `devops ci k8s [OPTIONS]` | Run the k8s check. |
-|  | `devops ci charts [OPTIONS]` | Run the charts check. |
 |  | `devops ci test-tree [OPTIONS]` | Run the test-tree check. |
 |  | `devops ci startup-imports [OPTIONS]` | Run the startup-imports check. |
 |  | `devops ci swallowed-failures [OPTIONS]` | Run the swallowed-failures check. |

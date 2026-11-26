@@ -1,11 +1,12 @@
 """What the GPU architecture thresholds make of an Ollama tier: its manifests and gateway routes.
 
-`k8s/llm/profiles/gpu-thresholds.yaml` names two architectures, and each template in
-`k8s/llm/profiles/tier-templates/` is one tier. A tier at or below `embedding_only` serves embedding
-models alone, and the gateway tries it first. A tier above it is a chat tier: it loads one model, and
-the gateway sends it no embedding batch (#3567). A tier at or below `per_gpu` runs one Ollama
-instance per GPU, each with its own Service and gateway deployment. A rendered tier is named for what it is:
-`ollama-<VRAM of one instance>gib-<embed or speed tier>`, with `-gpu<n>` for each instance. The output
+`llm/profiles/gpu-thresholds.yaml` of the environment tree names two architectures, and each
+template in `llm/profiles/tier-templates/` there is one tier. A tier at or below `embedding_only`
+serves embedding models alone, and the gateway tries it first. A tier above it is a chat tier: it
+loads one model, and the gateway sends it no embedding batch (#3567). A tier at or below `per_gpu`
+runs one Ollama instance per GPU, each with its own Service and gateway deployment. A rendered tier
+is named for what it is: `ollama-<VRAM of one instance>gib-<embed or speed tier>`, with `-gpu<n>`
+for each instance. The output
 goes between two marker lines in each manifest, so the rest of the file stays as a person wrote it
 (#3501).
 """
@@ -320,7 +321,8 @@ def _refuse_chat_routes(gateway: str, services: set[str], tier: str) -> None:
     if groups:
         raise KubernetesDeployError(
             f"{tier} serves embedding models alone, but the gateway routes {', '.join(groups)} to "
-            "it. Move each group to another tier in k8s/llm/gateway/config.yaml.",
+            "it. Move each group to another tier in llm/gateway/config.yaml of the environment "
+            "tree.",
             chart_or_manifest=tier,
         )
 
@@ -332,7 +334,7 @@ def render_tier_manifests(
     if not templates:
         raise KubernetesDeployError(
             "No tier template exists, so the render has nothing to write.",
-            chart_or_manifest="k8s/llm/profiles/tier-templates",
+            chart_or_manifest="llm/profiles/tier-templates",
         )
     newest = max(
         (_newest_architecture(t) for t in templates), key=CONST_K8S_GPU_ARCHITECTURES.index
@@ -342,7 +344,7 @@ def render_tier_manifests(
             raise KubernetesDeployError(
                 f"The threshold {threshold} is newer than {newest}, the newest architecture of the "
                 "tier templates. A tier with no template cannot follow it: add a template first.",
-                chart_or_manifest="k8s/llm/profiles/gpu-thresholds.yaml",
+                chart_or_manifest="llm/profiles/gpu-thresholds.yaml",
             )
 
     daemonsets: list[dict[str, Any]] = []

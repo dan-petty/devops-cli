@@ -1,7 +1,7 @@
 # project-brain/shared-cache Specification
 
 ## Purpose
-The shared tier of the project brain in the cache Valkey `valkey-devops` (ADR 0023 section 2): the listing snapshot of each public repository and the tool facts that the alternatives check reads, over the in-process tier, with a fallback to the local tier or the source when Valkey is slow or down, and the memory bound of the cache Valkey that holds them.
+The shared tier of the project brain in the cache Valkey `valkey-devops` (ADR 0023 section 2): the listing snapshot of each public repository and the tool facts that the alternatives check reads, over the in-process tier, with a fallback to the local tier or the source when Valkey is slow or down.
 
 ## Requirements
 

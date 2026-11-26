@@ -3,7 +3,7 @@ panel or an alert rule matches is a class of the failure taxonomy.
 
 The Service adds 1 to the counter with the value of `FailureClass`. A panel or rule that matches a
 value which the taxonomy does not hold (a class that was renamed, or a typo) reads no series and
-shows nothing. The test reads the files of `k8s/monitoring` and runs offline.
+shows nothing. The test reads the files of the product base `k8s/devops` and runs offline.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from devops_cli.config.constants import CONST_SERVICE_METRIC_IMPLEMENT_FAILURES
 from devops_cli.roadmap.failure import FailureClass
 from tests.support.paths import REPO_ROOT
 
-MONITORING = REPO_ROOT / "k8s" / "monitoring"
+PRODUCT_BASE = REPO_ROOT / "k8s" / "devops"
 CLASSES = {klass.value for klass in FailureClass}
 # A matcher of the label `class` and its value: `class="oom"` or `class=~"oom|timeout"`.
 MATCHER = re.compile(r'\bclass\s*(?:=~|!~|=|!=)\s*"([^"]*)"')
@@ -48,7 +48,7 @@ def class_values(expression: str) -> list[str]:
 
 
 def _documents() -> Iterator[tuple[str, Any]]:
-    for path in sorted(MONITORING.rglob("*")):
+    for path in sorted(PRODUCT_BASE.rglob("*")):
         name = path.relative_to(REPO_ROOT).as_posix()
         if path.suffix == ".json":
             yield name, json.loads(path.read_text(encoding="utf-8"))
@@ -57,15 +57,16 @@ def _documents() -> Iterator[tuple[str, Any]]:
 
 
 def test_each_class_value_that_a_panel_or_a_rule_matches_is_a_class_of_the_taxonomy() -> None:
-    unknown = [
-        f"{name}: {value}"
+    matched = [
+        (name, value)
         for name, document in _documents()
         for expression in _expressions(document)
         for value in class_values(expression)
-        if value not in CLASSES
     ]
+    unknown = [f"{name}: {value}" for name, value in matched if value not in CLASSES]
 
-    assert unknown == []
+    # With no matcher at all, the search reads the wrong files and the test checks nothing.
+    assert (bool(matched), unknown) == (True, [])
 
 
 @pytest.mark.parametrize(

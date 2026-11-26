@@ -1,7 +1,8 @@
 """The table of cluster Secrets (`CLUSTER_SECRETS`): its keyring sources, the options that its
 keys feed, the sync that reads none of its Secrets back, and the README that lists it (#1322).
 
-The tests read the table of the source code. The form of the manifests under `k8s/` is the work of
+The tests read the product rows of the source code and the environment rows of
+`tests/fixtures/cluster-secrets.toml`: devops-cli ships no environment tree (#7290). The form of the manifests under `k8s/` is the work of
 the `k8s` row of `devops ci` and of kube-linter, and no test asserts a value of them (#6060).
 """
 
@@ -30,12 +31,13 @@ from devops_cli.k8s.cluster_secrets import (
     keyring_sources,
     load_cluster_secrets_table,
 )
+from tests.support.paths import FIXTURES
 
 TABLE_REFS = {secret.ref for secret in CLUSTER_SECRETS}
 
 
 def test_keyring_sources_are_managed_keys_or_declared_keyring_only() -> None:
-    table = load_cluster_secrets_table()
+    table = load_cluster_secrets_table(k8s_dir=FIXTURES)
     sources = [
         source for secret in table for entry in secret.entries for source in keyring_sources(entry)
     ]

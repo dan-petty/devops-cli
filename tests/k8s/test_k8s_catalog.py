@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -394,6 +395,26 @@ def test_k8s_catalog_check_json_and_dry_run_modes(
         "metrics-store" in dry_res.output,
         "https://charts.example.com" in dry_res.output,
     ) == (0, [], [], True, True)
+
+
+def test_k8s_catalog_says_when_the_tree_holds_no_slo_folder(
+    tmp_path: Path, process_fake: ProcessFake, cli: Callable[..., Any]
+) -> None:
+    """The SLO specs of the product are not in the environment tree, so a catalog of a tree with
+    no SLO folder names the folder that it did not find, and keeps its JSON output whole
+    (#7290)."""
+    k8s_dir = _seed_base_fixture(tmp_path, process_fake)
+    with_folder = cli("k8s", "catalog", "--k8s-dir", str(k8s_dir))
+    shutil.rmtree(k8s_dir / "devops" / "monitoring")
+
+    without = cli("k8s", "catalog", "--format", "json", "--k8s-dir", str(k8s_dir))
+
+    assert (
+        "devops/monitoring/slos" in with_folder.stderr,
+        without.exit_code,
+        "devops/monitoring/slos" in "".join(without.stderr.split()),
+        json.loads(without.stdout)["slos"],
+    ) == (False, 0, True, [])
 
 
 def test_k8s_catalog_covers_statefulset_cronjob_backup_and_error_branches(

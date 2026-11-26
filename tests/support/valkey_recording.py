@@ -24,8 +24,8 @@ packages in an empty scratch directory, and give the loader their library direct
 
 In a cluster, start a temporary Pod of the official image `valkey/valkey` and forward a loopback
 port to it. The Pod must be new and empty. Never forward to a Valkey of the cluster that holds
-data. Give the Pod the security context of `k8s/llm/valkey-devops.yaml` when the namespace
-enforces one:
+data. Give the Pod the security context of `llm/valkey-devops.yaml` of the environment tree
+when the namespace enforces one:
 
     kubectl -n <namespace> run valkey-contract-record --image=valkey/valkey:<tag> \
         --restart=Never -- valkey-server --bind 127.0.0.1 --save '' --appendonly no \

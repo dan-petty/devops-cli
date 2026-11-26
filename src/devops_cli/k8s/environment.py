@@ -1,7 +1,8 @@
 """The environment tree of a cluster: the Kubernetes folder of an infra repo (#5131).
 
 The environment tree holds what one cluster runs: its Argo CD Applications, the values of its
-charts, its overlays and dashboards. devops-cli ships no environment tree. A command that reads one
+charts, its overlays and dashboards. devops-cli ships no environment tree, and a command that needs
+a path the tree does not hold fails (`EnvironmentTree.require`, #7290). A command that reads one
 takes its root from the option `--k8s-dir`, else from the project profile fact `kubernetes.dir`
 (`.devops/project.toml`, or detection) of the repository of the current folder, else from the one
 entry of `infra.repos` whose profile gives `kubernetes.dir`. A path in the tree is relative to its
@@ -32,6 +33,7 @@ _TIER_TEMPLATES: Final[Path] = Path("llm/profiles/tier-templates")
 _LLM_SERVICES: Final[Path] = Path("llm/profiles/services.yaml")
 _PRODUCT_BASE: Final[Path] = Path("k8s/devops")
 _CLUSTER_SECRETS: Final[Path] = Path("cluster-secrets.toml")
+_ROOT_KUSTOMIZATION: Final[Path] = Path("kustomization.yaml")
 OPTION: Final[str] = "--k8s-dir"
 PRODUCT_OPTION: Final[str] = "--product-dir"
 
@@ -56,6 +58,11 @@ class EnvironmentTree:
     def application_dirs(self) -> tuple[Path, ...]:
         """The folders of the Argo CD Applications: the leaf Applications, then the root ones."""
         return tuple(self.root / folder for folder in _APPLICATION_DIRS)
+
+    @property
+    def root_kustomization(self) -> Path:
+        """The file of the root kustomization, which holds the namespaces that the stacks use."""
+        return self.root / _ROOT_KUSTOMIZATION
 
     @property
     def root_application(self) -> Path:
@@ -95,16 +102,42 @@ class EnvironmentTree:
     @property
     def cluster_secrets(self) -> Path:
         """The cluster secrets file holding environment Secret rows."""
-        direct = self.root / _CLUSTER_SECRETS
-        if direct.is_file():
-            return direct
-        nested = self.root / "k8s" / _CLUSTER_SECRETS
-        if nested.is_file():
-            return nested
-        fixture = self.repo / "tests" / "fixtures" / _CLUSTER_SECRETS
-        if fixture.is_file():
-            return fixture
-        return direct
+        return self.root / _CLUSTER_SECRETS
+
+    def require(self, path: Path) -> Path:
+        """`path`, a file or folder of the tree that a command reads.
+
+        Raises:
+            ConfigurationError: the tree has no such path.
+        """
+        if not path.exists():
+            relative = path.relative_to(self.root).as_posix()
+            raise ConfigurationError(
+                ERRORS.k8s.environment_path_missing.format(
+                    root=self.root, path=relative, option=OPTION
+                ),
+                key="kubernetes.dir",
+            )
+        return path
+
+    def require_applications(self) -> None:
+        """Refuse a tree with no Argo CD Application: a command over it reads nothing, so it must
+        not report success.
+
+        Raises:
+            ConfigurationError: the folders of the Applications hold none.
+        """
+        # `argocd_gate` imports this module.
+        from devops_cli.k8s.argocd_gate import discover_argocd_applications
+
+        if not discover_argocd_applications(self.application_dirs):
+            folders = ", ".join(folder.as_posix() for folder in _APPLICATION_DIRS)
+            raise ConfigurationError(
+                ERRORS.k8s.environment_applications_missing.format(
+                    root=self.root, folders=folders, option=OPTION
+                ),
+                key="kubernetes.dir",
+            )
 
 
 def tree_at(root: Path) -> EnvironmentTree:

@@ -499,8 +499,9 @@ class K8sCommandHelp:
     valkey_port: str = "Local port for Valkey."
     bind_address: str = "Local address to bind for port-forwarding."
     lint_target: str = (
-        "A K8s manifest file or directory to lint as it is (default: the build of each path source "
-        "of the Argo CD Applications of the environment tree)."
+        "A K8s manifest file or directory to lint, with the .kube-linter.yaml of its repository "
+        "(default: the build of each path source of the Argo CD Applications of the environment "
+        "tree)."
     )
     pluto_target: str = (
         "Target manifest file or directory to scan for deprecated APIs (default: the environment "

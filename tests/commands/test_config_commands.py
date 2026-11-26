@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ from devops_cli.k8s.secret_push import EntryState, PushOptions, plan_push, secre
 from tests.support.cluster_secret_fakes import FakeCluster
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.paths import REPO_ROOT
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -110,6 +112,27 @@ def test_generate_the_crawl4ai_token(keyring_store: FakeKeyring) -> None:
     ) == (0, True, True, False), result.output
 
 
+@pytest.fixture
+def environment_tree(tmp_path: Path, config: Callable[..., Path]) -> None:
+    """The one infra repo of `infra.repos`, whose tree holds the Secret table of the fixtures."""
+    repo = tmp_path / "infra"
+    (repo / ".devops").mkdir(parents=True)
+    (repo / ".devops" / "project.toml").write_text('[kubernetes]\ndir = "k8s"\n', "utf-8")
+    (repo / "k8s").mkdir()
+    shutil.copy(REPO_ROOT / "tests" / "fixtures" / "cluster-secrets.toml", repo / "k8s")
+    config(infra={"repos": [{"repo": "example-org/infra", "path": str(repo)}]})
+
+
+def test_a_generator_of_the_environment_needs_the_tree(keyring_store: FakeKeyring) -> None:
+    """A key that no product row generates reads the table of the tree, so with no tree the run
+    names the way to give one and stores nothing (#7290)."""
+    result = runner.invoke(config_app, ["set", "grafana.password", "--generate"])
+
+    message = " ".join(f"{result.output} {result.exception}".split())
+    assert (result.exit_code, "infra.repos" in message, keyring_store.writes) == (1, True, {})
+
+
+@pytest.mark.usefixtures("environment_tree")
 def test_a_typed_credential_has_no_generator(keyring_store: FakeKeyring) -> None:
     """A credential that no row of the cluster Secret table generates is refused (#3998)."""
     result = runner.invoke(config_app, ["set", "gemini.api_key", "--generate"])

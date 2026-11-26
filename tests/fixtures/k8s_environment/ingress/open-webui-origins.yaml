@@ -1,0 +1,8 @@
+# A manifest with a host under the template domain, which --domain replaces.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: open-webui-origins
+  namespace: llm
+data:
+  CORS_ALLOW_ORIGIN: https://chat.example.com

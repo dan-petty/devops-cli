@@ -1,7 +1,7 @@
 # service-account-tokens Specification
 
 ## Purpose
-Which pods of the cluster mount a Kubernetes API token. A pod has a token only when a role binds its ServiceAccount, or when a named exception explains it.
+Which pods of the product base `k8s/devops` mount a Kubernetes API token. A pod has a token only when a role binds its ServiceAccount.
 
 ## Requirements
 

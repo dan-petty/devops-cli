@@ -41,10 +41,15 @@ from tests.support.k8s_commands import (
     minikube_stopped,
     name_contexts,
     stock_push_keyring,
+    write_cluster_secrets,
     write_path_applications,
+    write_stack_paths,
 )
 from tests.support.tcp_probe import TcpProbe
 from tests.support.waits import POLL_INTERVAL_SECONDS
+
+# devops-cli ships no environment tree: each test of this file gets one as its default tree.
+pytestmark = pytest.mark.usefixtures("environment_repo")
 
 runner = CliRunner()
 
@@ -245,7 +250,7 @@ def test_k8s_deploy_stack_llm_dry_run() -> None:
         assert "ollama" in result.output
         assert "open-webui" in result.output
         assert "qdrant" in result.output
-        assert "valkey.yaml" in result.output
+        assert "llm/valkey" in result.output
     finally:
         set_dry_run(False)
 
@@ -321,7 +326,7 @@ def test_k8s_deploy_stack_all_dry_run(
             "argocd" in result.output,
             "k8s-monitoring" in result.output,
             "ollama" in result.output,
-            "valkey.yaml" in result.output,
+            "llm/valkey" in result.output,
             "portkey" in result.output,
             "roadmap-service" in result.output,
         ) == (0, True, True, True, True, True, True)
@@ -336,7 +341,7 @@ def test_k8s_teardown_stack_llm_dry_run() -> None:
         result = runner.invoke(app, ["teardown-stack", "--stack", "llm"])
         assert result.exit_code == 0
         assert "ollama" in result.output
-        assert "valkey.yaml" in result.output
+        assert "llm/valkey" in result.output
     finally:
         set_dry_run(False)
 
@@ -460,7 +465,7 @@ def _write_chart_application(
 
 def _pinned_tree(root: Path, unpinned: str | None = None) -> Path:
     """An environment tree whose Argo CD Applications pin each chart of stack `infra` at 1.0.0,
-    except the release `unpinned`: the shape that deploy-stack reads, not the committed tree."""
+    except the release `unpinned`."""
     from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK
 
     for release in HELM_RELEASES_BY_STACK["infra"]:
@@ -558,11 +563,11 @@ def test_deploy_stack_stops_on_a_release_that_no_application_pins(
 
     res = cli("k8s", "deploy-stack", "--stack", "infra", "--k8s-dir", str(env), "--dry-run")
 
-    assert (res.exit_code, "Application" in res.output, "prometheus" in res.output) == (
-        1,
-        True,
-        True,
-    )
+    assert (
+        res.exit_code,
+        "argocd/apps" in "".join(res.output.split()),
+        "prometheus" in res.output,
+    ) == (1, True, True)
 
 
 # The NetworkPolicy of the folder `logging` of a tree, and the NetworkPolicy of the Kustomize
@@ -582,8 +587,10 @@ _PERIMETER_BUILD = f"{_LOKI_PERIMETER}---\n{_DEFAULT_DENY}"
 def _path_source_tree(root: Path, source: dict[str, str] | None = None) -> Path:
     """An environment tree at `root` with the chart Application `loki` and the Application
     `logging`, whose path source (`source`, else the folder `logging` of the tree) takes the local
-    Kustomize component `components/perimeter`: the shape that Argo CD builds, not the committed
-    tree. The tree is outside any repository, so the source of devops-cli stands for its origin."""
+    Kustomize component `components/perimeter`: the shape that Argo CD builds. The tree is
+    outside any repository, so the source of devops-cli stands for its origin."""
+    write_cluster_secrets(root)
+    write_stack_paths(root, "logging")
     apps = root / "argocd" / "apps"
     _write_chart_application(apps, "loki", [])
     path = {"repoURL": CONST_CANONICAL_OCI_SOURCE, "targetRevision": "main"}
@@ -1516,12 +1523,13 @@ def test_k8s_lint_of_the_tree_lints_the_build_of_each_application(
 ) -> None:
     """With no target, `k8s lint` builds each path source of the Applications of the tree into one
     folder, and kube-linter reads that folder with the config file of the repository, when the
-    repository holds one. A finding fails the command."""
+    repository holds one, and fails on a folder with no object. A finding fails the command."""
     root = tmp_path / "repo"
     (root / "k8s" / "argocd" / "apps").mkdir(parents=True)
     (root / "k8s" / "argocd" / "apps" / "web.yaml").write_text(_LINTED_APPLICATION, "utf-8")
     (root / "k8s" / "web").mkdir()
     (root / "k8s" / "web" / "kustomization.yaml").write_text("resources: []\n", "utf-8")
+    write_cluster_secrets(root / "k8s")
     if has_config:
         (root / ".kube-linter.yaml").write_text("checks: {}\n", "utf-8")
     process_fake.answer(("kubectl", "kustomize"), ProcessAnswer(stdout="kind: Deployment\n"))
@@ -1548,7 +1556,12 @@ def test_k8s_lint_of_the_tree_lints_the_build_of_each_application(
     config = ("--config", str(root / ".kube-linter.yaml")) if has_config else ()
     assert (res.exit_code, linted) == (
         1,
-        [(["web-0.yaml: kind: Deployment\n"], ("--format", "json", *config))],
+        [
+            (
+                ["web-0.yaml: kind: Deployment\n"],
+                ("--format", "json", *config, "--fail-if-no-objects-found"),
+            )
+        ],
     )
 
 
@@ -2066,40 +2079,15 @@ _DOMAIN = "example.org"
 _CONTEXT = ["--context", "minikube"]
 
 
-def _ingress(name: str, namespace: str, *hosts: str) -> str:
-    rules = "".join(f"    - host: {host}\n" for host in hosts)
-    return (
-        "apiVersion: networking.k8s.io/v1\nkind: Ingress\n"
-        f"metadata:\n  name: {name}\n  namespace: {namespace}\nspec:\n  rules:\n{rules}"
-    )
-
-
-_ORIGINS = (
-    "---\napiVersion: v1\nkind: ConfigMap\n"
-    "metadata:\n  name: open-webui-origins\n  namespace: llm\n"
-    "data:\n  CORS_ALLOW_ORIGIN: https://chat.example.com\n"
-)
-
-
-@pytest.fixture
-def applications_repo(tmp_path: Path) -> Path:
-    """The repository the Applications render."""
-    repo = tmp_path / "applications"
-    repo.mkdir()
-    return repo
-
-
 type ClusterFactory = Callable[..., "_Cluster"]
 
 
 @pytest.fixture
-def make_cluster(
-    applications_repo: Path, process_fake: ProcessFake, cluster: FakeCluster
-) -> ClusterFactory:
-    """Build the kubectl and git stand-in around a reachable cluster, over the fake API."""
+def make_cluster(process_fake: ProcessFake, cluster: FakeCluster) -> ClusterFactory:
+    """Build the kubectl stand-in around a reachable cluster, over the fake API."""
 
     def make(**options: Any) -> _Cluster:
-        return _Cluster(applications_repo, process_fake, cluster, **options)
+        return _Cluster(process_fake, cluster, **options)
 
     return make
 
@@ -2108,35 +2096,27 @@ _SERVER_SIDE_APPLY = ["kubectl", "apply", "--server-side"]
 
 
 class _Cluster:
-    """kubectl and git around a reachable cluster, Argo CD-managed unless `argo` is False.
+    """kubectl, helm and git around a reachable cluster, Argo CD-managed unless `argo` is False.
 
-    Calls that read or write the cluster are recorded and answered here; git and
-    `kubectl kustomize` run for real, against the Applications' repository. Each Application
-    renders `k8s/overlays/homelab/<name>` at `main` unless `paths` says otherwise, and a write
-    naming `fail` exits 1.
+    Calls that read or write the cluster are recorded and answered here, and a call naming `fail`
+    exits 1. A local read of the checkout is not recorded.
     """
 
     def __init__(
         self,
-        repo: Path,
         process_fake: ProcessFake,
         api: FakeCluster,
         *,
         argo: bool = True,
         fail: str | None = None,
-        paths: dict[str, str] | None = None,
         missing_crds: tuple[str, ...] = (),
         configmaps: dict[str, dict[str, str]] | None = None,
     ) -> None:
         self.calls: list[tuple[list[str], str | None]] = []
-        self.repo = repo
-        self.argo = argo
         self.fail = fail
-        self.paths = paths or {}
         self.missing_crds = missing_crds
         self.configmaps = configmaps
         self.namespaces = {"llm", "cloudflared", "devops"}
-        self.revision = "main"
         process_fake.answer(lambda _call: True, ProcessAnswer(side_effect=self))
         name_contexts(api, "minikube")
         if argo:
@@ -2150,17 +2130,9 @@ class _Cluster:
             return subprocess.CompletedProcess(cmd, int(cmd[0] == "git"), "", "")
         self.calls.append((cmd, input))
         if cmd[0] == "git":
-            if "fetch" in cmd:
-                self.revision = cmd[-1]
             return subprocess.CompletedProcess(cmd, 0, "", "")
-        if len(cmd) > 1 and cmd[1] == "kustomize":
-            return self._kustomize(cmd)
         if cmd[0] == "helm" and len(cmd) > 1 and cmd[1] == "version":
             return subprocess.CompletedProcess(cmd, 0, "v4.3.0", "")
-        if cmd[1:3] == ["get", "application"]:
-            path = self.paths.get(cmd[3], f"k8s/overlays/homelab/{cmd[3]}")
-            source = {"repoURL": self.repo.as_uri(), "targetRevision": "main", "path": path}
-            return subprocess.CompletedProcess(cmd, 0, json.dumps({"spec": {"source": source}}), "")
         if cmd[1] == "api-resources":
             return self._api_resources(cmd)
         if cmd[1:3] == ["get", "namespace"]:
@@ -2185,24 +2157,6 @@ class _Cluster:
             "",
             f'Error from server (NotFound): configmaps "{cm_name}" not found',
         )
-
-    def _kustomize(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
-        target = cmd[2] if len(cmd) > 2 else ""
-        if "missing" in target:
-            return subprocess.CompletedProcess(
-                cmd, 1, "", f"kubectl kustomize: error reading {target}"
-            )
-        if Path(target).name == "devops":
-            out = _ingress("roadmap-service", "devops", "hooks.example.com")
-        elif self.revision == "pinned":
-            out = _ingress("chat", "llm", "chat.example.org")
-        elif self.revision == "release":
-            out = _ingress("chat", "llm", "chat.example.com", "ai.example.com")
-        elif self.revision == "origins":
-            out = _ingress("open-webui-ingress", "llm", "chat.example.com") + _ORIGINS
-        else:
-            out = _ingress("chat", "llm", "chat.example.com")
-        return subprocess.CompletedProcess(cmd, 0, out, "")
 
     def _api_resources(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
         """What `kubectl api-resources` lists: the kinds of the CRDs that the cluster serves."""
@@ -2738,11 +2692,10 @@ def test_deploy_stack_dry_run_lists_the_kustomizations_its_stacks_apply(
 def test_teardown_stack_removes_the_monitoring_perimeter_with_its_namespace(
     stack: str, removal: tuple[str, ...], cluster: FakeCluster, process_fake: ProcessFake
 ) -> None:
-    """teardown-stack removes `monitoring-default-perimeter-ingress` and
-    `monitoring-default-perimeter-egress` with namespace `monitoring` (#913, #6708).
+    """teardown-stack removes namespace `monitoring`, and its NetworkPolicies with it (#913).
 
-    `--stack all` deletes the root kustomization's objects, namespace `monitoring` among them, and
-    `--stack infra` deletes that namespace; either takes the namespace's NetworkPolicies with it.
+    `--stack all` deletes the root kustomization's objects, that namespace among them, and
+    `--stack infra` deletes that namespace.
     """
     name_contexts(cluster, "minikube")
 
@@ -3063,6 +3016,7 @@ def test_deploy_stack_skips_history_patch_and_log_when_kubectl_apply_fails(
         logger.removeHandler(handler)
 
     assert res.exit_code == 1
+    assert _APPLY_STDIN in cluster.writes()
     assert not any(cmd[1] == "patch" for cmd in cluster.writes())
     assert sent == []
 

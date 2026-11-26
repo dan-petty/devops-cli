@@ -73,9 +73,8 @@ from tests.support.paths import REPO_ROOT
 from tests.support.trees import ParsedTreeMap, tree_guard
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
-# The product dashboards of devops-cli (#5292), and the dashboards of the environment.
+# The product dashboards of devops-cli (#5292).
 DASHBOARDS = REPO_ROOT / "k8s" / "devops" / "dashboards"
-ENVIRONMENT_DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
 SERIES_NAME = re.compile(r"devops_cli_[a-z0-9_]+")
 REGISTRY_COUNTS: Final[tuple[tuple[str, str, str], ...]] = (
     ("table", "INSTRUMENTS", "src/devops_cli/telemetry/instruments.py"),
@@ -195,7 +194,7 @@ def test_a_counter_name_ends_in_total_and_no_other_name_does() -> None:
 
 def test_all_dashboards_referencing_devops_cli_metrics_name_sent_series() -> None:
     """Verify any dashboard in the repo that queries a devops_cli_* metric names a valid sent series."""
-    for dashboard in sorted([*DASHBOARDS.glob("*.json"), *ENVIRONMENT_DASHBOARDS.glob("*.json")]):
+    for dashboard in sorted(DASHBOARDS.glob("*.json")):
         queries = _queries(dashboard)
         unsent = {name for query in queries for name in SERIES_NAME.findall(query)} - SENT_SERIES
         assert unsent == set(), f"{dashboard.name} queries unsent devops-cli metrics: {unsent}"

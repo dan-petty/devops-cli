@@ -5,7 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from devops_cli.k8s import cluster_secrets as _cs
+
+# The Secret table reads the environment tree.
+pytestmark = pytest.mark.usefixtures("environment_repo")
 
 check_secret_key_refs: Any = getattr(_cs, "check_secret_key_refs", None)
 _check_secret_ref: Any = getattr(_cs, "_check_secret_ref", None)

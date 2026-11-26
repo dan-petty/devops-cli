@@ -1,7 +1,7 @@
 # llm-valkey Specification
 
 ## Purpose
-The Valkey servers of the llm namespace in the cluster manifests: the cache Valkey that holds Open WebUI's state and the run index that workstations share. It says how much memory each one keeps as data and what each one does when its data reaches that bound.
+What devops-cli does with its cache Valkey `valkey-devops` of the llm namespace: the setting and the Secret that name it, the embedding cache of intake, and the ACL users that push-secrets builds. The Valkey manifests are in the environment tree of the cluster.
 
 ## Requirements
 

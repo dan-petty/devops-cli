@@ -69,7 +69,9 @@ devops k8s switch-context kind-dev-cluster
 # Check cluster status and node readiness for active context
 devops k8s status
 
-# Bootstrap local Minikube cluster explicitly
+# Bootstrap local Minikube cluster explicitly.
+# Bootstrap, deploy and teardown read the environment tree: the checkout of the infra repo in
+# infra.repos, or --k8s-dir <tree> (--dir <tree> for bootstrap).
 devops k8s bootstrap
 
 # Deploy all observability and GitOps stacks to active context
@@ -82,7 +84,7 @@ devops k8s pods --all-namespaces
 devops k8s audit
 
 # Check deprecated API versions with Pluto
-devops k8s check-deprecated k8s/
+devops k8s check-deprecated k8s/devops
 ```
 
 ---

@@ -2,7 +2,7 @@
 
 `kubectl kustomize` renders a kustomization exactly as `kubectl apply -k` applies it: nested
 kustomizations, generators and the `namespace` transformer included. A manifest file is what
-`kubectl apply -f` applies. Both answer with (namespace, name) for each object of one kind. A
+`kubectl apply -f` applies. The `applied_*` functions answer for either, because a
 path of deploy-stack's manifest tables is either: it applies a directory with `kubectl apply -k`
 and a file with `kubectl apply -f`.
 
@@ -70,11 +70,6 @@ def _named(documents: Iterable[object], kind: str) -> set[tuple[str, str]]:
         for document in documents
         if isinstance(document, dict) and document.get("kind") == kind
     }
-
-
-def kustomized_objects(directory: Path, kind: str) -> set[tuple[str, str]]:
-    """Return (namespace, name) of every `kind` object `kubectl apply -k <directory>` applies."""
-    return _named(yaml.load_all(kustomize(directory).stdout, Loader=yaml.CSafeLoader), kind)
 
 
 def manifest_objects(path: Path, kind: str) -> set[tuple[str, str]]:

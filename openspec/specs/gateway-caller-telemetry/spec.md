@@ -1,7 +1,7 @@
 # gateway-caller-telemetry Specification
 
 ## Purpose
-How the callers of the LLM gateway are named and counted: the headers that devops-cli sends to name itself and its service, the gateway's `end_user` label, Open WebUI's one path through the gateway, and the panels of the AI spend dashboard that read the gateway's own series.
+How the callers of the LLM gateway are named and counted: the headers that devops-cli sends to name itself and its service, and the panels of the AI spend dashboard that read the gateway's own series.
 
 ## Requirements
 

@@ -2,13 +2,11 @@
 
 `k8s/devops/monitoring/slos/` holds one Sloth `prometheus/v1` spec for each SLO of the product, and
 `src/devops_cli/prometheus/slo_rules.py` renders the rule groups of
-`k8s/devops/monitoring/prometheus-rules-values.yaml` from them. A spec names its service by the
-`name` of an entry of `k8s/catalog.toml`, so the catalog data is the one list of the services, and
-a spec that names another id belongs to no service of the environment. The render replaces the text
+`k8s/devops/monitoring/prometheus-rules-values.yaml` from them. The render replaces the text
 between the two marker comments of the values file, so the check renders the groups into a copy of
 the file and refuses a copy that differs from the committed file: a spec that nobody rendered
 fails here, and an edit outside the markers passes. This module reads files and starts no
-`kubectl`, as `environment_freeze` does.
+`kubectl`.
 
 The spec is the one place of an objective, and the row of `k8s/README.md` that it replaces names it
 instead of holding a second copy: the row of SLO 5 keeps its objective until its own spec, so the
@@ -20,7 +18,6 @@ the check refuses an alert of the four groups with no row of the Alerting table.
 from __future__ import annotations
 
 import difflib
-import tomllib
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Final
@@ -38,7 +35,6 @@ SPEC_FOLDER: Final[Path] = REPO_ROOT / "k8s" / "devops" / "monitoring" / "slos"
 RULE_FILE: Final[Path] = (
     REPO_ROOT / "k8s" / "devops" / "monitoring" / "prometheus-rules-values.yaml"
 )
-CATALOG_PATH: Final[Path] = REPO_ROOT / "k8s" / "catalog.toml"
 README_PATH: Final[Path] = REPO_ROOT / "k8s" / "README.md"
 # The SLO rows of the Service levels table of `k8s/README.md` that this change moves into a spec:
 # the number of the row, and the spec file that holds its objective, its error budget and its
@@ -61,31 +57,9 @@ _REGENERATE: Final[str] = (
 )
 
 
-def catalog_services(path: Path) -> frozenset[str]:
-    """The `name` of each service of the catalog data of `path`."""
-    document = tomllib.loads(path.read_text(encoding="utf-8"))
-    return frozenset(str(entry["name"]) for entry in document["service"])
-
-
 def _relative(path: Path) -> str:
     """The path from the root of the repository, or the path itself when it sits elsewhere."""
     return str(path.relative_to(REPO_ROOT)) if path.is_relative_to(REPO_ROOT) else str(path)
-
-
-def unknown_services(specs: Sequence[SloSpec], services: frozenset[str]) -> list[str]:
-    """One line for each spec whose `service` is no name of `services`."""
-    catalog = _relative(CATALOG_PATH)
-    return [
-        f"{_NAME}: {_relative(spec.path)}: the service `{spec.service}` is no `name` of {catalog}"
-        for spec in specs
-        if spec.service not in services
-    ]
-
-
-def check_each_spec_names_a_catalog_service() -> None:
-    """Each Sloth spec of the product names a service of the catalog data."""
-    findings = unknown_services(load_slo_specs(SPEC_FOLDER), catalog_services(CATALOG_PATH))
-    assert not findings, "\n".join(findings)
 
 
 def render_differences(committed: str, rendered: str) -> list[str]:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Annotated, Any, cast
 
 import typer
@@ -334,7 +335,7 @@ def _save_tokens_to_keyring(
         print_success("Saved 'mattermost.command_token' to OS keyring.")
 
 
-def _push_cluster_secrets(effective_context: str | None) -> None:
+def _push_cluster_secrets(effective_context: str | None, k8s_dir: Path | None) -> None:
     print_info("Pushing updated cluster secrets...")
     from devops_cli.commands.k8s.cluster_secret_push import push_secrets as k8s_push_secrets
 
@@ -345,6 +346,7 @@ def _push_cluster_secrets(effective_context: str | None) -> None:
             "devops/devops-cli",
         ],
         context=effective_context,
+        k8s_dir=k8s_dir,
     )
 
 
@@ -383,6 +385,7 @@ def bootstrap_mattermost(
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
+    k8s_dir: Annotated[Path | None, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = None,
 ) -> None:
     """Bootstrap Mattermost teams, channels, webhooks, and slash commands in Kubernetes."""
     if team is None:
@@ -392,6 +395,12 @@ def bootstrap_mattermost(
     effective_context = runtime.resolve_effective_context(context)
     if effective_context:
         runtime._validate_kubeconfig_context_name(effective_context, "context")
+
+    if push_secrets:
+        # The push comes last: a tree with no Secret table stops the run before it changes anything.
+        from devops_cli.k8s.cluster_secrets import load_cluster_secrets_table
+
+        load_cluster_secrets_table(k8s_dir=k8s_dir)
 
     if dry_run or is_dry_run():
         from devops_cli.dry_run.requests import render_request_plan
@@ -430,7 +439,7 @@ def bootstrap_mattermost(
 
     # 7. Push cluster secrets if enabled
     if push_secrets:
-        _push_cluster_secrets(effective_context)
+        _push_cluster_secrets(effective_context, k8s_dir)
 
     print_success(
         "Mattermost bootstrap complete: team, channels, webhooks, and slash commands configured."

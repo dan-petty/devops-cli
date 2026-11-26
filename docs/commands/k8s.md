@@ -195,6 +195,7 @@ devops k8s bootstrap-mattermost [OPTIONS]
 | `--push-secrets` / `--no-push-secrets` | `boolean` | `True` | Push updated cluster secrets after saving tokens to keyring. |
 | `--context`, `-c` | `string` | - | Kubernetes context to target (defaults to config default or active). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--k8s-dir` | `path` | - | The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it. |
 
 ---
 
@@ -476,8 +477,9 @@ devops k8s rbac-audit [OPTIONS]
 **Lint Kubernetes manifests with kube-linter. With no TARGET, build each path source of the
 Argo CD Applications of the environment tree as Argo CD builds it, and lint the builds in one
 run with the .kube-linter.yaml of the repository that holds the tree. A git source of another
-public repository is fetched at its revision. Exits 1 on a finding, and when kube-linter did not
-run. The k8s row of devops ci runs it.**
+public repository is fetched at its revision. With TARGET, lint it with the .kube-linter.yaml
+of the repository that holds it. Exits 1 on a finding, when kube-linter did not run, and when
+it found no Kubernetes object. The kube-linter row of devops ci lints k8s/devops.**
 
 ```bash
 devops k8s lint [OPTIONS] <target>
@@ -487,7 +489,7 @@ devops k8s lint [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | A K8s manifest file or directory to lint as it is (default: the build of each path source of the Argo CD Applications of the environment tree). |
+| `<target>` | `path` | No | A K8s manifest file or directory to lint, with the .kube-linter.yaml of its repository (default: the build of each path source of the Argo CD Applications of the environment tree). |
 
 **Options:**
 
@@ -544,8 +546,9 @@ it: a HEAD request of its manifest, which Docker Hub does not count against the 
 allowance of the network's public address. A git source of another public repository is
 fetched at its revision. Exits 1, before it resolves an image, when an image has no digest and
 the latest tag or no tag, unless Image Updater moves it or --managed names its repository.
-Exits 1 when a registry does not hold an image or refuses the read. The CI job `image-pins`
-runs the check on a pull request that changes k8s/.**
+Exits 1 when a registry does not hold an image or refuses the read. Exits 1 too when the tree
+holds no Application, or the renders name no image. The CI job `image-pins` runs the check of
+the folder `k8s/devops` on a pull request that changes it.**
 
 ```bash
 devops k8s image-pins [OPTIONS] <target>

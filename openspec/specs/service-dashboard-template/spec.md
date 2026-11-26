@@ -1,7 +1,7 @@
 # service-dashboard-template Specification
 
 ## Purpose
-The SRE template that builds the Grafana dashboard of a Kubernetes service from a spec of `k8s/monitoring/dashboards/services.toml`: its layout, units, series, colors and variables, and the check that each committed dashboard is the build.
+The SRE template that builds the Grafana dashboard of a Kubernetes service from a spec of the `services.toml` of the environment tree: its layout, units, series, colors and variables, and the build that writes each dashboard next to its spec file.
 
 ## Requirements
 

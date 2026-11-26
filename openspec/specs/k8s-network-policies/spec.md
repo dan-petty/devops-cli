@@ -1,7 +1,7 @@
 # k8s-network-policies Specification
 
 ## Purpose
-Provides namespace selector validation and isolation invariants for Kubernetes NetworkPolicies.
+The isolation invariants of the NetworkPolicies of the product base `k8s/devops`.
 
 ## Requirements
 

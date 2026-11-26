@@ -34,6 +34,8 @@ On a cluster that Argo CD manages, such as the homelab, Argo CD renders these ch
 
 ### DevOps CLI Stack Deployment
 ```bash
+# Bootstrap, deploy and teardown read the environment tree: the checkout of the infra repo in
+# infra.repos, or --k8s-dir <tree> (--dir <tree> for bootstrap).
 # Deploy all workstation stacks (infra, llm, all)
 devops k8s deploy-stack --stack all
 
@@ -82,7 +84,7 @@ helm uninstall example-app -n example
 2. **Deterministic Chart Versions**: Always lock chart versions (`--version <semver>`) in production scripts rather than pulling floating latest charts.
 3. **Template Validation**: Run `helm template <release> <chart> -f values.yaml | kubelinter lint -` to lint generated manifests prior to applying them to live clusters.
 4. **Separate Values from Code**: Maintain environment-specific values files (`values-local.yaml`, `values-prod.yaml`) outside core application logic.
-5. **No Helm Command on a Release That Argo CD Renders**: Do not run `helm upgrade`, `helm rollback` or `helm uninstall` against a release that an Application in `k8s/argocd/apps/` renders. A rollback or an uninstall acts on objects that Argo CD owns, and an uninstall can delete a chart's PersistentVolumeClaim and its data. Change the chart version or the values in git, and Argo CD syncs the change (`devops argo cd apps sync <application>`). To undo a change, revert its commit.
+5. **No Helm Command on a Release That Argo CD Renders**: Do not run `helm upgrade`, `helm rollback` or `helm uninstall` against a release that an Application of the environment tree (`argocd/apps/` of dan-petty/homelab) renders. A rollback or an uninstall acts on objects that Argo CD owns, and an uninstall can delete a chart's PersistentVolumeClaim and its data. Change the chart version or the values in git, and Argo CD syncs the change (`devops argo cd apps sync <application>`). To undo a change, revert its commit.
 
 ---
 

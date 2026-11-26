@@ -1,0 +1,11 @@
+# The Service of the tier that the gateway route names.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-48gib-fast
+  namespace: llm
+spec:
+  selector:
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: 48gib
+    llm.devops.io/speed-tier: fast

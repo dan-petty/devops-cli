@@ -15,7 +15,7 @@ OTLP_HTTP = NodePortSpec(
     port=CONST_OTEL_OTLP_HTTP_PORT,
     port_name="otlp-http",
     port_label="OTLP HTTP",
-    manifest="k8s/otel/values.yaml",
+    manifest="otel/values.yaml of the environment tree",
 )
 
 

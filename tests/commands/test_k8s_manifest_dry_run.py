@@ -99,6 +99,8 @@ def test_commands_carry_their_dry_run_class() -> None:
     assert misclassified(NO_EXTERNAL_REQUEST_COMMANDS, "no-external-request") == {}
 
 
+# devops-cli ships no environment tree: the commands that read one find a fixture tree.
+@pytest.mark.usefixtures("environment_repo")
 @pytest.mark.parametrize("cmd_name,callback,argv", REQUEST_PLAN_COMMANDS)
 def test_request_plan_commands_execute_offline(
     cmd_name: str,

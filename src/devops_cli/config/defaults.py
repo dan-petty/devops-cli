@@ -143,24 +143,25 @@ DEFAULT_AI_MAX_RETRIES: int = 4
 # `ai.request_timeout_seconds` (1200 s).
 DEFAULT_AI_FIRST_TOKEN_TIMEOUT_SECONDS: int = 60
 # The one deadline of a pydantic-ai call to a gateway chat group: every send of the call and the
-# read of its stream (#5965). It is above the router timeout of k8s/llm/gateway/config.yaml (900 s)
-# and each deployment timeout there, so the gateway ends a stuck attempt first and can retry it or
-# fall back, and it is below the margin of a stage Job (1800 s) and the deadline of a runner Job
-# (7200 s). A test holds this order.
+# read of its stream (#5965). It is above the router timeout of the gateway config (900 s,
+# llm/gateway/config.yaml of the environment tree) and each deployment timeout there, so the
+# gateway ends a stuck attempt first and can retry it or fall back. It is below the margin of a
+# stage Job (1800 s) and the deadline of a runner Job (7200 s). No test reads the router timeout:
+# the live check of spec ai-gateway-routing ("The timeouts nest") holds this order.
 DEFAULT_AI_REQUEST_TIMEOUT_SECONDS: int = 1200
 DEFAULT_AI_GATEWAY_PROVIDER: str = "litellm"
 DEFAULT_AI_GATEWAY_URL: str = "http://localhost:4000/v1"
 DEFAULT_PORTKEY_GATEWAY_URL: str = "http://localhost:8787/v1"
-# The default Ollama Service (k8s/llm/profiles/services.yaml): the fast tier's speed Service. It
-# names no VRAM size, so a host change moves its selector and not this name (#1637).
+# The default Ollama Service (llm/profiles/services.yaml of the environment tree): the fast tier's
+# speed Service. It names no VRAM size, so a host change moves its selector and not this name
+# (#1637).
 DEFAULT_OLLAMA_CLUSTER_SERVICE: str = "ollama-fast"
 DEFAULT_OLLAMA_CLUSTER_URL: str = (
     f"http://{DEFAULT_OLLAMA_CLUSTER_SERVICE}.llm.svc.cluster.local:11434"
 )
 # The Service of an Ollama instance that serves embedding models. The default Service above names
 # a tier that loads one chat model and no embedding model (#3567). The Service name comes from
-# the GPU thresholds (k8s/llm/profiles/gpu-thresholds.yaml); a test fails when it names no
-# serving tier.
+# the GPU thresholds (llm/profiles/gpu-thresholds.yaml of the environment tree).
 DEFAULT_OLLAMA_EMBEDDING_CLUSTER_SERVICE: str = "ollama-24gib-embed-gpu0"
 DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL: str = (
     f"http://{DEFAULT_OLLAMA_EMBEDDING_CLUSTER_SERVICE}.llm.svc.cluster.local:11434"
@@ -947,10 +948,10 @@ DEFAULT_ROADMAP_INTAKE_SNAPSHOT_OVERLAP_SECONDS: int = 60
 # 7-day window archived 406 changes at about 0.2 s each.
 DEFAULT_ROADMAP_REVIEW_OPENSPEC_WORKERS: int = 4
 # The project namespaces whose workloads the project review can name (#6615): the 15 objects of
-# `kind: Namespace` in k8s/namespaces.yaml. The `namespace:` of each kustomization of k8s/ is one
-# of them, except `object-store-build-test`: the build test of k8s/object-store/build-test makes
-# that namespace for its run and deletes it after (#4750). A `rows` fact that groups or joins by
-# namespace or pod reads only these namespaces.
+# `kind: Namespace` in namespaces.yaml of the environment tree. The `namespace:` of each
+# kustomization there is one of them, except `object-store-build-test`: the build test of
+# object-store/build-test makes that namespace for its run and deletes it after (#4750). A `rows`
+# fact that groups or joins by namespace or pod reads only these namespaces.
 DEFAULT_ROADMAP_PROJECT_REVIEW_NAMESPACES: Final[tuple[str, ...]] = (
     "agents",
     "argo-workflows",
@@ -1178,8 +1179,8 @@ DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES: int = 7
 # call: every send of it and the read of the stream. It is more than a cold read of the largest
 # window (about 90 s) and a reply at the output cap (a quarter of the window, 32,000 tokens) at the
 # average rate of the longest measured call (38 tokens per second, about 840 s), and above the
-# timeout of the router in `k8s/llm/gateway/config.yaml` (900 s), so the gateway ends a stuck
-# attempt and can retry it or fall back first (#5965), which a test holds. A command is one
+# timeout of the router of the gateway config in the environment tree (900 s), so the gateway ends
+# a stuck attempt and can retry it or fall back first (#5965). A command is one
 # verification command, static check or hook of a step. The Job deadline ends a run that these
 # limits do not.
 DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS: int = 1200

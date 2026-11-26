@@ -1,7 +1,7 @@
 # ai-gateway-routing Specification
 
 ## Purpose
-The routes of `devops ai gateway`: the model and the Ollama Service that each virtual model of the gateway uses, the route that a failover of a virtual model records, and the default models that the CLI and Open WebUI name for the gateway and its tiers.
+What devops-cli does with the LLM gateway: the route status and the failover of `devops ai gateway`, the render of the Ollama tiers and of the gateway routes into the environment tree, and what a call of the CLI to the gateway sends and how long it waits. The gateway config itself is in the environment tree of the cluster.
 
 ## Requirements
 

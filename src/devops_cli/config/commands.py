@@ -173,12 +173,17 @@ def build_popeye_cmd(context: str | None = None, namespace: str | None = None) -
     return cmd
 
 
-def build_kubelinter_cmd(target_path: Path | str, config: Path | None = None) -> list[str]:
+def build_kubelinter_cmd(
+    target_path: Path | str, config: Path | None = None, *, require_objects: bool = False
+) -> list[str]:
     """Build a kube-linter manifest scanner command. With `config`, kube-linter reads that config
-    file in place of a `.kube-linter.yaml` in its working directory."""
+    file in place of a `.kube-linter.yaml` in its working directory. With `require_objects`, it
+    fails a target that holds no Kubernetes object."""
     cmd = [BIN_KUBELINTER, "lint", str(target_path), "--format", "json"]
     if config is not None:
         cmd.extend(["--config", str(config)])
+    if require_objects:
+        cmd.append("--fail-if-no-objects-found")
     return cmd
 
 

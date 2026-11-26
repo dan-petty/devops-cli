@@ -41,6 +41,8 @@ def bootstrap(
     from devops_cli.k8s.environment import resolve_environment
 
     env = resolve_environment(k8s_dir)
+    # deploy-stack, the last step, refuses an empty tree: refuse it before minikube starts.
+    env.require_applications()
     if dry_run or is_dry_run():
         from devops_cli.dry_run.requests import render_request_plan
         from devops_cli.k8s.manifest_plans import plan_k8s_bootstrap

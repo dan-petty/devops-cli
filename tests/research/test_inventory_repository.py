@@ -10,8 +10,12 @@ from tests.support.paths import REPO_ROOT
 
 # A tool is a pin outside the repository, which only the watch file names (#4363). The
 # repository holds no OpenTofu configuration since the infra repository holds it (#6679), so it
-# has no Terraform provider pin; the fixture repository of test_inventory.py holds one.
-_NOT_IN_THE_REPOSITORY = frozenset({ComponentKind.TOOL, ComponentKind.TERRAFORM_PROVIDER})
+# has no Terraform provider pin, and no Argo CD Application since the environment repository
+# holds them (#7290), so it has no chart pin; the fixture repository of test_inventory.py holds
+# one of each.
+_NOT_IN_THE_REPOSITORY = frozenset(
+    {ComponentKind.TOOL, ComponentKind.TERRAFORM_PROVIDER, ComponentKind.CHART}
+)
 
 
 @pytest.mark.parametrize(

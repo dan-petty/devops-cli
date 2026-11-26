@@ -5,12 +5,11 @@ config file, such as a version, a digest, a model, a limit or a key: an update o
 by Renovate, then fails a test although no code changed. The schema and policy tools of CI check
 the form of these files (docs/TESTING.md, "Which change gets a test").
 
-The check finds each test that reads such a file: a path built from `REPO_ROOT` (or the `K8S` and
-`TREE` of `tests.support.k8s_tree`) whose first part is a config location, a relative `Path` of a
-config location, a string of a config path in a module that reads the repository, or a call of a
-reader of `tests.support.k8s_tree`, such as `deploy_stack_manifests`. It judges a path whole, so
-a Markdown document under a config folder is no read. A module-level name, helper or fixture that
-reads one taints each test that uses it.
+The check finds each test that reads such a file: a path built from `REPO_ROOT` whose first part
+is a config location, a relative `Path` of a config location, or a string of a config path in a
+module that reads the repository. It judges a path whole, so a Markdown document under a config
+folder is no read. A module-level name, helper or fixture that reads one taints each test that
+uses it.
 `config_reads.toml` holds, for each module, the count of its tests that still read one: the cases
 the owner has to decide, and the tests of code that take a committed file as input and assert no
 value of it. The counts only fall: a module above or below its count fails the check.
@@ -55,24 +54,8 @@ CONFIG_ROOTS: Final[frozenset[str]] = frozenset(
     }
 )
 CONFIG_ROOT_PREFIXES: Final[tuple[str, ...]] = ("Dockerfile",)
-# The names that stand for the repository root, and those that stand for its `k8s` folder.
+# The names that stand for the repository root.
 _REPO_NAMES: Final[frozenset[str]] = frozenset({"REPO_ROOT"})
-# The names of `tests.support.k8s_tree` that stand for the `k8s` folder of the repository.
-_K8S_NAMES: Final[frozenset[str]] = frozenset({"K8S", "TREE"})
-# The functions of `tests.support.k8s_tree` that give the paths of files of the `k8s` folder, and
-# the readers that it held before #6082, so a reader that comes back is counted too.
-_K8S_READERS: Final[frozenset[str]] = frozenset(
-    {
-        "application_sources",
-        "chart_values",
-        "deploy_stack_manifests",
-        "manifests",
-        "pinned_charts",
-        "release_values",
-        "yaml_documents",
-    }
-)
-_K8S_TREE_MODULE: Final[str] = "tests.support.k8s_tree"
 _PATH_TYPES: Final[frozenset[str]] = frozenset({"Path", "PurePosixPath", "PurePath"})
 ALLOW_LIST: Final[Path] = REPO_ROOT / "tests" / "gate" / "tree_checks" / "config_reads.toml"
 _SKIPPED_PARTS: Final[frozenset[str]] = frozenset({"support", "fixtures", "golden", "gate"})
@@ -88,7 +71,7 @@ def is_config_path(text: str) -> bool:
     )
 
 
-def _literal_path(node: ast.expr, k8s_names: frozenset[str]) -> str | None:
+def _literal_path(node: ast.expr) -> str | None:
     """The path that `node` builds from a repository name, with `*` for a part that is not a
     string literal, or None when `node` builds no such path."""
     parts: list[ast.expr] = []
@@ -103,15 +86,13 @@ def _literal_path(node: ast.expr, k8s_names: frozenset[str]) -> str | None:
     ):
         parts = [*node.args, *parts]
         node = node.func.value
-    if not isinstance(node, ast.Name):
+    if not isinstance(node, ast.Name) or node.id not in _REPO_NAMES:
         return None
     texts = [
         part.value if isinstance(part, ast.Constant) and isinstance(part.value, str) else "*"
         for part in parts
     ]
-    if node.id in k8s_names:
-        return "/".join(["k8s", *texts])
-    if node.id not in _REPO_NAMES or not texts or texts[0] == "*":
+    if not texts or texts[0] == "*":
         return None
     return "/".join(texts)
 
@@ -155,15 +136,15 @@ def _is_config_literal(node: ast.expr) -> bool:
     )
 
 
-def _is_read_site(node: ast.AST, readers: frozenset[str], k8s_names: frozenset[str]) -> bool:
-    """`node` builds the path of a committed config file, passes one to a path reader of the
-    module, or names a reader of `k8s/`."""
+def _is_read_site(node: ast.AST, readers: frozenset[str]) -> bool:
+    """`node` builds the path of a committed config file, or passes one to a path reader of the
+    module."""
     if isinstance(node, ast.BinOp) or (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "joinpath"
     ):
-        path = _literal_path(node, k8s_names)
+        path = _literal_path(node)
         return path is not None and is_config_path(path)
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.args:
         if node.func.id in readers:
@@ -171,10 +152,10 @@ def _is_read_site(node: ast.AST, readers: frozenset[str], k8s_names: frozenset[s
         if node.func.id in _PATH_TYPES and _is_config_literal(node.args[0]):
             text = str(getattr(node.args[0], "value", ""))
             return "/" in text.strip("/")
-    return isinstance(node, ast.Name) and node.id in k8s_names
+    return False
 
 
-def _reads(node: ast.AST, readers: frozenset[str], k8s_names: frozenset[str]) -> bool:
+def _reads(node: ast.AST, readers: frozenset[str]) -> bool:
     """`node` holds a read site. A path is judged whole, so the part `REPO_ROOT / 'k8s'` of the
     path `REPO_ROOT / 'k8s' / 'README.md'`, a document, is no read of its own."""
     inner = {
@@ -182,9 +163,7 @@ def _reads(node: ast.AST, readers: frozenset[str], k8s_names: frozenset[str]) ->
         for part in ast.walk(node)
         if isinstance(part, ast.BinOp) and isinstance(part.op, ast.Div)
     }
-    return any(
-        _is_read_site(part, readers, k8s_names) for part in ast.walk(node) if id(part) not in inner
-    )
+    return any(_is_read_site(part, readers) for part in ast.walk(node) if id(part) not in inner)
 
 
 def _top_level_names(node: ast.stmt) -> list[str]:
@@ -229,20 +208,13 @@ def config_reading_tests(tree: ast.Module) -> list[str]:
     """The tests of a module that read a committed manifest or config file, directly or through
     a module-level name, helper or fixture of the module."""
     readers = _path_readers(tree)
-    k8s_names = frozenset(
-        alias.asname or alias.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom) and node.module == _K8S_TREE_MODULE
-        for alias in node.names
-        if alias.name in _K8S_NAMES | _K8S_READERS
-    )
     statements = {
         name: statement for statement in tree.body for name in _top_level_names(statement)
     }
     tainted = {
         name
         for name, statement in statements.items()
-        if not name.startswith("test") and _reads(statement, readers, k8s_names)
+        if not name.startswith("test") and _reads(statement, readers)
     }
     changed = True
     while changed:
@@ -253,7 +225,7 @@ def config_reading_tests(tree: ast.Module) -> list[str]:
                 changed = True
     found = []
     for name, test in _tests(tree):
-        direct = _reads(test, readers, k8s_names)
+        direct = _reads(test, readers)
         if direct or _uses(test) & tainted:
             found.append(name)
     return found
@@ -362,22 +334,6 @@ def check_a_test_that_reads_a_config_file_through_a_helper_is_found() -> None:
             "    def test_workflow(self):\n"
             "        assert Path('.github/workflows/ci.yml').read_text()\n"
         ),
-        "tests/a/test_tree.py": (
-            "from tests.support.k8s_tree import TREE\n"
-            "def test_values():\n"
-            "    assert TREE.path('llm')\n"
-        ),
-        "tests/a/test_reader.py": (
-            "from tests.support.k8s_tree import deploy_stack_manifests, release_values\n"
-            "def _first(stack):\n"
-            "    return deploy_stack_manifests([stack])[0].read_text()\n"
-            "def test_pod():\n"
-            "    assert _first('devops')\n"
-            "def test_charts():\n"
-            "    assert release_values({'values': ['a.yaml']})\n"
-            "def test_shape():\n"
-            "    assert len({'kind': 'Pod'}) == 1\n"
-        ),
         "tests/support/reader.py": (
             "from tests.support.paths import REPO_ROOT\n"
             "def test_like():\n"
@@ -392,7 +348,4 @@ def check_a_test_that_reads_a_config_file_through_a_helper_is_found() -> None:
         "tests/a/test_helper.py::test_by_helper",
         "tests/a/test_literal.py::TestManifests::test_workflow",
         "tests/a/test_literal.py::test_template",
-        "tests/a/test_reader.py::test_charts",
-        "tests/a/test_reader.py::test_pod",
-        "tests/a/test_tree.py::test_values",
     ]

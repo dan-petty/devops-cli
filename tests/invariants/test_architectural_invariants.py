@@ -30,7 +30,6 @@ from devops_cli.core.repo import list_repo_files
 from devops_cli.docs.inventory import hand_written_documents
 from devops_cli.exceptions.base import DevOpsCLIError
 from tests.gate.ruff_selection import ruff_enforces
-from tests.support.k8s_tree import TREE
 from tests.support.paths import FIXTURES, GOLDEN, REPO_ROOT, TESTS_ROOT
 from tests.support.trees import (
     parse_count,
@@ -877,32 +876,22 @@ def _missing_stack_lifecycle_paths(
 
 
 def test_manifests_by_stack_files_exist() -> None:
-    """Every Kubernetes manifest or post-Helm path declared in stack_lifecycle must exist on disk:
-    the environment paths under the tree, and the product paths under `k8s/devops` (#5131)."""
+    """Every product manifest or post-Helm path declared in stack_lifecycle must exist on disk
+    under `k8s/devops` (#5131). The environment paths are those of the environment repository."""
     from devops_cli.commands.k8s.stack_lifecycle import (
-        MANIFESTS_BY_STACK,
-        POST_HELM_BY_STACK,
         PRODUCT_MANIFESTS_BY_STACK,
         PRODUCT_POST_HELM_BY_STACK,
     )
 
-    product = TREE.path("devops")
+    product = REPO_ROOT / "k8s" / "devops"
     assert (
         _missing_stack_lifecycle_paths(
-            [
-                (MANIFESTS_BY_STACK, TREE.root),
-                (POST_HELM_BY_STACK, TREE.root),
-                (PRODUCT_MANIFESTS_BY_STACK, product),
-                (PRODUCT_POST_HELM_BY_STACK, product),
-            ]
+            [(PRODUCT_MANIFESTS_BY_STACK, product), (PRODUCT_POST_HELM_BY_STACK, product)]
         ),
         _missing_stack_lifecycle_paths(
-            [({"llm": (Path("llm", "gateway", "nonexistent-monitor.yaml"),)}, TREE.root)]
+            [({"devops": (Path("nonexistent-monitor.yaml"),)}, product)]
         ),
-    ) == (
-        [],
-        [f"llm:{TREE.root / 'llm' / 'gateway' / 'nonexistent-monitor.yaml'}"],
-    )
+    ) == ([], [f"devops:{product / 'nonexistent-monitor.yaml'}"])
 
 
 def _inspect_data_path_call(node: ast.Call, rel_path: str) -> str | None:

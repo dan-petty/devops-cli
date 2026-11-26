@@ -1,160 +1,53 @@
-"""What the manifests of deploy-stack apply, and in which order (#2164)."""
+"""What deploy-stack and the product base `k8s/devops` apply (#2164)."""
 
 from __future__ import annotations
 
-import json
-import tempfile
-from pathlib import Path
 from typing import Any
 
 import yaml
 from docker.auth import resolve_repository_name
 from docker.utils import parse_repository_tag
-from typer.testing import CliRunner
 
-from devops_cli.commands.k8s import app
+from devops_cli.commands.k8s.stack_lifecycle import PRODUCT_MANIFESTS_BY_STACK
 from tests.gate.k8s_render import applied_documents
-from tests.support.k8s_tree import TREE, deploy_stack_manifests, release_values
 from tests.support.paths import REPO_ROOT
 
-runner = CliRunner()
+DEVOPS_DIR = REPO_ROOT / "k8s" / "devops"
 
 
-def _dry_run_details(output: str) -> dict[str, Any]:
-    """The details of a dry-run result, after its heading."""
-    details: dict[str, Any] = json.loads(output[output.index("{") :])["details"]
-    return details
-
-
-def check_llm_stack_applies_the_gateway_policy_before_the_gateway_and_deletes_it() -> None:
-    """deploy-stack --stack llm applies the two gateway policies before the gateway's Deployment,
-    and teardown-stack deletes them (#795, #6708). Without Argo CD the gateway ran with no policy, so its
-    egress was unrestricted. Both apply the gateway kustomization, whose render puts the policy
-    first (#1929). Neither dry run makes a request."""
-    gateway = TREE.path(Path("llm", "gateway"))
-    deploy = runner.invoke(app, ["deploy-stack", "--stack", "llm", "--dry-run"])
-    teardown = runner.invoke(app, ["teardown-stack", "--stack", "llm", "--dry-run"])
-    rendered = [
-        (doc["kind"], doc["metadata"]["name"])
-        for doc in applied_documents(gateway)
-        if doc["kind"] in ("NetworkPolicy", "Deployment")
-    ]
-
-    assert (
-        deploy.exit_code,
-        teardown.exit_code,
-        str(gateway) in _dry_run_details(deploy.output)["manifests"],
-        str(gateway) in _dry_run_details(teardown.output)["manifest_deletes"],
-        rendered,
-    ) == (
-        0,
-        0,
-        True,
-        True,
-        [
-            ("NetworkPolicy", "llm-gateway-perimeter-egress"),
-            ("NetworkPolicy", "llm-gateway-perimeter-ingress"),
-            ("Deployment", "llm-gateway"),
-        ],
-    )
-
-
-def _renders_service_monitor(values: object) -> bool:
-    """Whether chart values add a ServiceMonitor object or turn on a chart's own monitor."""
-    if isinstance(values, list):
-        return any(_renders_service_monitor(item) for item in values)
-    if not isinstance(values, dict):
-        return False
-    own_monitor = values.get("serviceMonitor")
-    return (
-        values.get("kind") == "ServiceMonitor"
-        or (isinstance(own_monitor, dict) and own_monitor.get("enabled") is True)
-        or any(_renders_service_monitor(item) for item in values.values())
-    )
-
-
-def check_prometheus_operator_crds_install_before_every_service_monitor() -> None:
-    """The CRD release installs first, ahead of every release or manifest with a ServiceMonitor.
-
-    k8s-monitoring 4.x and dcgm-exporter ship no ServiceMonitor CRD, so on a cluster without it
-    Helm refused both releases and the infra stack came up without Alloy (#819). Pre-Helm
-    `MANIFESTS_BY_STACK` paths and the builds of the Applications of `APPLICATIONS_BY_STACK` apply
-    before any chart (#6681), so no pre-Helm file, kustomization or build may hold a
-    ServiceMonitor and `k8s/llm/gateway/servicemonitor.yaml` lives in `POST_HELM_BY_STACK`
-    (#1367).
-    """
-    from devops_cli.commands.k8s.stack_lifecycle import (
-        _HELM_REPOS_BY_STACK,
-        HELM_RELEASES_BY_STACK,
-        POST_HELM_BY_STACK,
-    )
-    from devops_cli.config.constants import CONST_K8S_STACKS
-
-    crds = HELM_RELEASES_BY_STACK["infra"][0]
-    with tempfile.TemporaryDirectory(prefix="deploy-stack-values-") as workdir:
-        monitor_releases = [
-            (stack, release["name"])
-            for stack, releases in HELM_RELEASES_BY_STACK.items()
-            for release in releases
-            if any(
-                _renders_service_monitor(yaml.safe_load(value.read_text("utf-8")))
-                for value in release_values(release, Path(workdir))
-            )
-        ]
-    pre_helm_paths = [
-        (stack, path) for stack in CONST_K8S_STACKS for path in deploy_stack_manifests([stack])
-    ]
-    pre_helm_monitors = [
-        (stack, path.as_posix())
-        for stack, path in pre_helm_paths
-        if any(doc.get("kind") == "ServiceMonitor" for doc in applied_documents(path))
-    ]
-    post_helm_monitors = [
-        (stack, path.as_posix())
-        for stack, paths in POST_HELM_BY_STACK.items()
+def check_no_product_manifest_that_applies_before_the_charts_holds_a_service_monitor() -> None:
+    """deploy-stack applies the product files of `PRODUCT_MANIFESTS_BY_STACK` before the charts,
+    and the release that installs the ServiceMonitor CRD is a chart, so on a new cluster a
+    ServiceMonitor there is refused (#819, #1367). One belongs in `PRODUCT_POST_HELM_BY_STACK`."""
+    monitors = [
+        path.as_posix()
+        for paths in PRODUCT_MANIFESTS_BY_STACK.values()
         for path in paths
-        if TREE.path(path).is_file()
-        and any(
-            isinstance(doc, dict) and doc.get("kind") == "ServiceMonitor"
-            for doc in yaml.safe_load_all(TREE.path(path).read_text("utf-8"))
-        )
+        if any(doc.get("kind") == "ServiceMonitor" for doc in applied_documents(DEVOPS_DIR / path))
     ]
 
-    assert (
-        (crds["name"], crds["chart"], crds["namespace"]),
-        crds["chart"].split("/")[0] in _HELM_REPOS_BY_STACK["infra"],
-        monitor_releases,
-        pre_helm_monitors,
-        post_helm_monitors,
-    ) == (
-        ("prometheus-operator-crds", "prometheus-community/prometheus-operator-crds", "monitoring"),
-        True,
-        [
-            ("infra", "argocd"),
-            ("infra", "argo-workflows"),
-            ("infra", "pyroscope"),
-            ("llm", "qdrant"),
-        ],
-        [],
-        [("llm", "llm/gateway/servicemonitor.yaml")],
-    )
+    assert monitors == []
 
 
 # Docker Hub's Distribution image, as docker-py resolves `registry` and `library/registry`.
 DISTRIBUTION_IMAGES = {("docker.io", "registry"), ("docker.io", "library/registry")}
 
 
-# The namespace of the removed registry. Argo CD keeps it, with PVC `registry-data`, until a person
-# deletes it (k8s/README.md, Internal Image Registry).
+# The namespace of the removed in-cluster registry.
 REMOVED_REGISTRY_NAMESPACE = "registry"
 
 
-def _k8s_objects() -> list[dict[str, Any]]:
-    """Every Kubernetes object that a YAML file under k8s/ declares."""
+def _product_objects() -> list[dict[str, Any]]:
+    """Every Kubernetes object that a YAML file of `k8s/devops` declares, and every object that
+    its kustomization renders."""
+    declared = [
+        document
+        for path in sorted(DEVOPS_DIR.rglob("*.y*ml"))
+        for document in yaml.load_all(path.read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
+    ]
     return [
         document
-        for path in sorted((REPO_ROOT / "k8s").rglob("*.y*ml"))
-        for document in yaml.load_all(path.read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
+        for document in [*declared, *applied_documents(DEVOPS_DIR)]
         if isinstance(document, dict) and "kind" in document and "metadata" in document
     ]
 
@@ -177,26 +70,25 @@ def _container_images(node: object) -> list[str]:
 def _objects_of_the_removed_registry(objects: list[dict[str, Any]]) -> list[tuple[str, str]]:
     """(kind, name) of each object in the removed registry's namespace, and of that Namespace."""
     return sorted(
-        (obj["kind"], obj["metadata"]["name"])
-        for obj in objects
-        if obj["metadata"].get("namespace") == REMOVED_REGISTRY_NAMESPACE
-        or (obj["kind"] == "Namespace" and obj["metadata"]["name"] == REMOVED_REGISTRY_NAMESPACE)
+        {
+            (obj["kind"], obj["metadata"]["name"])
+            for obj in objects
+            if obj["metadata"].get("namespace") == REMOVED_REGISTRY_NAMESPACE
+            or (
+                obj["kind"] == "Namespace" and obj["metadata"]["name"] == REMOVED_REGISTRY_NAMESPACE
+            )
+        }
     )
 
 
-def check_no_manifest_runs_an_in_cluster_image_registry() -> None:
-    """Gitea's container registry is the internal registry (#1081). No manifest under k8s/ runs
-    the Distribution image or declares an object in namespace `registry`, and the root
-    kustomization renders none of them (#1630)."""
-    objects = _k8s_objects()
+def check_no_product_manifest_runs_an_in_cluster_image_registry() -> None:
+    """Gitea's container registry is the internal registry (#1081). No object of `k8s/devops`
+    runs the Distribution image or sits in namespace `registry` (#1630)."""
+    objects = _product_objects()
     distribution = sorted(
         image
         for image in _container_images(objects)
         if resolve_repository_name(parse_repository_tag(image)[0]) in DISTRIBUTION_IMAGES
     )
 
-    assert (
-        distribution,
-        _objects_of_the_removed_registry(objects),
-        _objects_of_the_removed_registry(applied_documents(REPO_ROOT / "k8s")),
-    ) == ([], [], [])
+    assert (distribution, _objects_of_the_removed_registry(objects)) == ([], [])

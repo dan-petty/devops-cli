@@ -87,3 +87,7 @@ With `--confirm`, the command adds the repository to `service.repos` and runs `d
 - The records: [ADR 0026](0026-github-settings-are-opentofu-code-the-owner-applies.md) and [ADR 0032](0032-infrastructure-templates-live-in-four-homes.md).
 - The GitHub pages: [repository rulesets](https://docs.github.com/en/rest/repos/rules#create-a-repository-ruleset), [environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments) and [Actions secrets](https://docs.github.com/en/rest/actions/secrets).
 - The change: `openspec/changes/archive/2026-11-22-6782-adr-repository-settings/`.
+
+## Status History
+
+- 2026-11-26: Fact out of date: row 13 also needs a clean, current environment checkout, and passes it with `--k8s-dir` (#7290).

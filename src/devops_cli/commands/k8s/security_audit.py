@@ -118,10 +118,11 @@ def k8s_lint(
     """Lint Kubernetes manifests with kube-linter. With no TARGET, build each path source of the
     Argo CD Applications of the environment tree as Argo CD builds it, and lint the builds in one
     run with the .kube-linter.yaml of the repository that holds the tree. A git source of another
-    public repository is fetched at its revision. Exits 1 on a finding, and when kube-linter did not
-    run. The k8s row of devops ci runs it."""
+    public repository is fetched at its revision. With TARGET, lint it with the .kube-linter.yaml
+    of the repository that holds it. Exits 1 on a finding, when kube-linter did not run, and when
+    it found no Kubernetes object. The kube-linter row of devops ci lints k8s/devops."""
     from devops_cli.dry_run.state import set_dry_run
-    from devops_cli.k8s.environment import resolve_environment
+    from devops_cli.k8s.environment import find_repository, resolve_environment
 
     set_dry_run(dry_run)
     if target is not None:
@@ -131,10 +132,17 @@ def k8s_lint(
                 f"[dim]Executing Kube-linter manifest audit on '{target_abs}'...[/dim]",
                 prefix=False,
             )
-        _kube_lint(target_abs, target_abs.name or str(target_abs))
+        repo = find_repository(target_abs.resolve())
+        config = repo / CONST_KUBE_LINTER_CONFIG_FILE if repo is not None else None
+        _kube_lint(
+            target_abs,
+            target_abs.name or str(target_abs),
+            config=config if config is not None and config.is_file() else None,
+        )
         return
 
     env = resolve_environment(k8s_dir)
+    env.require_applications()
     if is_dry_run():
         return
     from devops_cli.k8s.app_render import write_path_renders
@@ -152,11 +160,12 @@ def k8s_lint(
 
 
 def _kube_lint(target: Path, name: str, *, config: Path | None = None) -> None:
-    """Lint `target` with kube-linter and report as `name`: exit 1 on a finding, and when
-    kube-linter did not run. `config` names the config file that kube-linter reads."""
+    """Lint `target` with kube-linter and report as `name`: exit 1 on a finding, when kube-linter
+    did not run, and when `target` holds no Kubernetes object. `config` names the config file
+    that kube-linter reads."""
     from devops_cli.security.kubelinter import run_kubelinter_scan
 
-    findings = run_kubelinter_scan(target=target, config=config)
+    findings = run_kubelinter_scan(target=target, config=config, require_objects=True)
 
     if is_dry_run():
         return
@@ -245,7 +254,9 @@ def k8s_check_deprecated(
     from devops_cli.k8s.environment import resolve_environment
 
     if target is None:
-        target = resolve_environment().root
+        env = resolve_environment()
+        env.require_applications()
+        target = env.root
     if dry_run or is_dry_run():
         from devops_cli.dry_run.requests import render_request_plan
         from devops_cli.k8s.manifest_plans import plan_k8s_check_deprecated

@@ -1,8 +1,8 @@
 """deploy-stack warns about GPU nodes that no Ollama tier accepts (#1367).
 
-The accepted labels come from the required `matchExpressions` of each Ollama DaemonSet in
-`k8s/llm/profiles/ollama-profiles.yaml`, so the tests read that file, not a copy of its values.
-Each case answers `kubectl get nodes -o json` through the process edge and runs the command.
+The accepted labels come from the required `matchExpressions` of each Ollama DaemonSet in the
+profiles file of the environment tree. The tests give a fixture tree, whose one tier accepts a
+total of 16Gi. Each case answers `kubectl get nodes -o json` through the process edge and runs the command.
 """
 
 from __future__ import annotations
@@ -43,6 +43,7 @@ def _deploy(
     process_fake: ProcessFake,
     cluster: FakeCluster,
     cli: Any,
+    tree: Path,
     argo: bool = False,
     fail: bool = False,
 ) -> tuple[int, str]:
@@ -62,7 +63,8 @@ def _deploy(
         cluster.custom_objects.objects[("argoproj.io", "v1alpha1", "applications")] = [
             {"metadata": {"name": "cluster", "namespace": "argocd"}}
         ]
-    result = cli(["k8s", "deploy-stack", "--stack", "llm", "--no-push-secrets", "--k8s-dir", "k8s"])
+    argv = ["k8s", "deploy-stack", "--stack", "llm", "--no-push-secrets", "--k8s-dir", str(tree)]
+    result = cli(argv)
     return result.exit_code, result.output
 
 
@@ -77,22 +79,26 @@ _GOOD = _node(
 
 
 def test_a_labelled_gpu_node_gets_no_warning(
-    process_fake: ProcessFake, cluster: FakeCluster, cli: Any
+    process_fake: ProcessFake, cluster: FakeCluster, cli: Any, env_tree: Path
 ) -> None:
     """A node whose total-vram label a tier accepts is placed, so nothing is said."""
-    exit_code, output = _deploy([_GOOD], process_fake=process_fake, cluster=cluster, cli=cli)
+    exit_code, output = _deploy(
+        [_GOOD], process_fake=process_fake, cluster=cluster, cli=cli, tree=env_tree
+    )
 
     assert (exit_code, "nvidia.com/gpu.total-vram-gib" in output) == (0, False)
 
 
 def test_an_unlabelled_gpu_node_is_named_with_the_command_that_labels_it(
-    process_fake: ProcessFake, cluster: FakeCluster, cli: Any
+    process_fake: ProcessFake, cluster: FakeCluster, cli: Any, env_tree: Path
 ) -> None:
     """A GPU node without the total-vram label is named, with `kubectl label node` to fix it,
     and the deploy goes on."""
     bare = _node("gpu-bare", {CONST_K8S_GPU_PRESENT_LABEL: "true"}, gpus="1")
 
-    exit_code, output = _deploy([_GOOD, bare], process_fake=process_fake, cluster=cluster, cli=cli)
+    exit_code, output = _deploy(
+        [_GOOD, bare], process_fake=process_fake, cluster=cluster, cli=cli, tree=env_tree
+    )
 
     assert (
         exit_code,
@@ -103,30 +109,34 @@ def test_an_unlabelled_gpu_node_is_named_with_the_command_that_labels_it(
 
 
 def test_a_total_outside_every_tier_is_named_with_the_value_it_has(
-    process_fake: ProcessFake, cluster: FakeCluster, cli: Any
+    process_fake: ProcessFake, cluster: FakeCluster, cli: Any, env_tree: Path
 ) -> None:
     """A total-vram value that no tier accepts is named with that value."""
     odd = _node("gpu-odd", {CONST_K8S_GPU_TOTAL_VRAM_LABEL: "17Gi"}, gpus="1")
 
-    exit_code, output = _deploy([_GOOD, odd], process_fake=process_fake, cluster=cluster, cli=cli)
+    exit_code, output = _deploy(
+        [_GOOD, odd], process_fake=process_fake, cluster=cluster, cli=cli, tree=env_tree
+    )
 
     assert (exit_code, "gpu-odd" in output, "17Gi" in output) == (0, True, True)
 
 
 def test_a_node_without_gpus_gets_no_warning(
-    process_fake: ProcessFake, cluster: FakeCluster, cli: Any
+    process_fake: ProcessFake, cluster: FakeCluster, cli: Any, env_tree: Path
 ) -> None:
     """A node with no GPU capacity and no `gpu.present` label is not a GPU node."""
     plain = _node("cpu-only", {})
 
-    exit_code, output = _deploy([_GOOD, plain], process_fake=process_fake, cluster=cluster, cli=cli)
+    exit_code, output = _deploy(
+        [_GOOD, plain], process_fake=process_fake, cluster=cluster, cli=cli, tree=env_tree
+    )
 
     assert (exit_code, "cpu-only" in output) == (0, False)
 
 
 def _profiles(path: Path) -> Path:
     """A profiles file with one Ollama tier that needs a total of 24Gi and the architecture
-    `ada`, in the shape of `k8s/llm/profiles/ollama-profiles.yaml`."""
+    `ada`."""
     provider_key, provider = CONST_K8S_OLLAMA_PROVIDER_LABEL
     terms = [
         {
@@ -180,42 +190,46 @@ def test_an_architecture_outside_the_split_tiers_is_named(tmp_path: Path) -> Non
 
 
 def test_no_node_that_any_tier_accepts_says_no_ollama_pod_will_schedule(
-    process_fake: ProcessFake, cluster: FakeCluster, cli: Any
+    process_fake: ProcessFake, cluster: FakeCluster, cli: Any, env_tree: Path
 ) -> None:
     """When every GPU node is refused, the output says no Ollama pod will schedule, and the
     deploy still exits 0."""
     bare = _node("gpu-bare", {CONST_K8S_GPU_PRESENT_LABEL: "true"}, gpus="1")
 
-    exit_code, output = _deploy([bare], process_fake=process_fake, cluster=cluster, cli=cli)
+    exit_code, output = _deploy(
+        [bare], process_fake=process_fake, cluster=cluster, cli=cli, tree=env_tree
+    )
 
     assert (exit_code, "no Ollama pod will schedule" in output) == (0, True)
 
 
 def test_a_failed_node_read_says_the_labels_were_not_checked(
-    process_fake: ProcessFake, cluster: FakeCluster, cli: Any
+    process_fake: ProcessFake, cluster: FakeCluster, cli: Any, env_tree: Path
 ) -> None:
     """When `kubectl get nodes` fails, deploy-stack says it could not check the labels."""
-    exit_code, output = _deploy([], fail=True, process_fake=process_fake, cluster=cluster, cli=cli)
+    exit_code, output = _deploy(
+        [], fail=True, process_fake=process_fake, cluster=cluster, cli=cli, tree=env_tree
+    )
 
     assert (exit_code, "could not check" in output) == (0, True)
 
 
 def test_the_check_runs_before_the_argo_cd_early_return(
-    process_fake: ProcessFake, cluster: FakeCluster, cli: Any
+    process_fake: ProcessFake, cluster: FakeCluster, cli: Any, env_tree: Path
 ) -> None:
     """On an Argo CD-managed cluster the warning still prints, since the node read comes before
     the early return."""
     bare = _node("gpu-bare", {CONST_K8S_GPU_PRESENT_LABEL: "true"}, gpus="1")
 
     exit_code, output = _deploy(
-        [bare], argo=True, process_fake=process_fake, cluster=cluster, cli=cli
+        [bare], argo=True, process_fake=process_fake, cluster=cluster, cli=cli, tree=env_tree
     )
 
     assert (exit_code, "gpu-bare" in output) == (0, True)
 
 
 def test_other_stacks_do_not_read_the_nodes_for_placement(
-    process_fake: ProcessFake, cluster: FakeCluster, cli: Any
+    process_fake: ProcessFake, cluster: FakeCluster, cli: Any, env_tree: Path
 ) -> None:
     """Only the llm stack has Ollama tiers: deploy-stack for infra reads no node for this."""
     process_fake.answer(
@@ -226,16 +240,19 @@ def test_other_stacks_do_not_read_the_nodes_for_placement(
         {"metadata": {"name": "cluster", "namespace": "argocd"}}
     ]
 
-    cli(["k8s", "deploy-stack", "--stack", "infra", "--no-push-secrets", "--k8s-dir", "k8s"])
+    argv = ["k8s", "deploy-stack", "--stack", "infra", "--no-push-secrets"]
+    result = cli([*argv, "--k8s-dir", str(env_tree)])
 
     node_reads = [c for c in process_fake.calls if c.argv[1:4] == ("get", "nodes", "-o")]
-    assert node_reads == []
+    assert (result.exit_code, node_reads) == (0, [])
 
 
-def test_a_dry_run_reads_no_node_and_runs_nothing(process_fake: ProcessFake, cli: Any) -> None:
+def test_a_dry_run_reads_no_node_and_runs_nothing(
+    process_fake: ProcessFake, cli: Any, env_tree: Path
+) -> None:
     """`deploy-stack --stack llm --dry-run` starts no process but a local read of the checkout,
     such as its `origin`."""
-    result = cli(["k8s", "deploy-stack", "--stack", "llm", "--dry-run", "--k8s-dir", "k8s"])
+    result = cli(["k8s", "deploy-stack", "--stack", "llm", "--dry-run", "--k8s-dir", str(env_tree)])
 
     assert (result.exit_code, [call for call in process_fake.calls if not call.local_read]) == (
         0,

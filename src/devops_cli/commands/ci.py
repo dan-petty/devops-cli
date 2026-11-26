@@ -1054,33 +1054,24 @@ def get_check_specs() -> list[CheckSpec]:
             metric_step="bwrap",
             host_refusal=_sandbox_host_refusal,
         ),
-        # kube-linter lints the build of each path source of the Argo CD Applications with the
-        # checks of `.kube-linter.yaml` (#6068).
+        # kube-linter builds the product base k8s/devops and lints it with the checks of
+        # `.kube-linter.yaml` (#6068). This repository holds no environment tree (#7290).
         CheckSpec(
             name="kube-linter",
             display_title=MESSAGES.ci.kube_linter,
-            cmd=["uv", "run", "devops", "k8s", "lint"],
+            cmd=["uv", "run", "devops", "k8s", "lint", "k8s/devops"],
             span_name="ci.step.kube_linter",
             metric_step="kube_linter",
         ),
+        # The `k8s` row needs `kubectl` and the files of the checkout and, for a folder that builds
+        # a base of another repository, such as `k8s/devops/valkey-roadmap` (#7294), git and
+        # github.com.
         CheckSpec(
             name="k8s",
             display_title=MESSAGES.ci.k8s_manifests,
             cmd=_python_check_cmd("k8s"),
             span_name="ci.step.k8s",
             metric_step="k8s",
-        ),
-        # The chart sources of the Argo CD Applications render with `helm template`, which fetches
-        # each chart from its repository, and a check can start the image of a chart with
-        # `docker` (#6730). So the row needs the network and a container engine. The `k8s` row
-        # needs `kubectl` and the files of the checkout and, for a folder that builds a base of
-        # another repository, such as `k8s/devops/valkey-roadmap` (#7294), git and github.com.
-        CheckSpec(
-            name="charts",
-            display_title=MESSAGES.ci.chart_renders,
-            cmd=_python_check_cmd("charts"),
-            span_name="ci.step.charts",
-            metric_step="charts",
         ),
         CheckSpec(
             name="test-tree",

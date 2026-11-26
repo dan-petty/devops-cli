@@ -1,7 +1,7 @@
 # gitea-forge Specification
 
 ## Purpose
-How the homelab runs Gitea, its internal forge and container registry: the Argo CD Applications and the deploy-stack stack that install it, its chart values, its perimeter, its git host and its admin Secret.
+How devops-cli deploys and checks Gitea, the internal forge and container registry of the homelab: the deploy-stack stack that installs it from the environment tree, its admin Secret and the checks of `devops k8s doctor`.
 
 ## Requirements
 

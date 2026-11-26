@@ -329,6 +329,51 @@ def test_cli_gitops_drift_command(tmp_path: Path, cli: Callable[..., Any]) -> No
     assert (result.exit_code, "No manifest drift detected" in result.output) == (0, True)
 
 
+@pytest.mark.parametrize(
+    "command",
+    [("drift",), ("watch", "--app-name", "root-app", "--once")],
+    ids=["drift", "watch-once"],
+)
+@pytest.mark.parametrize("folder", ["missing", "empty"])
+def test_a_given_path_with_no_manifest_and_no_change_is_not_reported_clean(
+    tmp_path: Path, cli: Callable[..., Any], command: tuple[str, ...], folder: str
+) -> None:
+    """A report on a path that holds nothing reads nothing, so the command does not call it
+    clean, also beside a path that holds a manifest (#7290)."""
+    held = tmp_path / "held"
+    held.mkdir()
+    (held / "app.yaml").write_text("apiVersion: v1", encoding="utf-8")
+    if folder == "empty":
+        (tmp_path / folder).mkdir()
+
+    result = cli("argo", "gitops", *command, "--path", f"{held},{tmp_path / folder}")
+
+    error = getattr(result.exception, "message", "")
+    text = "".join(f"{result.output}{error}".split())
+    assert (
+        result.exit_code != 0,
+        "nomanifest" in text.lower(),
+        "Nomanifestdrift" in text,
+    ) == (True, True, False), result.output
+
+
+def test_drift_reports_the_manifests_that_left_a_watched_folder(
+    tmp_path: Path, cli: Callable[..., Any]
+) -> None:
+    """A folder that lost each manifest is a change to report, not an empty path."""
+    from devops_cli.argo.gitops import compute_manifest_state, save_persisted_manifest_state
+
+    manifest = tmp_path / "app.yaml"
+    manifest.write_text("apiVersion: v1", encoding="utf-8")
+    save_persisted_manifest_state([tmp_path], compute_manifest_state([tmp_path]))
+    manifest.unlink()
+
+    result = cli("argo", "gitops", "drift", "--path", str(tmp_path), "--json")
+
+    changes = [event["change_type"] for event in json.loads(result.output)["manifests"]]
+    assert (result.exit_code, changes) == (0, ["deleted"])
+
+
 def test_cli_gitops_sync_command(cli: Callable[..., Any]) -> None:
     """Test CLI command devops argo gitops sync with --dry-run."""
     result = cli("argo", "gitops", "sync", "--app-name", "root-app", "--dry-run")

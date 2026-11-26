@@ -803,6 +803,9 @@ class K8sMessages:
         "[dim]Executing Kube-linter on the builds of {count} path sources of the Argo CD "
         "Applications of '{root}'...[/dim]"
     )
+    catalog_no_slo_folder: str = (
+        "The environment tree {root} has no {path}, so the catalog holds no SLO."
+    )
     kubeconform_not_run: str = "Kubeconform validation {status}: {reason}. kubeconform validated no manifest, so the check did not pass."
     popeye_executing: str = "[dim]Executing Popeye K8s cluster health sanitizer...[/dim]"
     popeye_passed: str = "Popeye cluster audit passed: no health warnings."
@@ -824,6 +827,9 @@ class K8sMessages:
         "tags, so they are not pins: {repositories}"
     )
     image_pins_local: str = "Only the cluster or this host reaches the registry of these images, so they are not resolved: {images}"
+    image_pins_none: str = (
+        "The renders of {source} name no image, so the check resolved nothing and did not pass."
+    )
     image_pins_dry_run: str = "Each image that the renders name is then resolved with this request: HEAD https://<registry>/v2/<repository>/manifests/<reference>"
     crawl4ai_check_token_missing: str = (
         "The keyring holds no entry crawl4ai_api_token. Store the token once with 'devops config "
@@ -2358,9 +2364,8 @@ class CIMessages:
     hadolint: str = "hadolint (dockerfile lint)"
     openspec_validation: str = "openspec validation"
     git_transcripts: str = "git transcripts (recorded again with the real git)"
-    kube_linter: str = "kube-linter (the checks of .kube-linter.yaml on the Argo CD Applications)"
+    kube_linter: str = "kube-linter (the checks of .kube-linter.yaml on k8s/devops)"
     k8s_manifests: str = "k8s manifests (kustomize renders of the committed applications)"
-    chart_renders: str = "charts (helm renders of the chart sources of the Argo CD applications)"
     test_tree: str = "test tree (invariants over the Python files of src and tests)"
     startup_imports: str = "startup imports (modules that each command imports at start)"
     swallowed_failures: str = "swallowed failures (ratchet of blind excepts and unread check=False)"
@@ -2597,7 +2602,10 @@ class CIMessages:
 @dataclass(frozen=True)
 class DevcontainerMessages:
     already_exists: str = "devcontainer.json already exists: {path}"
-    bootstrap_k8s_deploy_hint: str = "Deploy the stack once the keyring is unlocked: devops k8s deploy-stack --stack {stack} --context {context}"
+    bootstrap_k8s_deploy_hint: str = (
+        "Deploy the stack once the keyring is unlocked: devops k8s deploy-stack --stack {stack} "
+        "--context {context}. It reads the environment tree of --k8s-dir or infra.repos."
+    )
     created_file: str = "Created: {path}"
     no_manifest_found: str = "No devcontainer.json found: {path}"
     manifest_valid: str = "✓ DevContainer manifest is valid: {path}"

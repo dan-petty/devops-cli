@@ -1,0 +1,6 @@
+# The gateway route that `devops k8s ollama prune` keeps: one model on one tier.
+model_list:
+  - model_name: example-chat
+    litellm_params:
+      model: ollama_chat/qwen3.8:27b
+      api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434

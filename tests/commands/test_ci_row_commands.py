@@ -99,14 +99,14 @@ def test_the_row_tuple_matches_the_registry() -> None:
     assert CHECK_ROW_NAMES == expected
 
 
-def test_the_kube_linter_row_lints_the_applications_of_the_tree() -> None:
-    """The row runs `devops k8s lint` with no target and no other command, before the rows of
-    `tests/gate` (#6068)."""
+def test_the_kube_linter_row_lints_the_product_base() -> None:
+    """The row runs `devops k8s lint` on `k8s/devops`, the manifests that this repository holds,
+    and no other command, before the rows of `tests/gate` (#6068, #7290)."""
     spec = get_check_spec("kube-linter")
     names = [row.name for row in get_check_specs()]
 
     assert (spec.cmd, spec.also_cmds, names.index("kube-linter") < names.index("k8s")) == (
-        ["uv", "run", "devops", "k8s", "lint"],
+        ["uv", "run", "devops", "k8s", "lint", "k8s/devops"],
         [],
         True,
     )

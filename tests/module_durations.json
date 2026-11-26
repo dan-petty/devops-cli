@@ -700,7 +700,6 @@
   "tests/k8s/test_lease.py": 0.2,
   "tests/k8s/test_logql_metrics.py": 0.1,
   "tests/k8s/test_loki_url_setting.py": 0.2,
-  "tests/k8s/test_otel_endpoints.py": 0.0,
   "tests/k8s/test_roadmap_service_key.py": 0.0,
   "tests/k8s/test_searxng_check.py": 0.4,
   "tests/k8s/test_service_probe.py": 0.2,

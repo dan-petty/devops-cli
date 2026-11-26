@@ -95,7 +95,8 @@ def test_two_infra_repos_with_a_tree_need_the_option(tmp_path: Path) -> None:
 
     assert caught.value.message == (
         f"Two or more infra repos give an environment tree: {first / 'k8s'}, {second / 'k8s'}. "
-        "Give --k8s-dir with the one to read."
+        "Keep one of them in infra.repos, or, if the command has the option --k8s-dir, give the "
+        "one to read with it."
     )
 
 
@@ -106,8 +107,9 @@ def test_no_source_names_the_option_and_the_project_file(tmp_path: Path) -> None
         resolve_environment(start=current, settings=_settings(tmp_path))
 
     assert caught.value.message == (
-        "No environment tree is known. Give --k8s-dir with the Kubernetes folder of the infra "
-        'repo, or declare it in .devops/project.toml of the repository ([kubernetes] dir = "k8s").'
+        "No environment tree is known. Add to infra.repos the checkout of the infra repo, whose "
+        ".devops/project.toml gives kubernetes.dir, or, if the command has the option --k8s-dir, "
+        "give the Kubernetes folder of that repo with it."
     )
 
 
@@ -122,15 +124,51 @@ def test_the_product_base_is_k8s_devops_of_the_current_repository(tmp_path: Path
     ) == (repo / "k8s" / "devops", tmp_path / "base", repo)
 
 
-def test_environment_tree_cluster_secrets_resolves_fixture_in_repository(
-    tmp_path: Path,
-) -> None:
-    """When the environment root has no cluster-secrets.toml, EnvironmentTree falls back to
-    tests/fixtures/cluster-secrets.toml in the repository."""
+def test_the_secret_table_of_a_tree_is_its_own_file_alone(tmp_path: Path) -> None:
+    """A `cluster-secrets.toml` in another folder of the repository is not the table of the tree."""
     repo = _checkout(tmp_path / "repo")
-    fixture = repo / "tests" / "fixtures" / "cluster-secrets.toml"
-    fixture.parent.mkdir(parents=True)
-    fixture.write_text("[[secret]]\n", encoding="utf-8")
+    other = repo / "tests" / "fixtures" / "cluster-secrets.toml"
+    other.parent.mkdir(parents=True)
+    other.write_text("[[secret]]\n", encoding="utf-8")
+    nested = repo / "k8s" / "k8s" / "cluster-secrets.toml"
+    nested.parent.mkdir(parents=True)
+    nested.write_text("[[secret]]\n", encoding="utf-8")
     tree = EnvironmentTree(root=repo / "k8s", repo=repo)
 
-    assert tree.cluster_secrets == fixture
+    assert tree.cluster_secrets == repo / "k8s" / "cluster-secrets.toml"
+
+
+def test_a_required_path_that_the_tree_lacks_is_named_with_the_way_to_give_the_tree(
+    tmp_path: Path,
+) -> None:
+    tree = EnvironmentTree(tmp_path, tmp_path)
+    (tmp_path / "llm").mkdir()
+
+    with pytest.raises(ConfigurationError) as caught:
+        tree.require(tree.gateway_config)
+
+    assert (tree.require(tmp_path / "llm"), caught.value.message) == (
+        tmp_path / "llm",
+        f"The environment tree {tmp_path} has no llm/gateway/config.yaml. Add to infra.repos the "
+        "checkout of the infra repo that holds it, or, if the command has the option --k8s-dir, "
+        "give the Kubernetes folder of that repo with it.",
+    )
+
+
+def test_a_tree_with_an_application_has_applications(tmp_path: Path) -> None:
+    tree = EnvironmentTree(tmp_path, tmp_path)
+    apps = tmp_path / "argocd" / "apps"
+    apps.mkdir(parents=True)
+    (apps / "web.yaml").write_text("kind: ConfigMap\n", encoding="utf-8")
+
+    with pytest.raises(ConfigurationError) as caught:
+        tree.require_applications()
+    (apps / "web.yaml").write_text("kind: Application\nmetadata:\n  name: web\n", "utf-8")
+    tree.require_applications()
+
+    assert caught.value.message == (
+        f"The environment tree {tmp_path} has no Argo CD Application under argocd/apps, "
+        "argocd/bootstrap. Add to infra.repos the checkout of the infra repo that holds them, "
+        "or, if the command has the option --k8s-dir, give the Kubernetes folder of that repo "
+        "with it."
+    )

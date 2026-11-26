@@ -1,7 +1,7 @@
 # product-monitoring-content Specification
 
 ## Purpose
-Where the monitoring content of the devops-cli product lives: the Grafana dashboards and the Prometheus alert rules that read the `devops_cli_*` series. The product content is apart from the environment content of `k8s/monitoring/`, so that the environment can move to its own repository and leave the product content in devops-cli.
+Where the monitoring content of the devops-cli product lives: the Grafana dashboards and the Prometheus alert rules that read the `devops_cli_*` series. devops-cli holds the product content, and the environment repository holds the monitoring content of the cluster.
 
 ## Requirements
 
