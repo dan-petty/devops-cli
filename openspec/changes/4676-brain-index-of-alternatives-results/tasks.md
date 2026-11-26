@@ -73,7 +73,6 @@ Kind: behavior. Reads: `k8s/devops/roadmap-service/deployment.yaml`. Changes: `s
 ## Workflow follow-up
 
 - The digest that the check reads before its model call, the nearest items of the aggregate and the record key `alternatives.brain_used`: #4682.
-- The record key `alternatives.refs` and the sections of the reference step: #4672.
 - The repair of the index, with the items that left a tool or a reference, and the entries of a repository that became private: #4687.
 - The users `router` and `sweep`, the coordination keys and the sentinel of `valkey-roadmap`: #4563.
 - Pending a person: record a scenario of `XADD` with `MAXLEN` and of `SCAN` with `MATCH` for the contract suite of the Valkey fake from a real `valkey-server` (`tests/support/valkey_recording.py`). The devcontainer holds no `valkey-server`.

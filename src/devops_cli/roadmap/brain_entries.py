@@ -15,7 +15,7 @@ and a lost index is built again from the listing snapshot.
   GitHub repository of a link, one time for each repository, and at most
   `CONST_ROADMAP_BRAIN_ITEM_MAX_REFS`. A link to a page outside GitHub names no repository.
 - `alternatives.brain_used` gives the entries that the check used, at most
-  `CONST_ROADMAP_BRAIN_ITEM_MAX_USES`.
+  `CONST_ROADMAP_BRAIN_ITEM_MAX_USES`. #4682 declares that key.
 
 The record is read by the text of its keys, so a key that another version of the record writes
 is read when the record holds it. A person can write a record by hand, so no value of it makes
@@ -54,9 +54,8 @@ from devops_cli.roadmap.stores.store import (
 )
 from devops_cli.roadmap.trust import is_trusted
 
-# The keys of the record that a later version of the record declares: the links of the reference
-# step (#4672) and the entries that the check used (#4682).
-_REFS_KEY: Final[str] = "alternatives.refs"
+# The key of the entries that the check used, which #4682 declares in the record. Until then
+# `decode_job_record` keeps no such key, and an entry names no used entry.
 _USES_KEY: Final[str] = "alternatives.brain_used"
 _KEY_ID_SIZE: Final[int] = 16
 
@@ -160,7 +159,7 @@ def checked_entry(
         or (canonical_id(url, None) if url else ""),
         tool_url=url,
         tool_name=_tool_name(block, url) if url else "",
-        refs=_repositories(record.get(_REFS_KEY) or ""),
+        refs=_repositories(record.get(AlternativesRecordKey.REFS) or ""),
         uses=tuple((record.get(_USES_KEY) or "").split())[:CONST_ROADMAP_BRAIN_ITEM_MAX_USES],
     )
 

@@ -29,6 +29,7 @@ from devops_cli.roadmap.alternatives import (
     AlternativesWriter,
     plan_alternatives,
 )
+from devops_cli.roadmap.brain_entries import reference_key_id
 from devops_cli.roadmap.brain_index import BrainIndex, Watermark
 from devops_cli.roadmap.brain_sync import BrainSync, sync_alternatives_round, sync_brain_index
 from devops_cli.roadmap.stores.store import (
@@ -262,10 +263,16 @@ def test_the_entry_of_an_item_names_the_five_nearest_items_of_its_tool(
 def test_a_tool_url_that_is_no_url_in_one_record_does_not_stop_the_sync(
     tier: Any, reader: FakeValkey, text: str
 ) -> None:
-    """The record of one issue holds a tool URL that the URL parser refuses, and no canonical id.
-    The sync copies the 3 issues, the entry of that issue takes the string as its tool id, and
-    the watermark moves to the last issue."""
-    no_url = {AlternativesRecordKey.TOOL: text, AlternativesRecordKey.TOOL_ID: None}
+    """The record of one issue holds a tool URL that the URL parser refuses, no canonical id, and
+    the same string between two links of `alternatives.refs`. The sync copies the 3 issues. The
+    entry of that issue takes the string as its tool id and the two repositories as its
+    references, and the watermark moves to the last issue."""
+    frames, panels = "https://github.com/acme/frames", "https://github.com/acme/panels"
+    no_url = {
+        AlternativesRecordKey.TOOL: text,
+        AlternativesRecordKey.TOOL_ID: None,
+        AlternativesRecordKey.REFS: f"{frames}/blob/0123abc/a.py {text} {panels}",
+    }
     issues = [
         _issue(1, updated_at=NOW - timedelta(minutes=3)),
         _issue(2, updated_at=NOW - timedelta(minutes=2), record_changes=no_url),
@@ -276,11 +283,11 @@ def test_a_tool_url_that_is_no_url_in_one_record_does_not_stop_the_sync(
 
     assert (
         result,
-        reader.hget(_item_key(2), "tool_id"),
+        reader.hmget(_item_key(2), "tool_id", "refs"),
         BrainIndex(tier, RepoRef(REPO)).watermark(),
     ) == (
         BrainSync(copied=3, entries=3),
-        text,
+        [text, f"{reference_key_id(frames)} {reference_key_id(panels)}"],
         Watermark(changed=NOW - timedelta(minutes=1), number=3, synced_at=NOW),
     )
 
