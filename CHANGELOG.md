@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.223.2](https://github.com/dan-petty/devops-cli/compare/v0.223.1...v0.223.2) (2026-11-26)
+
+
+### Bug Fixes
+
+* **ci:** publish a release only after its files are attached ([#7339](https://github.com/dan-petty/devops-cli/issues/7339)) ([8735301](https://github.com/dan-petty/devops-cli/commit/8735301489877d2e20683c28168702631d1157ad))
+* **github:** refuse an issue read that answers for another issue ([#7336](https://github.com/dan-petty/devops-cli/issues/7336)) ([ff6c0cc](https://github.com/dan-petty/devops-cli/commit/ff6c0cced6034a5a894727ab143fadcb1ee95e7f))
+
 ## [0.223.1](https://github.com/dan-petty/devops-cli/compare/v0.223.0...v0.223.1) (2026-11-26)
 
 
