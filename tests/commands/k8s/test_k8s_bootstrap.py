@@ -222,13 +222,16 @@ def test_k8s_bootstrap_autostarts_and_configures_urls(
     cluster: FakeCluster,
     keyring_store: FakeKeyring,
     tcp_probe: TcpProbe,
+    env_tree: Path,
 ) -> None:
     """k8s bootstrap autostarts minikube, deploys stack, and configures URLs."""
     install_kubectl_world(process_fake)
     stock_push_keyring(keyring_store)
     minikube_starts_on_demand(process_fake)
 
-    res = runner.invoke(app, ["bootstrap", "--auto-start", "--stack", "infra"])
+    res = runner.invoke(
+        app, ["bootstrap", "--dir", str(env_tree), "--auto-start", "--stack", "infra"]
+    )
 
     assert res.exit_code == 0
     assert (
@@ -243,13 +246,14 @@ def test_k8s_bootstrap_when_already_running(
     cluster: FakeCluster,
     keyring_store: FakeKeyring,
     tcp_probe: TcpProbe,
+    env_tree: Path,
 ) -> None:
     """k8s bootstrap updates context when already running and configures URLs."""
     install_kubectl_world(process_fake)
     stock_push_keyring(keyring_store)
     minikube_running(process_fake)
 
-    res = runner.invoke(app, ["bootstrap", "--stack", "llm"])
+    res = runner.invoke(app, ["bootstrap", "--dir", str(env_tree), "--stack", "llm"])
 
     assert res.exit_code == 0
     assert (
@@ -260,16 +264,17 @@ def test_k8s_bootstrap_when_already_running(
 
 
 def test_k8s_bootstrap_fails_when_start_fails(
-    process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch
+    process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch, env_tree: Path
 ) -> None:
     """k8s bootstrap exits with code 1 when minikube start fails."""
     _nvidia_smi_present(monkeypatch, False)
     minikube_stopped(process_fake)
     process_fake.answer("minikube start", ProcessAnswer(returncode=1))
 
-    res = runner.invoke(app, ["bootstrap", "--auto-start"])
+    res = runner.invoke(app, ["bootstrap", "--dir", str(env_tree), "--auto-start"])
 
     assert res.exit_code == 1
+    assert "Failed to start minikube" in res.output
     assert calls_starting(process_fake, "helm") == []
 
 

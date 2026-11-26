@@ -48,9 +48,10 @@ data:
       decision_model: typesafe/jev-1.14
       # A model call is sent at most two times. The gateway owns the retries: it retries a failed
       # call of the group up to 5 times and then falls back (router_settings in
-      # k8s/llm/gateway/config.yaml). The client sends a call again only when the call did not
-      # reach the gateway, or when its stream failed before its first event (#5965), and each
-      # send is a call that the provider bills (k8s/README.md, LLM Gateway).
+      # llm/gateway/config.yaml of dan-petty/homelab). The client sends a call again only when
+      # the call did not reach the gateway, or when its stream failed before its first event
+      # (#5965), and each send is a call that the provider bills (k8s/README.md of
+      # dan-petty/homelab, LLM Gateway).
       max_retries: 1
       # The spend reports value local tokens at the hosted price of these two models, by the
       # owner decision of 2026-11-09 (#4241). The prices are the OpenRouter quotes: 0.035 USD
@@ -67,8 +68,9 @@ data:
         qwen/qwen3-embedding-8b:
           prompt_usd_per_million: 0.01
           completion_usd_per_million: 0.0
-        # Jev bills by input token at 0.042 USD per million and charges no output (k8s/README.md,
-        # #4296). The client records the tokens of each Jev decision call in the spend ledger.
+        # Jev bills by input token at 0.042 USD per million and charges no output (k8s/README.md of
+        # dan-petty/homelab, #4296). The client records the tokens of each Jev decision call in the
+        # spend ledger.
         typesafe/jev-1.14:
           prompt_usd_per_million: 0.042
           completion_usd_per_million: 0.0
@@ -150,9 +152,9 @@ data:
           model: openrouter/deepseek/deepseek-v4.1-flash-1017
         embedding:
           model: local/qwen3-embedding:0.6b
-    # devops-cli's cache Valkey in namespace llm (llm/valkey-devops.yaml): the embedding cache
-    # and the threat-intelligence cache. Its password reaches the pod from Secret devops-cli as
-    # DEVOPS_CLI_VALKEY_PASSWORD, never from this ConfigMap.
+    # devops-cli's cache Valkey in namespace llm (llm/valkey-devops.yaml of dan-petty/homelab):
+    # the embedding cache and the threat-intelligence cache. Its password reaches the pod from
+    # Secret devops-cli as DEVOPS_CLI_VALKEY_PASSWORD, never from this ConfigMap.
     valkey:
       url: valkey://valkey-devops.llm.svc.cluster.local:6379/0
     # Qdrant in namespace llm, the vector store of the RAG index. The pods send the read-only key

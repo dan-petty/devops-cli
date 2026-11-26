@@ -20,8 +20,6 @@ from devops_cli.ai.pool_load import pool_load, window_seconds
 from devops_cli.http.egress import EgressLevel
 from tests.support.fakes.http import WebFake
 
-K8S = Path("k8s")
-
 
 def _fake_prometheus(expr: str) -> list[tuple[dict[str, str], float]]:
     """Answers shaped like Prometheus's for a pool of two Ollama nodes."""

@@ -10,6 +10,7 @@ Security & Input Validation:
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -49,7 +50,7 @@ from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions.argo import ArgoError, ArgoWorkflowTimeoutError
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.gitea.exceptions import GiteaAccessBlocked
-from devops_cli.lang import HELP, MESSAGES
+from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.models.argo import ArgoCDApp, ArgoRolloutState
 from devops_cli.output import (
     PanelPayload,
@@ -410,7 +411,7 @@ def cd_apps_bootstrap_gitops(
         from devops_cli.k8s.environment import resolve_environment
 
         env = resolve_environment()
-        root_app_path, tree_repo = env.root_application, env.repo
+        root_app_path, tree_repo = env.require(env.root_application), env.repo
     if dry_run or is_dry_run():
         from devops_cli.argo.argo_plans import plan_argocd_bootstrap_gitops
 
@@ -1268,7 +1269,27 @@ def _parse_manifest_paths(path: str | None) -> list[str]:
         return paths
     from devops_cli.k8s.environment import resolve_environment
 
-    return [str(resolve_environment().root)]
+    env = resolve_environment()
+    env.require_applications()
+    return [str(env.root)]
+
+
+def _refuse_paths_with_nothing(paths: Sequence[Path | str], seen: Sequence[Path]) -> None:
+    """Refuse a watched path with no file of `seen` (the manifests of the paths and the changed
+    ones) under it: its clean report would be of nothing (#7290).
+
+    Raises:
+        ConfigurationError: a path holds no manifest and shows no change.
+    """
+    empty = [
+        str(path)
+        for path in paths
+        if not any(file.is_relative_to(Path(path).resolve()) for file in seen)
+    ]
+    if empty:
+        raise ConfigurationError(
+            ERRORS.argo.watched_path_empty.format(paths=", ".join(empty)), key="path"
+        )
 
 
 def _root_application(app_name: str | None) -> str:
@@ -1286,13 +1307,15 @@ def _handle_gitops_once(
     json_output: bool = False,
 ) -> None:
     """Execute a single-cycle manifest drift inspection and optional reconciliation."""
-    from devops_cli.argo.gitops import (
-        render_gitops_drift_table,
-        render_gitops_sync_table,
-    )
+    from devops_cli.argo.gitops import render_gitops_drift_table, render_gitops_sync_table
     from devops_cli.output import print_info
 
-    drift = watcher.scan_drift(detect_cold_drift=True)
+    drift = watcher.scan_drift(
+        detect_cold_drift=True,
+        accept=lambda manifests, events: _refuse_paths_with_nothing(
+            watcher.paths, [*manifests, *(Path(e.path) for e in events)]
+        ),
+    )
     sync_res = watcher.sync_now(drift) if drift else None
 
     resolved = resolve_format(output_format, json_output=json_output)
@@ -1482,6 +1505,7 @@ def gitops_drift(
         drift = scan_manifest_drift(persisted, state)
     else:
         drift = inspect_git_manifest_drift(paths)
+    _refuse_paths_with_nothing(paths, [*state, *(Path(e.path) for e in drift)])
 
     resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:

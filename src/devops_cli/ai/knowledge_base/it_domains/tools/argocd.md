@@ -73,7 +73,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/dan-petty/devops-cli.git
+    repoURL: https://git.example.com/example/infra.git
     targetRevision: HEAD
     path: k8s/overlays/monitoring
   destination:

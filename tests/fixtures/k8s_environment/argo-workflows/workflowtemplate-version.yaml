@@ -1,0 +1,5 @@
+# A custom resource that applies only where the cluster serves its CRD.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: version

@@ -1,6 +1,6 @@
 # Dashboard Tabs Audit
 
-This document audits five tabs of `devops dashboard` against open tools. The audited tabs are Kubernetes, Docker, Telemetry, Valkey and Logs.
+This document audits five tabs of `devops dashboard` against open tools. The audited tabs are Kubernetes, Docker, Telemetry, Valkey and Logs. A path of `k8s/` outside `k8s/devops` in this audit is a path of dan-petty/homelab, which holds the environment of the cluster.
 
 ## Method
 
@@ -66,11 +66,11 @@ The `fetch_docker_status` provider queries the local Docker socket on every refr
 
 ## Telemetry
 
-The open tool is Grafana with committed dashboards. The chart version is 14.4.1 in `k8s/argocd/apps/grafana.yaml` at line 13.
+The open tool is Grafana with committed dashboards. `k8s/argocd/apps/grafana.yaml` pins the chart version.
 
 ### Gap Analysis
 
-The repository provides 17 dashboards: 14 in `k8s/monitoring/dashboards/` and the 3 product dashboards in `k8s/devops/dashboards/`. The `TelemetryPanel` renders CPU and memory summaries in the terminal. Grafana dashboards cover every metric with rich graphs and query interfaces. Grafana does not render inside the terminal console.
+The product dashboards are in `k8s/devops/dashboards/`, and the dashboards of the cluster are in `k8s/monitoring/dashboards/`. The `TelemetryPanel` renders CPU and memory summaries in the terminal. Grafana dashboards cover every metric with rich graphs and query interfaces. Grafana does not render inside the terminal console.
 
 ### Deleted Code
 
@@ -81,7 +81,7 @@ Replacing the Telemetry tab deletes the following lines:
 
 ### Configuration and Pin
 
-Grafana is pinned at Helm chart 14.4.1 in `k8s/argocd/apps/grafana.yaml`. The values file resides at `k8s/monitoring/grafana-values.yaml`.
+`k8s/argocd/apps/grafana.yaml` pins the Grafana Helm chart. The values file resides at `k8s/monitoring/grafana-values.yaml`.
 
 ### Request Cost
 
@@ -96,7 +96,7 @@ The `fetch_telemetry_status` provider sends Prometheus queries at each refresh i
 
 ## Valkey
 
-The open tool is `valkey-cli` from the `valkey-tools` package. The cluster guide cites this tool in `k8s/README.md` at line 87.
+The open tool is `valkey-cli` from the `valkey-tools` package. The `k8s/README.md` of dan-petty/homelab uses `valkey-cli` in its checks of the pods.
 
 ### Gap Analysis
 
@@ -113,7 +113,7 @@ The tab stays in `devops dashboard`. If replaced in the future, deletion would t
 
 ### Configuration and Pin
 
-The cluster guide references `valkey-tools` via `k8s/README.md`. Authentication uses the `VALKEY_PASSWORD` secret.
+The `k8s/README.md` of dan-petty/homelab runs `valkey-cli` in the Valkey pods. Authentication uses the `VALKEY_PASSWORD` secret.
 
 ### Request Cost
 
@@ -127,7 +127,7 @@ The `fetch_valkey_status` provider calls `INFO` and `DBSIZE` on the Valkey endpo
 
 ## Logs
 
-The open tool is the Grafana Loki datasource. The chart version is 21.2.3 in `k8s/argocd/apps/loki.yaml` at line 13.
+The open tool is the Grafana Loki datasource. `k8s/argocd/apps/loki.yaml` pins the chart version.
 
 ### Gap Analysis
 
@@ -143,7 +143,7 @@ Replacing the Logs tab deletes the following lines:
 
 ### Configuration and Pin
 
-Loki is pinned at chart 21.2.3 in `k8s/argocd/apps/loki.yaml`. Values are in `k8s/logging/loki-values.yaml`.
+`k8s/argocd/apps/loki.yaml` pins the Loki chart. Values are in `k8s/logging/loki-values.yaml`.
 
 ### Request Cost
 

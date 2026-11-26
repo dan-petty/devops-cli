@@ -4,14 +4,12 @@ Validates:
 1. Configuration & OS Keyring secret mappings for Qdrant API key.
 2. deploy-stack pushing the cluster Secrets from the keyring before anything reads them, in
    place of the client-side Qdrant Secret apply that leaked the key into an annotation.
-
-The form of `k8s/llm/values-qdrant.yaml` is the work of the `k8s` row of `devops ci`, and no test
-asserts a value of it (#6060).
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -113,8 +111,9 @@ def stub_keyring(monkeypatch: pytest.MonkeyPatch, cluster: FakeCluster) -> FakeK
     return backend
 
 
-def _deploy(*args: str) -> Any:
-    return CliRunner().invoke(DEPLOY_COMMAND, ["--context", "test-ctx", "--no-wait", *args])
+def _deploy(tree: Path, *args: str) -> Any:
+    options = ["--context", "test-ctx", "--no-wait", "--k8s-dir", str(tree)]
+    return CliRunner().invoke(DEPLOY_COMMAND, [*options, *args])
 
 
 def _pushed(cluster: FakeCluster) -> list[str]:
@@ -134,9 +133,9 @@ def _step(argv: list[str]) -> str:
 
 
 def test_deploy_stack_pushes_secrets_after_namespaces_and_before_manifests_and_helm(
-    cluster: FakeCluster, stub_keyring: FakeKeyring
+    cluster: FakeCluster, stub_keyring: FakeKeyring, env_tree: Path
 ) -> None:
-    result = _deploy("--stack", "llm")
+    result = _deploy(env_tree, "--stack", "llm")
     steps = [step for step in (_step(call.argv) for call in cluster.calls) if step]
     assert (
         result.exit_code,
@@ -159,13 +158,14 @@ def test_deploy_stack_pushes_secrets_after_namespaces_and_before_manifests_and_h
 
 
 def test_deploy_stack_pushes_devops_only_where_its_namespace_exists(
-    cluster: FakeCluster, stub_keyring: FakeKeyring, monkeypatch: pytest.MonkeyPatch
+    cluster: FakeCluster, stub_keyring: FakeKeyring, env_tree: Path
 ) -> None:
     stub_keyring.values["service_github_app_private_key"] = APP_KEY
-    without = (_deploy("--stack", "infra").exit_code, _pushed(cluster), cluster.commands("gh"))
+    first = _deploy(env_tree, "--stack", "infra")
+    without = (first.exit_code, _pushed(cluster), cluster.commands("gh"))
     cluster.calls.clear()
     cluster.namespaces.add("devops")
-    with_devops = (_deploy("--stack", "infra").exit_code, _pushed(cluster))
+    with_devops = (_deploy(env_tree, "--stack", "infra").exit_code, _pushed(cluster))
     assert (without, with_devops, cluster.live_data("devops", "devops-cli")[APP_KEY_ENTRY]) == (
         (0, ["cloudflared/cloudflared-token"], []),
         (
@@ -186,11 +186,11 @@ def test_deploy_stack_pushes_devops_only_where_its_namespace_exists(
 
 
 def test_a_locked_keyring_stops_deploy_stack_before_it_touches_the_cluster(
-    cluster: FakeCluster, stub_keyring: FakeKeyring
+    cluster: FakeCluster, stub_keyring: FakeKeyring, env_tree: Path
 ) -> None:
     """Not even the root kustomization is applied while the keyring is locked."""
     stub_keyring.locked = True
-    result = _deploy("--stack", "llm")
+    result = _deploy(env_tree, "--stack", "llm")
     assert (
         result.exit_code,
         [call.argv for call in cluster.calls],
@@ -199,17 +199,19 @@ def test_a_locked_keyring_stops_deploy_stack_before_it_touches_the_cluster(
 
 
 def test_a_failed_push_exits_1_before_any_manifest_or_helm_release(
-    cluster: FakeCluster, stub_keyring: FakeKeyring
+    cluster: FakeCluster, stub_keyring: FakeKeyring, env_tree: Path
 ) -> None:
     cluster.add_secret("llm", "qdrant-api-key", {"api-key": "live-differs-0001"})
     stub_keyring.values["qdrant_api_key"] = "keyring-differs-0001"
-    result = _deploy("--stack", "llm")
+    result = _deploy(env_tree, "--stack", "llm")
     steps = {_step(call.argv) for call in cluster.calls} - {""}
     assert (result.exit_code, steps, "--rotate" in result.output) == (1, {"namespaces"}, True)
 
 
-def test_no_push_secrets_pushes_nothing(cluster: FakeCluster, stub_keyring: FakeKeyring) -> None:
-    result = _deploy("--stack", "llm", "--no-push-secrets")
+def test_no_push_secrets_pushes_nothing(
+    cluster: FakeCluster, stub_keyring: FakeKeyring, env_tree: Path
+) -> None:
+    result = _deploy(env_tree, "--stack", "llm", "--no-push-secrets")
     assert (result.exit_code, cluster.applies(), stub_keyring.reads) == (0, [], [])
 
 
@@ -230,12 +232,12 @@ def test_sync_k8s_credentials_reads_no_llm_secret(process_fake: ProcessFake) -> 
     assert (results, process_fake.calls) == ({}, [])
 
 
-def test_one_keyring_value_feeds_the_read_only_key_of_both_secrets() -> None:
+def test_one_keyring_value_feeds_the_read_only_key_of_both_secrets(env_tree: Path) -> None:
     """Secret llm/qdrant-api-key holds the read-only key, and Secret devops/devops-cli takes the
     same keyring value for the pods that load that Secret with envFrom (#3823)."""
     rows = {
         (secret.ref, entry.key): entry
-        for secret in load_cluster_secrets_table()
+        for secret in load_cluster_secrets_table(k8s_dir=env_tree)
         for entry in secret.entries
     }
     read_only = rows[("llm/qdrant-api-key", "read-only-api-key")]

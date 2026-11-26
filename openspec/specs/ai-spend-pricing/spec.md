@@ -262,10 +262,10 @@ The warning that names a hosted model that neither genai-prices, a built-in pric
 - **THEN** a call of 1,000,000 prompt and 1,000,000 completion tokens costs 0.242 USD with the source `custom_override`
 
 ### Requirement: Every hosted gateway group has a price
-The pricing registry SHALL price every hosted group of `k8s/llm/gateway/config.yaml` with no setting and no price file, under the route name of the group and under the deployment model of each of its deployments. For a group that genai-prices does not price, the registry SHALL take the built-in price of the group.
+The pricing registry SHALL price every group of `CONST_AI_GATEWAY_HOSTED_MODELS` with no setting and no price file. For a group that genai-prices does not price, the registry SHALL take the built-in price of the group, under its route name and its deployment model.
 
 #### Scenario: Each hosted group by both names
-- **WHEN** a reply of each hosted group of the gateway config names the route name, or the deployment model such as `openrouter/deepseek/deepseek-v4.1-flash-1017`, and no backend, and no setting and no file price the model
+- **WHEN** a reply of each hosted group names the route name, or the deployment model such as `openrouter/deepseek/deepseek-v4.1-flash-1017`, and no backend, and no setting and no file price the model
 - **THEN** no call has the pricing source `unknown`
 
 #### Scenario: An agent run on the DeepSeek group
@@ -280,11 +280,11 @@ The pricing registry SHALL price every hosted group of `k8s/llm/gateway/config.y
 - **THEN** a call of 1,000,000 prompt tokens costs 1.00 USD with the source `settings:ai.price_overrides`
 
 ### Requirement: Every model of the Service template is priced or local
-Every chat and embedding model that `k8s/devops/configmap.example.yaml` names SHALL be a group of the gateway config. A hosted group SHALL have a price, and a local group SHALL be local.
+Every chat and embedding model that `k8s/devops/configmap.example.yaml` names SHALL be a gateway group of `CONST_AI_GATEWAY_HOSTED_MODELS` or of `CONST_AI_GATEWAY_LOCAL_GROUPS`, or a model with a local prefix. A hosted group SHALL have a price, and a local group SHALL be local.
 
 #### Scenario: The models of the Service template
 - **WHEN** the models of `ai.model`, of each task and of each tier of the implement ladder in the template are read
-- **THEN** each is a group of the gateway config, no hosted group has the pricing source `unknown`, and each local group is local
+- **THEN** no hosted group has the pricing source `unknown`, and each local group is local
 
 ### Requirement: Cached prompt tokens cost the cached input rate
 A price SHALL hold an optional cached input rate in USD per million tokens. The cost of a request SHALL price its prompt tokens that the provider read from its cache at that rate, and its other prompt tokens at the prompt rate. A price with no cached input rate SHALL price every prompt token at the prompt rate. The cached tokens SHALL count inside the prompt tokens. A run of an agent SHALL give the cached tokens of its replies.
@@ -296,13 +296,6 @@ A price SHALL hold an optional cached input rate in USD per million tokens. The 
 #### Scenario: A price with no cached input rate
 - **WHEN** a price of 1.00 USD prompt and no cached input rate prices 1,000,000 prompt tokens, 600,000 of them cached
 - **THEN** the cost is 1.00 USD
-
-### Requirement: The client price of a hosted group is the price in the gateway config
-For each hosted deployment whose gateway config sets an input price, the client cost of a call whose reply names its deployment model SHALL be the cost at the input, cached input, cache write and output prices of that deployment in `k8s/llm/gateway/config.yaml`. A deployment that sets no cached input price or no cache write price SHALL cost those tokens at its input price.
-
-#### Scenario: A call with cached tokens
-- **WHEN** each hosted deployment that sets its prices prices a call of 10,000 prompt tokens, 6,000 of them cache reads and 2,000 of them cache writes, and 1,000 completion tokens
-- **THEN** the client cost of the call equals the cost at the prices of the gateway config, the groups include `deepseek-v4.1-flash-1017`, `claude-sonnet-5-5` and `claude-haiku-5-5`, and both deployments of `deepseek-v4.1-flash-1017` are checked
 
 ### Requirement: An agent of build_agent records and counts each model request
 The spend hook of `build_agent` SHALL write one spend record for each model request, with the cached prompt tokens of the reply, and SHALL add 1 to `devops_cli_ai_model_answers_total` for a reply that names its model, with the labels of `record_run_spend`. A request SHALL add one count only.
@@ -446,7 +439,7 @@ The spend hook of `build_agent` SHALL pass `served_by` to `track_request_spend`,
 - **THEN** the request is priced at the model that the reply names, not at zero
 
 ### Requirement: A local gateway group counts as local
-`is_local` SHALL count a gateway reply as local when it names a local group of `k8s/llm/gateway/config.yaml`, a model with the `local/` prefix, or a model with the `ollama/`, `ollama_chat/` or `ollama:` prefix. It SHALL keep a hosted group hosted.
+`is_local` SHALL count a gateway reply as local when it names a group of `CONST_AI_GATEWAY_LOCAL_GROUPS`, a model with the `local/` prefix, or a model with the `ollama/`, `ollama_chat/` or `ollama:` prefix. It SHALL keep a hosted group hosted.
 
 #### Scenario: A local fallback
 - **WHEN** a gateway reply names `ollama_chat/qwen3.8:27b`
@@ -552,24 +545,6 @@ Local savings: USD per hour and Local savings by backend server: USD per hour SH
 - **WHEN** a test reads the two panels
 - **THEN** each has the Min interval `1h`, the draw style `bars` and the unit `currencyUSD`, the bars by backend stack, and the chart rules find no problem
 
-### Requirement: The savings by backend name each in-cluster service
-Local savings by backend server: USD per hour SHALL show one series for each Kubernetes service of an in-cluster Ollama, with the legend `{{backend}}`. The query SHALL join the tokens on `model_id` to the service name in the `api_base` of `litellm_deployment_total_requests_total`, and a deployment with no `api_base` SHALL take the name of its `litellm_model_name`. No series SHALL name only the gateway.
-
-#### Scenario: Two groups on one service and an embedding deployment
-- **WHEN** promtool evaluates the panel over fixture series in which `ollama-48gib-fast` runs $1 an hour, two groups on `ollama-64gib-standard` run $0.50 and $0.25 an hour, an embedding deployment with no `api_base` runs $0.25 an hour, and the deployment counter also has series with no `api_base` and with no `model_id`
-- **THEN** the panel gives `ollama-48gib-fast` $1, `ollama-64gib-standard` $0.75 and `qwen3-embedding:0.6b` $0.25 for the hour
-
-#### Scenario: Each service of the gateway config
-- **WHEN** a test applies the regex of the query to each in-cluster `api_base` of `k8s/llm/gateway/config.yaml`
-- **THEN** each gives the Kubernetes service name of its host
-
-### Requirement: Each in-cluster gateway deployment has a priced provider
-Each deployment of `k8s/llm/gateway/config.yaml` with an in-cluster `api_base` SHALL name the provider `ollama_chat` for a chat model or `ollama` with `model_info.mode: embedding` for an embedding model.
-
-#### Scenario: The providers of the in-cluster deployments
-- **WHEN** a test reads the provider and the mode of each in-cluster deployment of the gateway config
-- **THEN** the pairs are `ollama` with `embedding` and `ollama_chat` with `chat`
-
 ### Requirement: Observer call record holds cache token counts
 The call record passed to `observe_llm_calls` callbacks via `_notify_call_observers` SHALL include `cache_read_tokens` and `cache_write_tokens` from the tracked spend call.
 
@@ -611,3 +586,10 @@ When a gateway reply omits `x-litellm-model-name`, the client spend ledger MUST 
 #### Scenario: An agent reply with no deployment header
 - **WHEN** an agent runs on a gateway stub whose reply omits `x-litellm-model-name` and sets body model `deepseek-v4.1-flash-1017` with 1,000,000 input tokens
 - **THEN** the ledger row records `served_model` as `deepseek-v4.1-flash-1017` and 0.0784 USD
+
+### Requirement: Local savings by backend show each in-cluster service
+Local savings by backend server: USD per hour SHALL show one series for each Kubernetes service of an in-cluster Ollama, with the legend `{{backend}}`. The query SHALL join the tokens on `model_id` to the service name in the `api_base` of `litellm_deployment_total_requests_total`, and a deployment with no `api_base` SHALL take the name of its `litellm_model_name`. No series SHALL name only the gateway.
+
+#### Scenario: Two groups on one service and an embedding deployment
+- **WHEN** promtool evaluates the panel over fixture series in which `ollama-48gib-fast` runs $1 an hour, two groups on `ollama-64gib-standard` run $0.50 and $0.25 an hour, an embedding deployment with no `api_base` runs $0.25 an hour, and the deployment counter also has series with no `api_base` and with no `model_id`
+- **THEN** the panel gives `ollama-48gib-fast` $1, `ollama-64gib-standard` $0.75 and `qwen3-embedding:0.6b` $0.25 for the hour

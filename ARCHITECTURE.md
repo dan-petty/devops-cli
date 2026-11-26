@@ -157,7 +157,7 @@ flowchart TD
   - Set the item limit shorter than the deadline of the Job.
   - Set the timeout of a call that makes reads, such as an MCP tool call, longer than each read.
   - Known break: some MCP resources stop at 30 s, before the 60 s bound of their GitHub read (#4678).
-  - The idle cut of a network hop does not nest. The Cloudflare tunnel in front of the LLM gateway cuts a request that has no data for 125 s. Thus each chat call streams. The gateway sends a keepalive into a streamed reply after 30 s with no data ([k8s/README.md](k8s/README.md)).
+  - The idle cut of a network hop does not nest. The Cloudflare tunnel in front of the LLM gateway cuts a request that has no data for 125 s. Thus each chat call streams. The gateway sends a keepalive into a streamed reply after 30 s with no data (the gateway configuration of the environment tree, dan-petty/homelab).
 
 ---
 

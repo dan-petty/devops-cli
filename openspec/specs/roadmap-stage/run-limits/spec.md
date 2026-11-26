@@ -123,11 +123,11 @@ The context of the first plan request and the longest answer of `read_spec` SHAL
 - **THEN** the result holds the three entries in order
 
 ### Requirement: The window of the stage task is documented with its source
-The page `docs/roadmap/stage.md` SHALL state the `context_window` of the task `stage` and the file that sets it, and the `max_input_tokens` of the model of that task and the file that sets it. The stated values SHALL equal the values in `k8s/devops/configmap.example.yaml` and `k8s/llm/gateway/config.yaml`.
+The page `docs/roadmap/stage.md` SHALL state the `context_window` of the task `stage` and the file that sets it, and the `max_input_tokens` of the model of that task and that the gateway config of the environment tree sets it. The stated `context_window` SHALL equal the value in `k8s/devops/configmap.example.yaml`.
 
 #### Scenario: The page and the files agree
-- **WHEN** a test reads the two files and the page
-- **THEN** the page states 256,000 and `k8s/devops/configmap.example.yaml`, and 1,048,576 and `k8s/llm/gateway/config.yaml`, as the files hold them
+- **WHEN** a person reads the page and `k8s/devops/configmap.example.yaml`
+- **THEN** the page states 256,000 and `k8s/devops/configmap.example.yaml`, and 1,048,576 and the gateway config of the environment repository
 
 ### Requirement: The refine investigation request is measured against the tool-removal limit
 A test SHALL build the first request of a refine investigation at a window of 65536 tokens, count its tokens as the run hook counts them, print the count with the limit of 49152 tokens, and assert that the request of a large item stays under the limit. Refine SHALL NOT change.

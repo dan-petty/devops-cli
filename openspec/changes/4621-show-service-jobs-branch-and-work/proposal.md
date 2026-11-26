@@ -12,7 +12,7 @@ The owner asked on 2026-11-11 that the Service dashboard show the service jobs, 
 - Offer the repo, item and job variables, filter the table on all three and the log panel on job.
 - Add a rule and its cases to `tests/grafana/test_service_dashboard.py`: the dashboard test fails and names the panel and the key when a query of a Job panel reads a family that is no kube_job family, or a Job label or annotation that the Service does not set.
 - Add a case to `tests/telemetry/test_service_counter_series.py` that primes the Service counters and reads the label sets of the metrics registry, so no Service series carries a label named item, branch or worktree.
-- Describe the Job panels in the section Grafana Dashboards of `k8s/README.md` and the two annotations in the sections Runner Jobs and Stage Jobs of `docs/CLUSTER.md`, and update the Service dashboard row of `docs/DESIGN.md`.
+- Describe the Job panels in `docs/DESIGN.md` and the two annotations in the sections Runner Jobs and Stage Jobs of `docs/CLUSTER.md`, and update the Service dashboard row of `docs/DESIGN.md`.
 - Change no file of the environment. dan-petty/homelab holds the monitoring folder of the cluster since step 11 of the homelab switch, and the check `environment-freeze` of the `k8s` row refuses a branch that changes a file there. dan-petty/homelab#263 sets the kube-state-metrics allowlists for the Job labels and annotations, sets `jobs = true` for the Roadmap Service and regenerates its dashboard, after the release that holds this change.
 - Leave out the 4 gate panels and the 3 alerts that the comment of 2026-11-11 on #4621 adds. They read the metrics of #4698: gate runs, queue time, fallbacks and disagreements with GitHub. No such series exists in this repository. The run history link is #7272, and the annotations of Argo Workflows are #7273.
 - The change fits one pull request.
@@ -33,7 +33,7 @@ None.
 ## Impact
 
 - Code: `src/devops_cli/k8s/cluster_job.py`, `src/devops_cli/roadmap/stage/stage_submit.py`, `src/devops_cli/roadmap/implement/implement_submit.py`, `src/devops_cli/grafana/service_specs.py`, `src/devops_cli/grafana/service_dashboard.py`
-- Documents: `k8s/README.md`, `docs/CLUSTER.md`, `docs/DESIGN.md`
+- Documents: `docs/CLUSTER.md`, `docs/DESIGN.md`
 - Tests: `tests/telemetry/test_service_counter_series.py`, `tests/roadmap/stage/test_roadmap_stage_submit.py`, `tests/roadmap/implement/test_roadmap_implement_submit.py`, `tests/grafana/test_service_dashboard.py`
 
 ## Feasibility

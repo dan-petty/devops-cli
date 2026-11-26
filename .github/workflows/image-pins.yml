@@ -1,24 +1,21 @@
 name: Image Pins
 
-# Resolves each image that an Argo CD Application pins when a pull request changes the manifests,
-# the command or this workflow, so a wrong tag fails the pull request and not the sync (#1994).
-# The command reads the environment tree that `.devops/project.toml` names (#5131).
+# Resolves each image that the product base k8s/devops pins when a pull request changes it, the
+# command or this workflow, so a wrong tag fails the pull request and not the sync (#1994). The
+# environment repository checks the images of its own tree (#7290).
 # The native `paths` filter stops the run before a runner starts, so a pull request that changes
 # none of the paths starts no job and shows no check (#4653). The check is not required.
 # A push to main that changes the same paths runs the job too. The job only reads: it renders the
-# Applications in a temporary directory and sends HEAD requests. The run on main saves the cache
-# entry of kubectl and helm that each pull request restores (#6416).
+# folder and sends HEAD requests. The run on main saves the cache entry of kubectl that each pull
+# request restores (#6416).
 on:
   push:
     branches: [main]
     paths:
-      - "k8s/**"
+      - "k8s/devops/**"
       - "src/devops_cli/**/image_pins.py"
-      - "src/devops_cli/k8s/app_sources.py"
-      - "src/devops_cli/k8s/app_render.py"
-      - "src/devops_cli/k8s/environment.py"
+      - "src/devops_cli/k8s/template.py"
       - "src/devops_cli/docker/registry.py"
-      - ".devops/project.toml"
       - ".devcontainer/Dockerfile"
       - ".github/actions/devtools-commands/**"
       - ".github/workflows/image-pins.yml"
@@ -26,13 +23,10 @@ on:
     types: [opened, synchronize, reopened]
     branches: [main]
     paths:
-      - "k8s/**"
+      - "k8s/devops/**"
       - "src/devops_cli/**/image_pins.py"
-      - "src/devops_cli/k8s/app_sources.py"
-      - "src/devops_cli/k8s/app_render.py"
-      - "src/devops_cli/k8s/environment.py"
+      - "src/devops_cli/k8s/template.py"
       - "src/devops_cli/docker/registry.py"
-      - ".devops/project.toml"
       - ".devcontainer/Dockerfile"
       - ".github/actions/devtools-commands/**"
       - ".github/workflows/image-pins.yml"
@@ -52,10 +46,10 @@ env:
   UV_MANAGED_PYTHON: "1"
 
 jobs:
-  # `devops k8s image-pins` renders each Application as Argo CD does: a path source with kubectl,
-  # as the Argo CD gate of the test row does, and a chart source with helm and the repository's
-  # value files. It resolves each image once with a HEAD request of its manifest (`tag_digest`),
-  # which Docker Hub does not count as a pull.
+  # `devops k8s image-pins k8s/devops` renders the folder with kubectl and resolves each image once
+  # with a HEAD request of its manifest (`tag_digest`), which Docker Hub does not count as a pull.
+  # The 3 images of devops-cli carry no tag in git, because Image Updater sets their digest, so
+  # --managed names them.
   image-pins:
     name: Image Pins
     runs-on: ubuntu-26.04
@@ -75,20 +69,23 @@ jobs:
           cache-suffix: image-pins
           save-uv-cache: "false"
 
-      # The kubectl and helm of the devtools image, from the cache of the action (#6416). The job
-      # stays on the runner host: a container job pulls the whole image on each run. The next step
-      # puts their directory on PATH before /usr/local/bin, which holds the kubectl and helm of the
-      # runner image.
-      - name: Copy kubectl and helm from the devtools image
+      # The kubectl of the devtools image, from the cache of the action (#6416). The job stays on
+      # the runner host: a container job pulls the whole image on each run. The next step puts its
+      # directory on PATH before /usr/local/bin, which holds the kubectl of the runner image.
+      - name: Copy kubectl from the devtools image
         id: devtools
         uses: ./.github/actions/devtools-commands
         with:
-          commands: kubectl helm
+          commands: kubectl
 
-      - name: Put kubectl and helm on PATH
+      - name: Put kubectl on PATH
         env:
           BIN_DIR: ${{ steps.devtools.outputs.path }}
         run: echo "$BIN_DIR" >> "$GITHUB_PATH"
 
       - name: Resolve the Image Pins
-        run: uv run devops k8s image-pins
+        run: >-
+          uv run devops k8s image-pins k8s/devops
+          --managed ghcr.io/dan-petty/devops-cli/service
+          --managed ghcr.io/dan-petty/devops-cli/runner
+          --managed ghcr.io/dan-petty/devops-cli/mcp-server

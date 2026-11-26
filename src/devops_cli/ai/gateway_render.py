@@ -13,8 +13,8 @@ import yaml
 _WEIGHT_LINE_RE: Final[re.Pattern[str]] = re.compile(r"^\s*weight:\s*\d+\s*$")
 _MAX_TOKENS_LINE_RE: Final[re.Pattern[str]] = re.compile(r"^(\s*max_input_tokens:\s*)(\d+)(\s*)$")
 _API_BASE_RE: Final[re.Pattern[str]] = re.compile(r"api_base:\s*https?://([^.]+)\.")
-# The LiteLLM config file k8s/llm/gateway/config.yaml: its sections are top-level keys, and each
-# model_list entry starts at an indent of two.
+# The LiteLLM config file llm/gateway/config.yaml of the environment tree: its sections are
+# top-level keys, and each model_list entry starts at an indent of two.
 _SECTION_HEADER_RE: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9_-]+:")
 _ENTRY_START_RE: Final[re.Pattern[str]] = re.compile(r"^\s{2}-\s+")
 

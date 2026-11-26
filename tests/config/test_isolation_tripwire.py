@@ -3,6 +3,7 @@ registration that loads it and every other module under `tests/support/` (#1312)
 
 from __future__ import annotations
 
+import ast
 import importlib
 import os
 import sys
@@ -36,6 +37,34 @@ pytest_plugins = ("pytester",)
 
 _BOOTSTRAP_CONFTEST = 'pytest_plugins = ("tests.support.bootstrap",)\n'
 _SUPPORT_UNDER_TEST = "registered_support_under_test"
+
+
+def _imports_at_load(path: Path) -> list[str]:
+    """The modules that `path` imports when it loads: the imports at its top level, not those
+    under `if TYPE_CHECKING:` or in a function."""
+    names: list[str] = []
+    for node in ast.parse(path.read_text(encoding="utf-8")).body:
+        if isinstance(node, ast.Import):
+            names.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            names.append(node.module or "")
+    return names
+
+
+def test_no_folder_conftest_imports_devops_cli_when_it_loads() -> None:
+    """pytest loads the conftest of a folder before `tests.support.bootstrap` isolates HOME when
+    the command line names a test of that folder, as a CI shard does. An import of devops-cli or
+    of a support module there binds the config directory to the HOME before isolation, which the
+    workers of a run then share (#7290)."""
+    offenders = [
+        f"{path.relative_to(REPO_ROOT)}: {name}"
+        for path in sorted((REPO_ROOT / "tests").glob("*/**/conftest.py"))
+        if "fixtures" not in path.relative_to(REPO_ROOT).parts
+        for name in _imports_at_load(path)
+        if name.split(".")[0] == "devops_cli" or name.startswith("tests.support")
+    ]
+
+    assert offenders == []
 
 
 @pytest.mark.live("python")

@@ -95,7 +95,7 @@ curl http://localhost:11434/api/embeddings -d '{
 ## 4. Best Practice Guidance & Performance Tuning
 
 1. **Size Concurrency to the KV Cache in Kubernetes / Host Daemons**:
-   - Ollama reserves KV cache for `OLLAMA_CONTEXT_LENGTH` × `OLLAMA_NUM_PARALLEL` tokens, so the tiers in [`k8s/llm/profiles/ollama-profiles.yaml`](../../../../../../k8s/llm/profiles/ollama-profiles.yaml) serve one request per model at a time. A tier keeps one model loaded:
+   - Ollama reserves KV cache for `OLLAMA_CONTEXT_LENGTH` × `OLLAMA_NUM_PARALLEL` tokens, so the tiers in `llm/profiles/ollama-profiles.yaml` of the environment tree (dan-petty/homelab) serve one request per model at a time. A tier keeps one model loaded:
      ```yaml
      env:
        - name: OLLAMA_MAX_LOADED_MODELS
@@ -105,7 +105,7 @@ curl http://localhost:11434/api/embeddings -d '{
      ```
    - `ollama-48gib` and `ollama-64gib` load `qwen3.8:27b` and no other model (#3567). They set `OLLAMA_CONTEXT_LENGTH` to 262144 (the native limit, from `ollama show`), `OLLAMA_MAX_LOADED_MODELS: "1"` and `OLLAMA_KEEP_ALIVE: "-1"`, and the gateway sends them no other model and no embedding. With q8_0 KV cache the model takes 27 GB at that length, 100% on the GPUs of `ollama-48gib`. A client that names another model straight to the tier makes Ollama unload `qwen3.8:27b` and load that model.
    - A chat tier that the gateway sends embeddings to keeps two models loaded (`OLLAMA_MAX_LOADED_MODELS: "2"`). No tier does this now: the gateway sends `ollama-16gib` nothing, because its host is unstable. Ollama loads the second model only when both fit in VRAM, and otherwise unloads the idle one, so `qwen3-embedding:0.6b` stays beside the chat model where it fits. The gateway sends `num_ctx: 8192` with each embedding, so the embedder needs 2.2 to 2.9 GB, not the 3.1 to 5.2 GB of its 32,768-token default.
-   - `ollama-24gib-embed-gpu0` and `-gpu1` serve the embedding model alone, one instance on each GPU of a Pascal node, and keep it loaded for good (`OLLAMA_KEEP_ALIVE: "-1"`). `k8s/llm/profiles/gpu-thresholds.yaml` sets which tiers do this (#3501).
+   - `ollama-24gib-embed-gpu0` and `-gpu1` serve the embedding model alone, one instance on each GPU of a Pascal node, and keep it loaded for good (`OLLAMA_KEEP_ALIVE: "-1"`). `llm/profiles/gpu-thresholds.yaml` of the environment tree sets which tiers do this (#3501).
    - Measured on Ollama 0.40.12 on two Quadro P6000, with source code in chunks of about 300 tokens, in batches of 32 (#3501, #3518):
      - Time is proportional to tokens: about 5 ms for each input and 0.16 ms for each token, or about 6,000 tokens a second. A batch of 1 and a batch of 64 have the same time for each input, so batch size does not change throughput on this GPU.
      - One instance gives 0.56 batches a second, and two give 1.10. `OLLAMA_NUM_PARALLEL` of 1, 2 and 4 and `num_batch` of 1024, 2048 and 8192 give no gain. Add GPUs for throughput.

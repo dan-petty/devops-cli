@@ -31,29 +31,6 @@ The stage prompt and `openspec/config.yaml` SHALL give only example test paths w
 - **WHEN** a test reads the stage prompt and `openspec/config.yaml`
 - **THEN** each example test path has a folder under `tests/` that mirrors a package of `src/devops_cli/`
 
-### Requirement: A manifest plan names the tests that reference it
-The stage job SHALL refuse a plan that changes a YAML manifest under `k8s/` and lists no test file that references that manifest, because the implement job cannot edit a test outside the `Changes:` list of the plan.
-
-#### Scenario: The plan of the logging egress rule omits the logging test
-- **WHEN** the plan changes `k8s/logging/networkpolicy.yaml`, the job records `tests/commands/k8s/test_k8s_logging_stack.py` as a reference to it, and the plan lists no such test
-- **THEN** the problem names `k8s/logging/networkpolicy.yaml` and `tests/commands/k8s/test_k8s_logging_stack.py`, and it asks for the test in `Changes:`
-
-#### Scenario: The plan of the logging egress rule names the logging test
-- **WHEN** the plan changes `k8s/logging/networkpolicy.yaml` and lists `tests/commands/k8s/test_k8s_logging_stack.py`
-- **THEN** the path gate reports no problem that names either path
-
-#### Scenario: The test builds the manifest path from its parts
-- **WHEN** a test file holds the literals `logging` and `networkpolicy.yaml` in separate strings
-- **THEN** the record names that test as a reference to `k8s/logging/networkpolicy.yaml`
-
-#### Scenario: The test holds only the folder name
-- **WHEN** a test file holds `logging` but not `networkpolicy.yaml`
-- **THEN** the record names no reference to `k8s/logging/networkpolicy.yaml` for that file
-
-#### Scenario: The job records no reference
-- **WHEN** the gate gets no record, as a replay of a case with none does
-- **THEN** the check reports no missing reference
-
 ### Requirement: A test-only other group names its test function
 The stage plan SHALL refuse an other task group that changes only test modules and whose implementation names no test function in a code span. It SHALL accept an other group with one changed path that is no test module. A test module is a path under `tests/` whose base name starts with `test_` and ends with `.py`. A code span names a test function when its text after the last `::`, or the whole span, starts with `test_`, with optional parentheses.
 
@@ -264,3 +241,26 @@ The stage prompt of a run with the toolset `extended` SHALL tell the planner to 
 #### Scenario: A new invariant test of a plan with no source change
 - **WHEN** a group creates `tests/invariants/test_k8s_runner.py` and the plan changes only `.github/renovate.json`
 - **THEN** `check_proposal` returns a problem that names the path and asks for the folder that mirrors the package of the source code that it tests
+
+### Requirement: A plan of a manifest names the tests that reference it
+The stage job SHALL refuse a plan that changes a YAML manifest under `k8s/` and lists no test file that references that manifest, because the implement job cannot edit a test outside the `Changes:` list of the plan.
+
+#### Scenario: The plan omits the test of the manifest
+- **WHEN** the plan changes `k8s/devops/networkpolicy.yaml`, the job records `tests/commands/k8s/test_sample.py` as a reference to it, and the plan lists no such test
+- **THEN** the problem names `k8s/devops/networkpolicy.yaml` and `tests/commands/k8s/test_sample.py`, and it asks for the test in `Changes:`
+
+#### Scenario: The plan names the test of the manifest
+- **WHEN** the plan changes `k8s/devops/networkpolicy.yaml` and lists `tests/commands/k8s/test_sample.py`
+- **THEN** the path gate reports no problem that names either path
+
+#### Scenario: The test builds the manifest path from its parts
+- **WHEN** a test file holds the literals `devops` and `networkpolicy.yaml` in separate strings
+- **THEN** the record names that test as a reference to `k8s/devops/networkpolicy.yaml`
+
+#### Scenario: The test holds only the folder name
+- **WHEN** a test file holds `devops` but not `networkpolicy.yaml`
+- **THEN** the record names no reference to `k8s/devops/networkpolicy.yaml` for that file
+
+#### Scenario: The job records no reference
+- **WHEN** the gate gets no record, as a replay of a case with none does
+- **THEN** the check reports no missing reference

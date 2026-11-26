@@ -54,6 +54,7 @@ from devops_cli.k8s.argocd_gate import discover_argocd_applications
 from devops_cli.k8s.cluster_secrets import (
     BASE_STACK,
     DETACHED_STACKS,
+    ClusterSecret,
     load_cluster_secrets_table,
     secrets_for_stacks,
 )
@@ -144,7 +145,7 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
     "infra": [
         # First: argocd's metrics.serviceMonitor, argo-workflows' controller.serviceMonitor,
         # pyroscope's serviceMonitor, qdrant's metrics.serviceMonitor and
-        # k8s/llm/gateway/servicemonitor.yaml define ServiceMonitors,
+        # llm/gateway/servicemonitor.yaml of the environment tree define ServiceMonitors,
         # and no other chart ships their CRD (k8s-monitoring 4.x dropped it).
         {
             "name": "prometheus-operator-crds",
@@ -303,7 +304,7 @@ MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     # are in the build of Application `ingress`.
     "llm": [
         Path("llm", "networkpolicy.yaml"),
-        Path("llm", "valkey.yaml"),
+        Path("llm", "valkey"),
         Path("llm", "valkey-runs.yaml"),
         Path("llm", "valkey-devops.yaml"),
         Path("llm", "profiles", "services.yaml"),
@@ -1374,12 +1375,26 @@ def _error_line(error: str) -> str:
     return " ".join(error[max(start, 0) :].split())
 
 
+def _tree_paths(env: EnvironmentTree, paths: Sequence[Path]) -> list[Path]:
+    """Each of `paths`, a path of the stack tables, in the tree `env`. A dry run that lists a
+    file that is not there, and a teardown that ignores it, would report success (#7290).
+
+    Raises:
+        ConfigurationError: the tree lacks one of them.
+    """
+    return [env.require(env.path(path)) for path in paths]
+
+
 def _collect_deploy_targets(
     selected_stacks: Sequence[str], env: EnvironmentTree, product: Path, trees: SourceTrees
 ) -> tuple[list[StackRelease], list[str], list[Path], list[Path]]:
     """Collect Helm releases, pre-Helm manifests, kustomizations, and post-Helm paths for stacks:
     the environment paths under `env`, the product paths under `product`, and the values files
-    that the Applications of `env` name, in the sources of `trees`."""
+    that the Applications of `env` name, in the sources of `trees`.
+
+    Raises:
+        ConfigurationError: `env` lacks a path of a stack.
+    """
     all_releases: list[StackRelease] = []
     all_manifests: list[str] = []
     all_kustomizations: list[Path] = []
@@ -1391,9 +1406,9 @@ def _collect_deploy_targets(
             for release in HELM_RELEASES_BY_STACK.get(s_name, [])
         )
         all_manifests.extend(str(product / p) for p in PRODUCT_MANIFESTS_BY_STACK.get(s_name, []))
-        all_manifests.extend(str(env.path(p)) for p in MANIFESTS_BY_STACK.get(s_name, []))
-        all_kustomizations.extend(env.path(k) for k in KUSTOMIZATIONS_BY_STACK.get(s_name, ()))
-        all_post_helm.extend(env.path(p) for p in POST_HELM_BY_STACK.get(s_name, ()))
+        all_manifests.extend(str(p) for p in _tree_paths(env, MANIFESTS_BY_STACK.get(s_name, [])))
+        all_kustomizations.extend(_tree_paths(env, KUSTOMIZATIONS_BY_STACK.get(s_name, ())))
+        all_post_helm.extend(_tree_paths(env, POST_HELM_BY_STACK.get(s_name, ())))
         all_post_helm.extend(product / p for p in PRODUCT_POST_HELM_BY_STACK.get(s_name, ()))
     return all_releases, all_manifests, all_kustomizations, all_post_helm
 
@@ -1436,7 +1451,11 @@ def _source_trees(env: EnvironmentTree, workdir: Path, *, dry_run: bool) -> Sour
 def _collect_teardown_targets(
     selected_stacks: Sequence[str], env: EnvironmentTree, product: Path
 ) -> tuple[list[StackRelease], list[Path], list[str]]:
-    """Collect Helm uninstalls, post-Helm deletes, and manifest deletes in reverse stack order."""
+    """Collect Helm uninstalls, post-Helm deletes, and manifest deletes in reverse stack order.
+
+    Raises:
+        ConfigurationError: `env` lacks a path of a stack.
+    """
     all_uninstalls: list[StackRelease] = []
     all_post_helm_deletes: list[Path] = []
     all_manifest_deletes: list[str] = []
@@ -1449,11 +1468,9 @@ def _collect_teardown_targets(
         all_post_helm_deletes.extend(
             product / p for p in reversed(PRODUCT_POST_HELM_BY_STACK.get(s_name, ()))
         )
-        all_post_helm_deletes.extend(
-            env.path(p) for p in reversed(POST_HELM_BY_STACK.get(s_name, ()))
-        )
+        all_post_helm_deletes.extend(_tree_paths(env, POST_HELM_BY_STACK.get(s_name, ()))[::-1])
         all_manifest_deletes.extend(
-            str(env.path(p)) for p in reversed(MANIFESTS_BY_STACK.get(s_name, []))
+            str(p) for p in _tree_paths(env, MANIFESTS_BY_STACK.get(s_name, []))[::-1]
         )
         all_manifest_deletes.extend(
             str(product / p) for p in reversed(PRODUCT_MANIFESTS_BY_STACK.get(s_name, []))
@@ -1467,6 +1484,9 @@ def _stack_roots(
     """The environment tree and the product base that the stacks read, or exit naming the option
     when a stack with product paths selects a product base that is not a folder."""
     env = resolve_environment(k8s_dir)
+    env.require_applications()
+    # deploy-stack applies the root kustomization, and the teardown of stack `all` deletes it.
+    env.require(env.root_kustomization)
     product = resolve_product_root(product_dir)
     wanted = any(
         PRODUCT_MANIFESTS_BY_STACK.get(s) or PRODUCT_POST_HELM_BY_STACK.get(s)
@@ -1501,25 +1521,25 @@ def _deploy_native_manifests(
 def _handle_argo_managed_deployment(
     selected_stacks: Sequence[str],
     effective_context: str | None,
-    push_secrets: bool,
+    table: tuple[ClusterSecret, ...] | None,
     config_map: str | None,
     sandbox_config_map: str | None,
-    env: EnvironmentTree | None = None,
     *,
     product: Path | None = None,
     reason: str | None = None,
 ) -> None:
-    """Supply the values that deploy-stack holds, and leave every manifest to Argo CD.
+    """Supply the values that deploy-stack holds, and leave every manifest to Argo CD. `table` is
+    the Secret table of the push, or None with no push.
 
     Secrets come from the keyring, ConfigMap devops-cli-config from the active config, and the
     credential-free ConfigMap devops-cli-config-sandbox from it too. The infra repo holds the
     hosts as patches of the Applications (#7257).
     """
     kubectl_ctx = ["--context", effective_context] if effective_context else []
-    if push_secrets:
+    if table is not None:
         print_info(MESSAGES.k8s.pushing_secrets, prefix=False)
         push_for_stacks(
-            _push_stacks_for(selected_stacks, effective_context), effective_context, env=env
+            _push_stacks_for(selected_stacks, effective_context), effective_context, table=table
         )
     _apply_devops_configmap(config_map, sandbox_config_map, product, kubectl_ctx, reason=reason)
 
@@ -1748,7 +1768,9 @@ def deploy_stack(
             )
             return
 
-        # 2. A push needs the unlocked keyring: check it before anything reads or writes the cluster
+        # 2. A push needs the Secret table and the unlocked keyring: check both before anything
+        # reads or writes the cluster
+        table = load_cluster_secrets_table(env=env) if push_secrets else None
         if push_secrets:
             require_keyring_for_push()
 
@@ -1768,10 +1790,9 @@ def deploy_stack(
             _handle_argo_managed_deployment(
                 selected_stacks,
                 effective_context,
-                push_secrets,
+                table,
                 config_map,
                 sandbox_config_map,
-                env=env,
                 product=product,
                 reason=reason,
             )
@@ -1784,10 +1805,12 @@ def deploy_stack(
         _apply_kustomizations([env.root, *all_kustomizations], kubectl_ctx)
 
         # 5. Push the stacks' Secrets before anything reads them
-        if push_secrets:
+        if table is not None:
             print_info(MESSAGES.k8s.pushing_secrets, prefix=False)
             push_for_stacks(
-                _push_stacks_for(selected_stacks, effective_context), effective_context, env=env
+                _push_stacks_for(selected_stacks, effective_context),
+                effective_context,
+                table=table,
             )
 
         # 5b. Verify Helm version requirement before Helm operations

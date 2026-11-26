@@ -11,7 +11,6 @@ import json
 import logging
 import logging.config
 from collections.abc import Iterator
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -21,7 +20,6 @@ from devops_cli.telemetry.tracer import trace_span
 from tests.support.fakes.otlp import FakeCollector
 
 SERVICE_LOGGER = "devops_cli.tests.service_log_trace_ids"
-GRAFANA_VALUES = Path("k8s/monitoring/grafana-values.yaml")
 
 
 @pytest.fixture

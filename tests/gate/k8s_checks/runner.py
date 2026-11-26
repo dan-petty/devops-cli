@@ -352,24 +352,3 @@ def check_the_pods_of_jobs_carry_no_label_that_the_service_policy_selects(name: 
     template = _object("CronJob", name)["spec"]["jobTemplate"]["spec"]["template"]
 
     assert template["metadata"]["labels"].get("app.kubernetes.io/name") != "roadmap-service"
-
-
-def check_image_updater_keeps_the_runner_image_on_its_latest_digest() -> None:
-    values = yaml.safe_load(
-        (REPO_ROOT / "k8s" / "argocd" / "image-updater-values.yaml").read_text(encoding="utf-8")
-    )
-    (updater,) = values["extraObjects"]
-    (ref,) = updater["spec"]["applicationRefs"]
-
-    assert {
-        image["alias"]: (
-            image["imageName"],
-            image["commonUpdateSettings"]["updateStrategy"],
-            image["commonUpdateSettings"]["forceUpdate"],
-        )
-        for image in ref["images"]
-    } == {
-        "service": ("ghcr.io/dan-petty/devops-cli/service:latest", "digest", True),
-        "runner": (f"{RUNNER_IMAGE}:latest", "digest", True),
-        "mcp-server": ("ghcr.io/dan-petty/devops-cli/mcp-server:latest", "digest", True),
-    }

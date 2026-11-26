@@ -2,9 +2,9 @@
 
 `devops_cli.grafana.service_dashboard` builds the dashboard of a Kubernetes service from a spec
 with the Grafana Foundation SDK, in the layout of docs/DESIGN.md ("Grafana layout", C12 and C14),
-and `make dashboards` writes each spec of `k8s/monitoring/dashboards/services.toml` as
-`<uid>.json`. tests/fixtures/dashboard_queries/ holds the cases that evaluate the SLO queries with
-promtool.
+and `python -m devops_cli.grafana.service_dashboard <services.toml>`, which the owner of a spec
+file runs, writes each spec of the file as `<uid>.json`. tests/fixtures/dashboard_queries/ holds
+the cases that evaluate the SLO queries with promtool.
 """
 
 from __future__ import annotations
@@ -31,7 +31,6 @@ from devops_cli.grafana.service_specs import SPEC_FILE_NAME
 from tests.support.design_tokens import DESIGN_SPEC, GRAFANA_BACKGROUNDS
 from tests.support.paths import REPO_ROOT
 
-DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
 TEMPLATE = REPO_ROOT / "src" / "devops_cli" / "grafana" / "service_dashboard.py"
 CPU_PROFILE = "process_cpu:cpu:nanoseconds:cpu:nanoseconds"
 MEMORY_PROFILE = "memory:inuse_space:bytes:space:bytes"

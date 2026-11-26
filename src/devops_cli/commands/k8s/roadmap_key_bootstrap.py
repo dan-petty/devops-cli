@@ -17,7 +17,7 @@ from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result
 from devops_cli.exceptions.k8s import ClusterSecretPushError
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
-from devops_cli.k8s.cluster_secrets import SecretKeyRef, secrets_by_ref
+from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS, SecretKeyRef, secrets_by_ref
 from devops_cli.k8s.secret_push import PushMode, PushOptions, _LiveSecrets
 from devops_cli.lang import HELP
 from devops_cli.output import print_info, print_success
@@ -83,7 +83,7 @@ def _generate_virtual_key(
 
 def _push_roadmap_secret(context: str | None) -> None:
     """Push Secret devops/roadmap-service-llm-key to the cluster."""
-    secrets, _ = secrets_by_ref([TARGET_REF])
+    secrets, _ = secrets_by_ref([TARGET_REF], table=CLUSTER_SECRETS)
     run_push(secrets, PushOptions(context=context), mode=PushMode.PUSH)
 
 

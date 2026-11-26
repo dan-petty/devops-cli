@@ -2,8 +2,8 @@
 `actions/checkout` that api.github.com gave on 2026-11-20 (#4012), and a repository to read.
 
 `github_repo` pins `tj-actions/changed-files` at `v45.0.0` and `v46.0.1`, `actions/checkout` at the
-major tag `v4`, and the chart `qdrant` 1.19.1, which `.devops/research-watch.toml` maps to the
-repository `qdrant/qdrant`.
+major tag `v4`, and the chart `qdrant` 1.19.1, which the watch list of that repository maps to
+the repository `qdrant/qdrant`.
 """
 
 from __future__ import annotations

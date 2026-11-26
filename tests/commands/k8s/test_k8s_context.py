@@ -43,20 +43,20 @@ def test_k8s_switch_context_dry_run() -> None:
     assert "minikube" in result.output
 
 
-def test_k8s_bootstrap_auto_start_failure(process_fake: ProcessFake) -> None:
+def test_k8s_bootstrap_auto_start_failure(process_fake: ProcessFake, env_tree: Path) -> None:
     minikube_stopped(process_fake)
 
-    result = runner.invoke(app, ["bootstrap", "--auto-start"])
+    result = runner.invoke(app, ["bootstrap", "--dir", str(env_tree), "--auto-start"])
 
     assert result.exit_code == 1
     assert "Failed to start minikube" in result.output
     assert calls_starting(process_fake, "minikube", "start") != []
 
 
-def test_k8s_bootstrap_no_auto_start(process_fake: ProcessFake) -> None:
+def test_k8s_bootstrap_no_auto_start(process_fake: ProcessFake, env_tree: Path) -> None:
     minikube_stopped(process_fake)
 
-    result = runner.invoke(app, ["bootstrap", "--no-auto-start"])
+    result = runner.invoke(app, ["bootstrap", "--dir", str(env_tree), "--no-auto-start"])
 
     assert result.exit_code == 1
     assert "minikube is not running" in result.output.lower()

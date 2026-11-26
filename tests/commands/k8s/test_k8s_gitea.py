@@ -1,7 +1,7 @@
 """Gitea, the homelab's internal forge and container registry (#1081): its stack.
 
-The form of the manifests and values under `k8s/gitea/` is the work of the `k8s` row of
-`devops ci` and of kube-linter, and no test asserts a value of them (#6060).
+The manifests and values of Gitea belong to the environment tree, which devops-cli does not
+ship.
 """
 
 from __future__ import annotations

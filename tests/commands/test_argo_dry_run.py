@@ -129,6 +129,15 @@ def block_external_calls(
     assert (dns.lookups, cluster.custom_objects.calls, cluster.core.calls) == ([], [], [])
 
 
+@pytest.fixture
+def tree_with_root_application(environment_repo: Path) -> None:
+    """The environment tree that `bootstrap-gitops` and `gitops drift` read, with the root
+    Application."""
+    root_application = environment_repo / "k8s" / "argocd" / "bootstrap" / "bootstrap.yaml"
+    root_application.parent.mkdir(parents=True)
+    root_application.write_text("kind: Application\n", encoding="utf-8")
+
+
 def test_command_dry_run_class_declarations() -> None:
     """Criterion 1: all 20 request-plan commands declare request-plan, and 2 declare no-external-request."""
     for name, callback, _ in REQUEST_PLAN_COMMANDS:
@@ -147,6 +156,7 @@ def test_command_dry_run_class_declarations() -> None:
 @pytest.mark.parametrize("name,callback,argv", REQUEST_PLAN_COMMANDS)
 def test_request_plan_commands_make_no_external_requests(
     block_external_calls: None,
+    tree_with_root_application: None,
     name: str,
     callback: Any,
     argv: list[str],
@@ -160,6 +170,7 @@ def test_request_plan_commands_make_no_external_requests(
 @pytest.mark.parametrize("name,callback,argv", NO_EXTERNAL_REQUEST_COMMANDS)
 def test_no_external_request_commands_execute_normally(
     block_external_calls: None,
+    tree_with_root_application: None,
     name: str,
     callback: Any,
     argv: list[str],

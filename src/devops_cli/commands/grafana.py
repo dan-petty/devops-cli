@@ -284,11 +284,12 @@ def _report_sync(result: DashboardSyncResult) -> DashboardSyncOutcome:
 
 def _default_dashboard_dirs(k8s_dir: Path | None) -> tuple[Path, ...]:
     """The dashboard folders of a sync or a lint with no folder (#5131): the environment
-    dashboards of the tree, then the product dashboards `dashboards` of the product base, when
-    the current repository holds the product base."""
+    dashboards of the tree, which it must hold, then the product dashboards `dashboards` of the
+    product base, when the current repository holds the product base."""
     from devops_cli.k8s.environment import resolve_environment, resolve_product_root
 
-    environment = resolve_environment(k8s_dir).dashboards
+    tree = resolve_environment(k8s_dir)
+    environment = tree.require(tree.dashboards)
     product = resolve_product_root() / "dashboards"
     return (environment, product) if product.is_dir() else (environment,)
 

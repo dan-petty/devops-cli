@@ -1,4 +1,4 @@
-"""Unit tests for Kubernetes logging stack lifecycle, manifests, and CLI integration."""
+"""Unit tests for Kubernetes logging stack lifecycle and CLI integration."""
 
 from __future__ import annotations
 
@@ -24,10 +24,10 @@ runner = CliRunner()
 
 
 def test_logging_stack_definitions_and_single_shipper(
-    cli: Callable[..., Any], process_fake: ProcessFake
+    cli: Callable[..., Any], process_fake: ProcessFake, env_tree: Path
 ) -> None:
     """Verify logging stack registers Loki alone (#548)."""
-    res = cli("k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", "k8s", "--dry-run")
+    res = cli("k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", str(env_tree), "--dry-run")
     assert res.exit_code == 0
     details = _dry_run_details(res.output)
 
@@ -48,11 +48,12 @@ def test_logging_stack_definitions_and_single_shipper(
 def test_deploy_stack_installs_loki_from_the_grafana_community_chart(
     cli: Callable[..., Any],
     process_fake: ProcessFake,
+    env_tree: Path,
 ) -> None:
-    """The logging stack of deploy-stack installs the chart `grafana-community/loki` (#1632). It
-    adds only the grafana-community repository, and gives the chart only the values file. The
-    version comes from the Argo CD Application of the tree (#6060)."""
-    res = cli("k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", "k8s", "--dry-run")
+    """The logging stack of deploy-stack installs the chart `grafana-community/loki` into the
+    namespace `logging` from the grafana-community repository (#1632). The version and the values
+    files come from the Argo CD Application of the tree (#6060, #6680)."""
+    res = cli("k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", str(env_tree), "--dry-run")
     assert res.exit_code == 0
     details = _dry_run_details(res.output)
 
@@ -63,18 +64,15 @@ def test_deploy_stack_installs_loki_from_the_grafana_community_chart(
 
     chart = upgrade_cmd[5]
     namespace = upgrade_cmd[upgrade_cmd.index("--namespace") + 1]
-    values = upgrade_cmd[upgrade_cmd.index("--values") + 1]
     repo_url = repo_cmd[4]
 
     assert (
         chart,
         namespace,
-        values,
         repo_url,
     ) == (
         "grafana-community/loki",
         "logging",
-        "k8s/logging/loki-values.yaml",
         "https://grafana-community.github.io/helm-charts",
     )
 
@@ -97,6 +95,7 @@ def _dry_run_details(output: str) -> dict[str, Any]:
 def test_deploy_stack_dry_run_lists_the_helm_commands_of_the_logging_stack(
     cli: Callable[..., Any],
     process_fake: ProcessFake,
+    env_tree: Path,
 ) -> None:
     """The logging stack dry run lists helm repo add/update and helm upgrade commands (#2469)."""
     expected_repo_cmds = [
@@ -118,8 +117,6 @@ def test_deploy_stack_dry_run_lists_the_helm_commands_of_the_logging_stack(
         "grafana-community/loki",
         "--namespace",
         "logging",
-        "--values",
-        "k8s/logging/loki-values.yaml",
         "--kube-context",
         "ctx-example",
     ]
@@ -130,7 +127,7 @@ def test_deploy_stack_dry_run_lists_the_helm_commands_of_the_logging_stack(
         "--stack",
         "logging",
         "--k8s-dir",
-        "k8s",
+        str(env_tree),
         "--context",
         "ctx-example",
         "--dry-run",
@@ -147,7 +144,7 @@ def test_deploy_stack_dry_run_lists_the_helm_commands_of_the_logging_stack(
         "--stack",
         "logging",
         "--k8s-dir",
-        "k8s",
+        str(env_tree),
         "--context",
         "ctx-example",
         "--dry-run",
@@ -163,6 +160,7 @@ def test_deploy_stack_dry_run_lists_the_helm_commands_of_the_logging_stack(
 def test_deploy_stack_dry_run_lists_the_helm_commands_that_the_real_run_starts(
     cli: Callable[..., Any],
     process_fake: ProcessFake,
+    env_tree: Path,
 ) -> None:
     """The dry run lists the helm repo and upgrade commands that the real run starts (#2469)."""
     ready_node = json.dumps(
@@ -200,7 +198,7 @@ def test_deploy_stack_dry_run_lists_the_helm_commands_that_the_real_run_starts(
         "--stack",
         "logging",
         "--k8s-dir",
-        "k8s",
+        str(env_tree),
         "--context",
         "ctx-example",
         "--no-push-secrets",
@@ -221,7 +219,7 @@ def test_deploy_stack_dry_run_lists_the_helm_commands_that_the_real_run_starts(
         "--stack",
         "logging",
         "--k8s-dir",
-        "k8s",
+        str(env_tree),
         "--context",
         "ctx-example",
         "--dry-run",
@@ -240,29 +238,34 @@ def test_deploy_stack_dry_run_lists_the_helm_commands_that_the_real_run_starts(
     assert helm_calls_during_dry_run == []
 
 
-def test_deploy_logging_stack_dry_run(process_fake: ProcessFake) -> None:
+def test_deploy_logging_stack_dry_run(process_fake: ProcessFake, env_tree: Path) -> None:
     """Verify deploy-stack --stack logging with dry run."""
     set_dry_run(True)
-    result = runner.invoke(app, ["deploy-stack", "--stack", "logging", "--no-push-secrets"])
+    argv = ["deploy-stack", "--stack", "logging", "--no-push-secrets", "--k8s-dir", str(env_tree)]
+    result = runner.invoke(app, argv)
     assert result.exit_code == 0
     assert "deploy-stack" in result.output
     assert "logging" in result.output
 
 
-def test_teardown_logging_stack_dry_run(process_fake: ProcessFake) -> None:
+def test_teardown_logging_stack_dry_run(process_fake: ProcessFake, env_tree: Path) -> None:
     """Verify teardown-stack --stack logging with dry run."""
     set_dry_run(True)
-    result = runner.invoke(app, ["teardown-stack", "--stack", "logging"])
+    argv = ["teardown-stack", "--stack", "logging", "--k8s-dir", str(env_tree)]
+    result = runner.invoke(app, argv)
     assert result.exit_code == 0
     assert "teardown-stack" in result.output
     assert "logging" in result.output
 
 
-def test_deploy_logging_stack_live(cluster: FakeCluster, process_fake: ProcessFake) -> None:
+def test_deploy_logging_stack_live(
+    cluster: FakeCluster, process_fake: ProcessFake, env_tree: Path
+) -> None:
     """Verify deploy-stack --stack logging execution."""
     answer_helm_version(process_fake)
+    argv = ["deploy-stack", "--stack", "logging", "--no-push-secrets", "--k8s-dir", str(env_tree)]
 
-    result = runner.invoke(app, ["deploy-stack", "--stack", "logging", "--no-push-secrets"])
+    result = runner.invoke(app, argv)
 
     installed = [
         call.argv[4]
@@ -272,9 +275,13 @@ def test_deploy_logging_stack_live(cluster: FakeCluster, process_fake: ProcessFa
     assert (result.exit_code, installed) == (0, ["loki"])
 
 
-def test_teardown_logging_stack_live(cluster: FakeCluster, process_fake: ProcessFake) -> None:
+def test_teardown_logging_stack_live(
+    cluster: FakeCluster, process_fake: ProcessFake, env_tree: Path
+) -> None:
     """Verify teardown-stack --stack logging execution."""
-    result = runner.invoke(app, ["teardown-stack", "--stack", "logging"])
+    argv = ["teardown-stack", "--stack", "logging", "--k8s-dir", str(env_tree)]
+
+    result = runner.invoke(app, argv)
 
     removed = [
         call.argv[2] for call in process_fake.calls if call.argv[:2] == ("helm", "uninstall")
@@ -394,10 +401,11 @@ def test_k8s_logs_escapes_rich_markup(config: Callable[..., Path], web: WebFake)
     assert "[bold red]critical payload syntax error[/bold red]" in result.output
 
 
-def test_k8s_teardown_stack_case_insensitive(process_fake: ProcessFake) -> None:
+def test_k8s_teardown_stack_case_insensitive(process_fake: ProcessFake, env_tree: Path) -> None:
     """Verify teardown-stack normalizes case-insensitive stack names."""
     set_dry_run(True)
-    result = runner.invoke(app, ["teardown-stack", "--stack", "LOGGING"])
+    argv = ["teardown-stack", "--stack", "LOGGING", "--k8s-dir", str(env_tree)]
+    result = runner.invoke(app, argv)
     assert result.exit_code == 0
     assert "teardown_k8s_stack" in result.output
 

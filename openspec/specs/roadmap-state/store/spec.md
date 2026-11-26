@@ -11,7 +11,7 @@ The folder `k8s/devops/valkey-roadmap` SHALL build the Valkey base of dan-petty/
 
 #### Scenario: The build of the product base
 - **WHEN** a person runs `uv run devops ci --check --only k8s`
-- **THEN** the row builds `k8s/devops` and `k8s/overlays/homelab/devops` with the folder `valkey-roadmap`, and passes
+- **THEN** the row builds `k8s/devops` with the folder `valkey-roadmap`, and passes
 
 #### Scenario: The images of the store resolve
 - **WHEN** a person runs `uv run devops k8s image-pins k8s/devops/valkey-roadmap`

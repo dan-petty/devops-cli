@@ -1,7 +1,7 @@
-# The kube-linter checks of the manifests of this repository (#6068). `devops k8s lint` builds each
-# path source of the Argo CD Applications of k8s/ as Argo CD builds it, and lints the builds in one
-# run with this file. The `kube-linter` row of `devops ci` runs it, and the Static Analysis job of
-# CI runs that row. A finding fails the row.
+# The kube-linter checks of the manifests of this repository (#6068). The `kube-linter` row of
+# `devops ci` runs `devops k8s lint k8s/devops`: kube-linter builds the product folder with
+# kustomize and lints the build with this file. The Static Analysis job of CI runs that row. A
+# finding fails the row, and so does a folder with no object.
 #
 # The checks are the default checks of kube-linter, and the checks below that
 # docs/SERVICE_PATTERNS.md names. The default checks include run-as-non-root,

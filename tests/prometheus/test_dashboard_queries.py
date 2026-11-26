@@ -1,8 +1,8 @@
 """The queries of the Grafana dashboard panels, evaluated on fixture series with promtool (#4680).
 
 Each file `tests/fixtures/dashboard_queries/<dashboard>.yaml` holds the cases of the panels of
-`<dashboard>.json` in `k8s/devops/dashboards/` (the product dashboards) or in
-`k8s/monitoring/dashboards/` (#5292). A file is a promtool unit test file with no rule
+`<dashboard>.json` in `k8s/devops/dashboards/` (the product dashboards, #5292). A file is a
+promtool unit test file with no rule
 file (`promtool test rules`), with these keys added:
 
 - `shape` of a test group names the series shape that its input series model, one of `SHAPES`.
@@ -32,7 +32,6 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterator, Mapping
-from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -44,12 +43,8 @@ from devops_cli.prometheus.client import parse_duration
 from tests.support.paths import FIXTURES, REPO_ROOT
 from tests.support.promtool import promtool
 
-# The folders of the committed dashboards: the product dashboards first (#5292).
-DASHBOARD_DIRS = (
-    REPO_ROOT / "k8s" / "devops" / "dashboards",
-    REPO_ROOT / "k8s" / "monitoring" / "dashboards",
-)
-GRAFANA_VALUES = REPO_ROOT / "k8s" / "monitoring" / "grafana-values.yaml"
+# The folder of the committed dashboards: the product dashboards (#5292).
+DASHBOARDS = REPO_ROOT / "k8s" / "devops" / "dashboards"
 CASE_FILES = sorted((FIXTURES / "dashboard_queries").glob("*.yaml"))
 CASE_IDS = [path.stem for path in CASE_FILES]
 
@@ -81,6 +76,10 @@ DERIVED = frozenset({"__range_s", "__range_ms", "__interval_ms", "__rate_interva
 
 # The scrape interval of a Prometheus data source that sets no `timeInterval` (Grafana default).
 DEFAULT_SCRAPE_INTERVAL = "15s"
+
+# The scrape interval (`timeInterval`) of each Grafana data source that a panel with a case reads,
+# by uid. The environment repository holds the data sources, and its Prometheus one sets 60s.
+SCRAPE_INTERVALS = {"prometheus": "60s", "loki": DEFAULT_SCRAPE_INTERVAL}
 
 
 def _seconds(duration: object) -> int:
@@ -160,8 +159,7 @@ def _targets(dashboard: dict[str, Any]) -> dict[tuple[str, str], list[dict[str, 
 
 
 def _dashboard(name: str) -> dict[str, Any]:
-    (path,) = [d / f"{name}.json" for d in DASHBOARD_DIRS if (d / f"{name}.json").is_file()]
-    dashboard: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    dashboard: dict[str, Any] = json.loads((DASHBOARDS / f"{name}.json").read_text("utf-8"))
     return dashboard
 
 
@@ -185,20 +183,10 @@ def _where(name: str, case: Mapping[str, Any]) -> str:
     return f"{name}.json panel {case['panel']!r} refId {case['ref_id']}"
 
 
-@cache
-def _scrape_intervals() -> dict[str, str]:
-    """The scrape interval (`timeInterval`) of each Grafana data source, by uid."""
-    sources = yaml.safe_load(GRAFANA_VALUES.read_text(encoding="utf-8"))["datasources"]
-    return {
-        source["uid"]: (source.get("jsonData") or {}).get("timeInterval", DEFAULT_SCRAPE_INTERVAL)
-        for source in sources["datasources.yaml"]["datasources"]
-    }
-
-
 def _scrape_s(target: dict[str, Any]) -> int:
     """The scrape interval that Grafana uses for `$__rate_interval`: the Min step of the target,
     else the scrape interval of its data source."""
-    return _seconds(target.get("interval") or _scrape_intervals()[target["datasource"]["uid"]])
+    return _seconds(target.get("interval") or SCRAPE_INTERVALS[target["datasource"]["uid"]])
 
 
 def dashboard_constants(dashboard: dict[str, Any]) -> dict[str, str]:
@@ -304,12 +292,12 @@ def test_a_capture_reference_of_label_replace_is_no_variable() -> None:
 
 def test_the_rate_interval_of_a_target_uses_its_min_step_over_the_data_source() -> None:
     """A target with a Min step uses it as the scrape interval; a target with none uses the
-    `timeInterval` of its data source in `grafana-values.yaml`."""
+    scrape interval of its data source."""
     source = {"type": "prometheus", "uid": "prometheus"}
     assert (
         _scrape_s({"datasource": source, "interval": "15m"}),
         _scrape_s({"datasource": source}),
-    ) == (900, _seconds(_scrape_intervals()["prometheus"]))
+    ) == (900, _seconds(SCRAPE_INTERVALS["prometheus"]))
 
 
 def test_a_bars_case_adds_up_one_bar_each_interval_of_its_range() -> None:

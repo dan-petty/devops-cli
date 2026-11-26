@@ -10,32 +10,9 @@
     "platformAutomerge": true
   },
   "kubernetes": {
-    "managerFilePatterns": ["/^k8s/.+\\.ya?ml$/"]
-  },
-  "argocd": {
-    "managerFilePatterns": ["/^k8s/argocd/apps/.+\\.ya?ml$/"]
-  },
-  "helm-values": {
-    "managerFilePatterns": ["/^k8s/.+values[^/]*\\.ya?ml$/"]
-  },
-  "customDatasources": {
-    "grafana_plugins": {
-      "defaultRegistryUrlTemplate": "https://grafana.com/api/plugins/{{packageName}}/versions",
-      "format": "json",
-      "transformTemplates": [
-        "{ \"releases\": [items.{ \"version\": version, \"releaseTimestamp\": createdAt, \"isDeprecated\": status != \"active\" }] }"
-      ]
-    }
+    "managerFilePatterns": ["/^k8s/devops/.+\\.ya?ml$/"]
   },
   "customManagers": [
-    {
-      "customType": "regex",
-      "description": "The Grafana plugins that Grafana preinstalls, pinned as <id>@<version> in the plugins value (#2022).",
-      "managerFilePatterns": ["/^k8s/monitoring/grafana-values\\.yaml$/"],
-      "matchStrings": ["-\\s+(?<depName>[a-z0-9][a-z0-9-]*)@(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
-      "datasourceTemplate": "custom.grafana_plugins",
-      "versioningTemplate": "semver"
-    },
     {
       "customType": "regex",
       "description": "The Python minor of the setup-uv python-version inputs.",
@@ -53,45 +30,6 @@
       "depNameTemplate": "python",
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "The PostgreSQL image of a CloudNativePG Cluster (spec.imageName), which the kubernetes manager does not read. The Image Updater values hold a deeper imageName field.",
-      "managerFilePatterns": ["/^k8s/.+\\.ya?ml$/"],
-      "matchStrings": ["\\n  imageName: (?<depName>[^\\s:@]+):(?<currentValue>[^\\s@]+)"],
-      "datasourceTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "The Mattermost version of the Mattermost resource, which names its image and tag in two fields.",
-      "managerFilePatterns": ["/^k8s/mattermost/mattermost\\.yaml$/"],
-      "matchStrings": ["\\n  image: (?<depName>\\S+)\\n  version: \"(?<currentValue>[^\"]+)\""],
-      "datasourceTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "The Gitea image tag. The chart gives the registry and the repository, so the helm-values manager cannot read it.",
-      "managerFilePatterns": ["/^k8s/gitea/values\\.yaml$/"],
-      "matchStrings": ["\\nimage:\\n  tag: \"(?<currentValue>[^\"]+)\""],
-      "depNameTemplate": "docker.gitea.com/gitea",
-      "datasourceTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "The DCGM exporter image tag, <DCGM version>-<exporter version>-<variant>. The exporter version is the version of the chart.",
-      "managerFilePatterns": ["/^k8s/monitoring/dcgm-exporter-values\\.yaml$/"],
-      "matchStrings": ["\\nimage:\\n  tag: (?<currentValue>\\S+)"],
-      "depNameTemplate": "nvcr.io/nvidia/k8s/dcgm-exporter",
-      "datasourceTemplate": "docker",
-      "versioningTemplate": "regex:^\\d+\\.\\d+\\.\\d+-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<compatibility>.+)$"
-    },
-    {
-      "customType": "regex",
-      "description": "The one tag of the Argo Workflows controller and executor.",
-      "managerFilePatterns": ["/^k8s/argo-workflows/values\\.yaml$/"],
-      "matchStrings": ["\\nimages:\\n  tag: (?<currentValue>\\S+)"],
-      "depNameTemplate": "quay.io/argoproj/workflow-controller",
-      "datasourceTemplate": "docker"
     }
   ],
   "packageRules": [
@@ -111,42 +49,6 @@
       "commitMessagePrefix": "fix(deps):"
     },
     {
-      "description": "A custom manager of a file under k8s/ updates the cluster.",
-      "matchManagers": ["custom.regex"],
-      "matchFileNames": ["k8s/**"],
-      "addLabels": ["scope/infra"]
-    },
-    {
-      "description": "Renovate reads an Application source with no chart as a git dependency. Argo CD tracks main on purpose (ADR 0013), so those dependencies stay off.",
-      "matchManagers": ["argocd"],
-      "matchDatasources": ["git-tags"],
-      "enabled": false
-    },
-    {
-      "description": "Each Grafana plugin release names the Grafana it needs as grafanaDependency, which Renovate cannot read. A minor release can need a newer Grafana minor, so each plugin gets its own pull request, held to the major that the running Grafana major needs.",
-      "matchDatasources": ["custom.grafana_plugins"],
-      "prBodyNotes": [
-        "Before the merge, check that the Grafana image of the `grafana` chart meets the `grafanaDependency` of this release: https://grafana.com/api/plugins/{{{depName}}}/versions/{{{newVersion}}}. Grafana installs the pinned version at start."
-      ]
-    },
-    {
-      "description": "The Grafana drilldown app plugins stay on major 3.",
-      "matchDatasources": ["custom.grafana_plugins"],
-      "matchPackageNames": [
-        "grafana-lokiexplore-app",
-        "grafana-metricsdrilldown-app",
-        "grafana-pyroscope-app",
-        "grafana-exploretraces-app"
-      ],
-      "allowedVersions": "<4.0.0"
-    },
-    {
-      "description": "The grafana-llm-app plugin stays on major 1.",
-      "matchDatasources": ["custom.grafana_plugins"],
-      "matchPackageNames": ["grafana-llm-app"],
-      "allowedVersions": "<2.0.0"
-    },
-    {
       "description": "SearXNG publishes many tags a day. A tag has no minimum release age (CONTRIBUTING.md, Dependency Versions). Each tag ends in a commit hash, which the versioning ignores.",
       "matchPackageNames": ["searxng/searxng", "docker.io/searxng/searxng"],
       "commitMessageTopic": "searxng",
@@ -156,14 +58,9 @@
       ]
     },
     {
-      "description": "An update of a base image of the root Dockerfile is a fix, so release-please releases it. The devtools image is the base of the runner image. The Python, uv and Node images are the bases of the Service and MCP server images. Other updates stay chore and release nothing alone, except a chart update.",
+      "description": "An update of a base image of the root Dockerfile is a fix, so release-please releases it. The devtools image is the base of the runner image. The Python, uv and Node images are the bases of the Service and MCP server images. Other updates stay chore and release nothing alone.",
       "matchManagers": ["dockerfile"],
       "matchFileNames": ["Dockerfile"],
-      "commitMessagePrefix": "fix(deps):"
-    },
-    {
-      "description": "A chart update changes the chart that deploy-stack and Argo CD install: deploy-stack reads the version from the Application of the chart (#6060). So the update is a fix, and release-please releases it (#6054).",
-      "matchDatasources": ["helm"],
       "commitMessagePrefix": "fix(deps):"
     },
     {
@@ -213,12 +110,6 @@
       "commitMessagePrefix": "fix(deps):"
     },
     {
-      "description": "The DCGM exporter chart and image: the exporter version of the image tag is the version of the chart. A group takes the prefix of its first update, so the group sets the fix prefix of a chart update.",
-      "matchPackageNames": ["dcgm-exporter", "nvcr.io/nvidia/k8s/dcgm-exporter"],
-      "groupName": "dcgm-exporter",
-      "commitMessagePrefix": "fix(deps):"
-    },
-    {
       "description": "The OpenSpec devDependency of the root package.json and package-lock.json, which the npm manager updates (#6409). Each release comes on the day it is published, not on the schedule of the preset, so the project uses the newest skills and planning standard (#5078). The skills that OpenSpec generates change with its version, so the branch writes them again.",
       "matchManagers": ["npm"],
       "matchPackageNames": ["@fission-ai/openspec"],
@@ -239,32 +130,11 @@
       ]
     },
     {
-      "description": "The SeaweedFS image is the release that the operator of the pinned chart builds against, and the newest tag can be newer (k8s/README.md, section Object Store, Versions). So an update of the image or the chart waits for an approval on the Dependency Dashboard. The two get their own branch, so that the other container images and charts do not wait for them.",
-      "matchPackageNames": ["chrislusf/seaweedfs", "docker.io/chrislusf/seaweedfs", "seaweedfs-operator"],
-      "groupName": "seaweedfs",
-      "dependencyDashboardApproval": true,
-      "prBodyNotes": [
-        "Before the merge, pin `spec.image` of `k8s/object-store/seaweed.yaml` to the tag of the SeaweedFS commit that the release notes of the operator name, with its digest. Then take the dashboard of that tag and run the build test (`k8s/README.md`, section Object Store)."
-      ]
-    },
-    {
-      "description": "A LiteLLM release can change the gateway configuration and its migrations.",
-      "matchPackageNames": ["ghcr.io/berriai/litellm"],
-      "prBodyNotes": [
-        "Before the merge, follow the upgrade plan of #4406: read the release notes and the migrations, and load `k8s/llm/gateway/config.yaml` with the new release."
-      ]
-    },
-    {
       "description": "A person runs devops k8s searxng-check against each new SearXNG image on the cluster, so a SearXNG update waits for an approval on the Dependency Dashboard. It gets its own branch, so that the other container images do not wait for it (#6029, #6051).",
       "matchPackageNames": ["searxng/searxng", "docker.io/searxng/searxng"],
       "groupName": "searxng",
       "commitMessageTopic": "searxng",
       "dependencyDashboardApproval": true
-    },
-    {
-      "description": "Since step 11 of docs/HOMELAB_REPO_SWITCH.md, Argo CD reads the environment, each file of k8s outside the product folders, from dan-petty/homelab, and homelab Renovate updates that copy (#6820). An update here changes nothing live, so the dependencies of these files stay off. Step 17 deletes this rule with the files.",
-      "matchFileNames": ["k8s/**", "!k8s/devops/**", "!k8s/overlays/homelab/devops/**"],
-      "enabled": false
     },
     {
       "description": "google-genai <= 2.34.0 (via pydantic-ai[spec]) restricts tenacity to <9.2.0.",

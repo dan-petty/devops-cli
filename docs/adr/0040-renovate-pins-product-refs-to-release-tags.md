@@ -53,3 +53,7 @@ Chosen option: "One Renovate group after the cutover pins all four items to one 
 - Issue [#5135](https://github.com/dan-petty/devops-cli/issues/5135), tracker [#5120](https://github.com/dan-petty/devops-cli/issues/5120), deferred items [#6582](https://github.com/dan-petty/devops-cli/issues/6582) and [#7141](https://github.com/dan-petty/devops-cli/issues/7141).
 - [ADR 0013](0013-releases-use-release-please-as-it-ships-and-agents-stay-out.md).
 - Change: `openspec/changes/archive/2026-11-25-5135-pin-product-base-adr/`.
+
+## Status History
+
+- 2026-11-26: Fact out of date: the `k8s` row reads no Image Updater values; the file is in dan-petty/homelab (#7290).

@@ -1,8 +1,9 @@
 """The Secrets a cluster's stacks read, and where each of their values comes from.
 
 One table, held as data, is the single list of what a cluster needs: `devops k8s push-secrets`
-and `devops k8s deploy-stack` write every row from the workstation's keyring, and a gate test
-fails on any Secret a manifest or values file under k8s/ references without a row. Each row
+and `devops k8s deploy-stack` write every row from the workstation's keyring. The table is the
+rows of `cluster-secrets.toml` of the environment tree, then the product rows `CLUSTER_SECRETS`.
+`check_secret_key_refs` finds a `secretKeyRef` that names a key its row does not hold. Each row
 lands with the item that adds the Secret's consumer.
 """
 
@@ -13,7 +14,7 @@ import tomllib
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Final, Literal, Self
+from typing import TYPE_CHECKING, Any, Final, Literal, Self
 from urllib.parse import quote
 
 import yaml
@@ -28,7 +29,9 @@ from pydantic import (
 
 from devops_cli.config.constants import CONST_GITHUB_APP_PRIVATE_KEY_ENV
 from devops_cli.config.env import credential
-from devops_cli.exceptions import ConfigurationError
+
+if TYPE_CHECKING:
+    from devops_cli.k8s.environment import EnvironmentTree
 
 MANAGED_BY_LABEL = "app.kubernetes.io/managed-by"
 MANAGED_BY_VALUE = "devops-cli"
@@ -103,8 +106,8 @@ SEAWEEDFS_ADMIN_AUTH_KEY = "seaweedfs_admin_password"
 # The identities file of the S3 gateway of the object store: no identity. With a file, SeaweedFS
 # refuses each request that no identity allows, and it adds the identities that the filer keeps:
 # those of the admin UI, and identity `anonymous` of the anonymous read of the store buckets
-# (k8s/object-store/buckets.yaml). With no file and no identity in the filer it allows every
-# request.
+# (object-store/buckets.yaml of the environment tree). With no file and no identity in the filer
+# it allows every request.
 SEAWEEDFS_S3_NO_IDENTITIES = '{"identities": []}'
 
 
@@ -482,55 +485,23 @@ def load_cluster_secrets(path: Path) -> tuple[ClusterSecret, ...]:
     return tuple(_build_cluster_secret(table) for table in validated.secret)
 
 
-_FIXTURE_SECRETS_FILE = (
-    Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "cluster-secrets.toml"
-)
-_FALLBACK_FIXTURE_SECRETS_FILE = Path("tests/fixtures/cluster-secrets.toml")
-
-
-def _resolve_fixture_secrets_file() -> Path | None:
-    if _FIXTURE_SECRETS_FILE.is_file():
-        return _FIXTURE_SECRETS_FILE
-    if _FALLBACK_FIXTURE_SECRETS_FILE.is_file():
-        return _FALLBACK_FIXTURE_SECRETS_FILE
-    return None
-
-
 def load_cluster_secrets_table(
-    env: Any = None,
+    env: EnvironmentTree | None = None,
     *,
     k8s_dir: Path | None = None,
 ) -> tuple[ClusterSecret, ...]:
-    """Load the full cluster secrets table: environment rows from cluster-secrets.toml and product rows."""
-    if env is None and k8s_dir is None:
-        try:
-            from devops_cli.k8s.environment import resolve_environment
+    """The full cluster Secret table: the rows of `cluster-secrets.toml` of the environment tree
+    (`env`, else the tree of `k8s_dir`, else the one that `resolve_environment` finds), then the
+    product rows.
 
-            env = resolve_environment(None)
-        except ConfigurationError:
-            env = None
-    elif env is None and k8s_dir is not None:
-        try:
-            from devops_cli.k8s.environment import tree_at
+    Raises:
+        ConfigurationError: no tree is known, or the tree has no `cluster-secrets.toml`.
+    """
+    if env is None:
+        from devops_cli.k8s.environment import resolve_environment
 
-            env = tree_at(k8s_dir)
-        except ConfigurationError, OSError:
-            env = None
-
-    env_file: Path | None = None
-    if env is not None:
-        cluster_secrets_path = getattr(env, "cluster_secrets", None)
-        if isinstance(cluster_secrets_path, Path) and cluster_secrets_path.is_file():
-            env_file = cluster_secrets_path
-    if env_file is None and k8s_dir is not None:
-        direct = k8s_dir / "cluster-secrets.toml"
-        if direct.is_file():
-            env_file = direct
-    if env_file is None:
-        env_file = _resolve_fixture_secrets_file()
-
-    env_rows = load_cluster_secrets(env_file) if env_file is not None else ()
-    return (*env_rows, *CLUSTER_SECRETS)
+        env = resolve_environment(k8s_dir)
+    return (*load_cluster_secrets(env.require(env.cluster_secrets)), *CLUSTER_SECRETS)
 
 
 CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (

@@ -159,17 +159,6 @@ The agent of a step SHALL set the model settings `max_tokens` to the context win
 - **WHEN** a model call does not answer within the deadline
 - **THEN** the step reports stopped with a reason that starts with `ModelRequestTimeout: ` and holds the deadline, the model got one request, and the checkout is reset
 
-### Requirement: The deadline of a step call nests between the router timeout and the step limit
-The timeout of the router in `k8s/llm/gateway/config.yaml` SHALL be less than the default of `roadmap.implement.request_timeout_seconds`, so the gateway ends a stuck attempt and can retry it or fall back first. The settings SHALL refuse a deadline above `roadmap.implement.step_time_limit_seconds`.
-
-#### Scenario: The router timeout is short of the deadline
-- **WHEN** a test reads `router_settings.timeout` of the gateway config
-- **THEN** that timeout is less than the default of the deadline
-
-#### Scenario: A deadline above the step limit
-- **WHEN** the config sets `roadmap.implement.request_timeout_seconds` above `roadmap.implement.step_time_limit_seconds`
-- **THEN** the settings load fails with an error that names both settings
-
 ### Requirement: An error of the generation inside a stream is sent again, and a stop keeps no work
 When a model call fails with a `ModelHTTPError` of the status 400 inside an open stream that is no context window error, the step SHALL send the request again, at most `roadmap.implement.model_resends` times in a row. The first such failure on a tier SHALL add a message that asks for a smaller edit to the request. The next one on the same tier SHALL end the turn with no send. After the last send, the step SHALL stop with the reason of the failed call and the class `parser`.
 
@@ -221,3 +210,10 @@ The implement job SHALL pass one `Conversation` from one task group of an item t
 #### Scenario: Two task groups share one conversation
 - **WHEN** The test runs two task groups of one item through `run_step`.
 - **THEN** It finds the messages of the first run in the `Conversation` of the second run, and the compaction controls enabled.
+
+### Requirement: The settings refuse a step call deadline above the step limit
+The settings SHALL refuse a `roadmap.implement.request_timeout_seconds` above `roadmap.implement.step_time_limit_seconds`.
+
+#### Scenario: A deadline above the step limit
+- **WHEN** the config sets `roadmap.implement.request_timeout_seconds` above `roadmap.implement.step_time_limit_seconds`
+- **THEN** the settings load fails with an error that names both settings

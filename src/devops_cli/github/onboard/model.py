@@ -97,7 +97,7 @@ class OnboardOptions:
 
     `scopes`, `release_flow`, `release_type` and `template_ref` are answers: they apply only
     before `.copier-answers.yml` exists. `workdir` is the checkout that row 13 checks for a clean
-    `origin/main` of devops-cli.
+    `origin/main` of devops-cli, and the folder that it finds the environment tree from.
     """
 
     repo: RepoRef

@@ -1,9 +1,9 @@
 name: Third-Party Image Scan
 
-# Scans the third-party images that Deployment `crawl4ai` and Deployment `cloudflared` pin, when a
-# pull request changes a manifest, this workflow or the image scan action, and only reports (#3884,
-# #4363). An image is not ours to rebuild: a finding in it is fixed by the upstream release that a
-# Renovate pull request brings, so the scan never fails the job. The person who merges the bump
+# Scans the third-party image that Deployment `crawl4ai` pins, when a pull request changes its
+# manifest, this workflow or the image scan action, and only reports (#3884, #4363). An image is
+# not ours to rebuild: a finding in it is fixed by the upstream release that a Renovate pull
+# request brings, so the scan never fails the job. The person who merges the bump
 # reads the findings in the table of the log or in code scanning, category `trivy-image-<name>`
 # (#6405). The native `paths` filter stops the run before a runner starts, so a pull request that
 # changes none of the files starts no job and shows no check (#4653). The check is not required.
@@ -13,7 +13,6 @@ on:
     branches: [main]
     paths:
       - "k8s/devops/crawl4ai/deployment.yaml"
-      - "k8s/cloudflared/deployment.yaml"
       - ".github/workflows/third-party-image-scan.yml"
       - ".github/actions/image-scan/**"
 
@@ -43,9 +42,6 @@ jobs:
           - name: crawl4ai
             manifest: k8s/devops/crawl4ai/deployment.yaml
             repository: unclecode/crawl4ai
-          - name: cloudflared
-            manifest: k8s/cloudflared/deployment.yaml
-            repository: cloudflare/cloudflared
 
     steps:
       - name: Check out repository

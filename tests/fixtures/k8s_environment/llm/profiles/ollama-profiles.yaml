@@ -1,0 +1,19 @@
+# One Ollama tier, which accepts a node with a total of 16Gi of GPU memory.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ollama-16gib
+  namespace: llm
+  labels:
+    llm.devops.io/provider: ollama
+spec:
+  template:
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["16Gi"]

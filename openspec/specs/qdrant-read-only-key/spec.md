@@ -5,13 +5,6 @@ The Qdrant read-only key: Qdrant serves its read-only key from Secret `llm/qdran
 
 ## Requirements
 
-### Requirement: Qdrant reads a read-only key
-The Qdrant container SHALL read its read-only key from key `read-only-api-key` of Secret `llm/qdrant-api-key`.
-
-#### Scenario: The read-only key comes from the Secret
-- **WHEN** a person runs `kubectl -n llm port-forward svc/qdrant 6333:6333`, and sends a search and an upsert to a collection on the local port with the read-only key in the `api-key` header
-- **THEN** Qdrant answers the search with 200 and refuses the upsert with 403
-
 ### Requirement: One keyring value feeds both Secrets
 The push SHALL write one keyring value, `qdrant_read_only_api_key`, to key `read-only-api-key` of Secret `llm/qdrant-api-key` and to `DEVOPS_CLI_QDRANT_API_KEY` of Secret `devops/devops-cli`.
 

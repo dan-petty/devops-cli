@@ -79,3 +79,4 @@ Chosen option: "One MADR 4 record with dated, limited decisions under `#decision
 ## Status History
 
 - 2026-11-05: Recorded the five standing owner decisions on agent authority in #4787.
+- 2026-11-26: Living detail moved to `k8s/agents/` of dan-petty/homelab (#7290).

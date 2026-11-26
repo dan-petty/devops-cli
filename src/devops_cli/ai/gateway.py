@@ -51,7 +51,7 @@ from devops_cli.telemetry.instruments import (
 
 logger = logging.getLogger(__name__)
 
-# The route of each virtual model: the model that the gateway config (k8s/llm/gateway/config.yaml)
+# The route of each virtual model: the model that the gateway config of the environment tree
 # sends to the tier of the default Ollama Service, or to an embedding tier for an embedding model.
 # The wheel and the service image hold only src/devops_cli, so the CLI cannot read that config.
 DEFAULT_GATEWAY_ROUTES: Final[tuple[dict[str, str], ...]] = (

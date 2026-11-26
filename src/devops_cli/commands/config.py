@@ -265,13 +265,17 @@ def _store_generated(key: str, *, rotate: bool, dry_run: bool) -> None:
     byte count and a masked placeholder, and reads nothing.
     """
     from devops_cli.k8s.cluster_secrets import (
+        CLUSTER_SECRETS,
         generator_for_option,
         generator_option_names,
         load_cluster_secrets_table,
     )
 
-    table = load_cluster_secrets_table()
-    generator = generator_for_option(key, table=table)
+    # A key of a product row needs no environment tree.
+    generator = generator_for_option(key, table=CLUSTER_SECRETS)
+    if generator is None:
+        table = load_cluster_secrets_table()
+        generator = generator_for_option(key, table=table)
     if generator is None:
         options = ", ".join(generator_option_names(table=table))
         print_error(

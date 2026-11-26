@@ -207,14 +207,13 @@ def save_persisted_manifest_state(
 
 
 def _resolve_valid_drift_paths(paths: Sequence[Path | str]) -> list[str]:
-    """Validate and resolve candidate paths for Git drift inspection."""
+    """Validate and resolve candidate paths for Git drift inspection. A path that is gone stays a
+    candidate, because `git status` still reports its deleted manifests."""
     resolved_paths: list[str] = []
     for p in paths:
         try:
             validate_no_path_traversal(p, label="Manifest drift path")
-            rp = Path(p).resolve()
-            if rp.exists():
-                resolved_paths.append(str(rp))
+            resolved_paths.append(str(Path(p).resolve()))
         except Exception:
             continue
     return resolved_paths
@@ -270,7 +269,8 @@ def inspect_git_manifest_drift(paths: Sequence[Path | str]) -> list[GitOpsDriftE
     resolved_paths = _resolve_valid_drift_paths(paths)
     if not resolved_paths:
         return []
-    first_path = Path(resolved_paths[0])
+    first = Path(resolved_paths[0])
+    first_path = next((folder for folder in (first, *first.parents) if folder.exists()), first)
     repo_root = git_show_toplevel(first_path) or find_repo_root(first_path)
     try:
         cmd = ["git", "status", "--porcelain=v1", "-z", "--", *resolved_paths]
@@ -471,12 +471,22 @@ class GitOpsWatcher:
                 persisted if persisted is not None else compute_manifest_state(self.paths)
             )
 
-    def scan_drift(self, detect_cold_drift: bool = False) -> list[GitOpsDriftEvent]:
-        """Scan watched manifest paths, update state, and return detected drift."""
+    def scan_drift(
+        self,
+        detect_cold_drift: bool = False,
+        accept: Callable[[Sequence[Path], list[GitOpsDriftEvent]], None] | None = None,
+    ) -> list[GitOpsDriftEvent]:
+        """Scan watched manifest paths, update state, and return detected drift.
+
+        `accept` reads the manifests of the paths and the drift before the state is saved. When it
+        raises, the saved baseline stays, so a later scan finds the same drift.
+        """
         current_state = compute_manifest_state(self.paths)
         events = scan_manifest_drift(self._last_state, current_state)
         if not events and detect_cold_drift:
             events = inspect_git_manifest_drift(self.paths)
+        if accept is not None:
+            accept(list(current_state), events)
         self._last_state = current_state
         save_persisted_manifest_state(self.paths, current_state)
         return events

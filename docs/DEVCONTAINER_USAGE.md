@@ -516,8 +516,9 @@ devops k8s switch-context kind-dev-cluster
 devops k8s status
 
 # Deploy the infrastructure stack (Argo CD, monitoring, OpenTelemetry); with the keyring
-# unlocked, it first writes the stack's Secrets from the keyring (`devops k8s push-secrets`)
-devops k8s deploy-stack --stack infra
+# unlocked, it first writes the stack's Secrets from the keyring (`devops k8s push-secrets`).
+# The manifests of the stacks are in dan-petty/homelab: <homelab-checkout> is a checkout of it.
+devops k8s deploy-stack --stack infra --k8s-dir <homelab-checkout>/k8s
 ```
 
 ---
@@ -605,11 +606,13 @@ devops k8s status
 # 4. View real-time pod health across all namespaces
 devops k8s pods --all-namespaces
 
-# 5. Deploy infrastructure and observability stacks to the active cluster
-devops k8s deploy-stack --stack infra     # ArgoCD, k8s-monitoring (Alloy), Prometheus, Grafana, OTel Collector, Tempo
-devops k8s deploy-stack --stack llm       # Ollama profiles, LLM gateway, Open WebUI, Qdrant, Valkey
-devops k8s deploy-stack --stack logging   # Loki; the infra stack's Alloy ships the logs
-devops k8s deploy-stack --stack all       # every stack, also devops and gitea
+# 5. Deploy infrastructure and observability stacks to the active cluster.
+#    devops-cli ships only the devops stack base (k8s/devops). The stacks come from the environment
+#    tree: give --k8s-dir <homelab-checkout>/k8s, or add the checkout to infra.repos.
+devops k8s deploy-stack --stack infra --k8s-dir <homelab-checkout>/k8s    # ArgoCD, k8s-monitoring (Alloy), Prometheus, Grafana, OTel Collector, Tempo
+devops k8s deploy-stack --stack llm --k8s-dir <homelab-checkout>/k8s      # Ollama profiles, LLM gateway, Open WebUI, Qdrant, Valkey
+devops k8s deploy-stack --stack logging --k8s-dir <homelab-checkout>/k8s  # Loki; the infra stack's Alloy ships the logs
+devops k8s deploy-stack --stack all --k8s-dir <homelab-checkout>/k8s      # every stack, also devops and gitea
 
 # 6. Stream logs from a deployed controller
 devops k8s stream-logs argocd-server -n argocd --tail 100 -f

@@ -3,11 +3,12 @@
 # RAG ingest workflow. They are product content, so they stay in devops-cli (#5292).
 #
 # Application `prometheus` gives the prometheus chart this file after the environment values
-# (k8s/monitoring/prometheus-values.yaml), as its second `$values` file, and `devops k8s
-# deploy-stack` gives `helm upgrade` both files in the same order. The chart writes each key of
-# `serverFiles` to the ConfigMap `prometheus-server`, which the server mounts at /etc/config. The
-# `rule_files` of the environment values name /etc/config/devops_cli_alerting_rules.yml, so the
-# server loads this file next to the environment rules. A group name is unique over both files.
+# (monitoring/prometheus-values.yaml of dan-petty/homelab), as its second `$values` file, and
+# `devops k8s deploy-stack` gives `helm upgrade` both files in the same order. The chart writes
+# each key of `serverFiles` to the ConfigMap `prometheus-server`, which the server mounts at
+# /etc/config. The `rule_files` of the environment values name
+# /etc/config/devops_cli_alerting_rules.yml, so the server loads this file next to the environment
+# rules. A group name is unique over both files.
 #
 # Every alert rule carries `severity` (critical or warning), as the environment rules do
 # (k8s/README.md, Alerting). A recording rule carries no severity and no annotation: it only

@@ -7,7 +7,9 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from devops_cli.exceptions import ConfigurationError
 from devops_cli.k8s.cluster_secrets import (
+    CLUSTER_SECRETS,
     ClusterSecret,
     DerivedSource,
     KeyringSource,
@@ -18,6 +20,7 @@ from devops_cli.k8s.cluster_secrets import (
     SettingSource,
     Workload,
     load_cluster_secrets,
+    load_cluster_secrets_table,
 )
 from tests.support.paths import REPO_ROOT
 
@@ -163,70 +166,16 @@ option = "baz"
         load_cluster_secrets(multi_source)
 
 
-def test_load_cluster_secrets_table_resolves_fixture_when_installed_in_site_packages(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """When devops_cli is imported from site-packages (like in the Service image),
-    load_cluster_secrets_table still locates the repository fixture."""
-    import devops_cli.k8s.cluster_secrets as cs
+def test_the_table_is_the_rows_of_the_tree_then_the_product_rows() -> None:
+    """The fixture folder given as the tree: its rows, then the product rows."""
+    table = load_cluster_secrets_table(k8s_dir=FIXTURE_PATH.parent)
 
-    fake_pkg_file = Path(
-        "/app/.venv/lib/python3.14/site-packages/devops_cli/k8s/cluster_secrets.py"
-    )
-    monkeypatch.setattr(cs, "__file__", str(fake_pkg_file))
-    monkeypatch.setattr(
-        cs,
-        "_FIXTURE_SECRETS_FILE",
-        fake_pkg_file.parents[3] / "tests" / "fixtures" / "cluster-secrets.toml",
-    )
-
-    table = cs.load_cluster_secrets_table()
-    assert len(table) == 24
-    assert any(s.ref == "object-store/seaweedfs-admin" for s in table)
-    assert any(s.ref == "argocd/argocd-notifications-secret" for s in table)
+    assert table == (*load_cluster_secrets(FIXTURE_PATH), *CLUSTER_SECRETS)
 
 
-def test_resolve_fixture_secrets_file_variants(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Test resolution of fixture secrets file across primary, fallback, and absent paths."""
-    import devops_cli.k8s.cluster_secrets as cs
+def test_a_tree_with_no_secret_file_is_refused_and_named(tmp_path: Path) -> None:
+    """The product reads no other file in place of it (#7214, #7290)."""
+    with pytest.raises(ConfigurationError) as caught:
+        load_cluster_secrets_table(k8s_dir=tmp_path)
 
-    # Primary exists
-    fake_primary = tmp_path / "primary.toml"
-    fake_primary.write_text("[[secret]]\n", encoding="utf-8")
-    monkeypatch.setattr(cs, "_FIXTURE_SECRETS_FILE", fake_primary)
-    assert cs._resolve_fixture_secrets_file() == fake_primary
-
-    # Primary missing, fallback exists
-    monkeypatch.setattr(cs, "_FIXTURE_SECRETS_FILE", tmp_path / "missing1.toml")
-    fake_fallback = tmp_path / "fallback.toml"
-    fake_fallback.write_text("[[secret]]\n", encoding="utf-8")
-    monkeypatch.setattr(cs, "_FALLBACK_FIXTURE_SECRETS_FILE", fake_fallback)
-    assert cs._resolve_fixture_secrets_file() == fake_fallback
-
-    # Both missing
-    monkeypatch.setattr(cs, "_FALLBACK_FIXTURE_SECRETS_FILE", tmp_path / "missing2.toml")
-    assert cs._resolve_fixture_secrets_file() is None
-
-
-def test_load_cluster_secrets_table_resolves_fixture_when_env_lacks_secrets() -> None:
-    """When env has no cluster_secrets, load_cluster_secrets_table falls back to fixture."""
-    import devops_cli.k8s.cluster_secrets as cs
-
-    table = cs.load_cluster_secrets_table(object())
-    assert len(table) == 24
-    assert any(s.ref == "object-store/seaweedfs-admin" for s in table)
-
-
-def test_load_cluster_secrets_table_resolves_fixture_when_k8s_dir_lacks_secrets(
-    tmp_path: Path,
-) -> None:
-    """When k8s_dir has no cluster-secrets.toml, load_cluster_secrets_table falls back to fixture."""
-    import devops_cli.k8s.cluster_secrets as cs
-
-    empty_k8s = tmp_path / "k8s"
-    empty_k8s.mkdir()
-    table = cs.load_cluster_secrets_table(k8s_dir=empty_k8s)
-    assert len(table) == 24
-    assert any(s.ref == "object-store/seaweedfs-admin" for s in table)
+    assert f"{tmp_path} has no cluster-secrets.toml" in caught.value.message

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import socket
 import subprocess
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -51,14 +52,14 @@ def test_plan_k8s_bootstrap_mattermost() -> None:
     assert plans[2].target == "secrets"
 
 
-def test_bootstrap_mattermost_dry_run(block_external_calls: None) -> None:
+def test_bootstrap_mattermost_dry_run(block_external_calls: None, environment_repo: Path) -> None:
     """Executing --dry-run prints request plan and makes zero external requests."""
     res = runner.invoke(app, ["k8s", "bootstrap-mattermost", "--dry-run"])
     assert res.exit_code == 0, f"Command failed with output:\n{res.output}"
     assert "Planned requests" in res.output or "kubectl" in res.output
 
 
-def test_bootstrap_mattermost_no_pod(process_fake: ProcessFake) -> None:
+def test_bootstrap_mattermost_no_pod(process_fake: ProcessFake, environment_repo: Path) -> None:
     """Verify failure when no Mattermost pod is found."""
     process_fake.answer("kubectl", ProcessAnswer(returncode=0, stdout=""))
 
@@ -99,7 +100,10 @@ def _handle_full_flow_cmd(call: ProcessCall) -> ProcessAnswer:
 
 
 def test_bootstrap_mattermost_full_flow(
-    process_fake: ProcessFake, keyring_store: FakeKeyring, monkeypatch: pytest.MonkeyPatch
+    process_fake: ProcessFake,
+    keyring_store: FakeKeyring,
+    monkeypatch: pytest.MonkeyPatch,
+    environment_repo: Path,
 ) -> None:
     """Verify full onboarding execution: team, channels, webhooks, command, keyring, push."""
     monkeypatch.setenv("DEVOPS_CLI_ARGOCD_GITHUB_APP_ID", "123456")

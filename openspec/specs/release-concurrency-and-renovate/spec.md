@@ -21,7 +21,7 @@ The shared preset `github>dan-petty/infra//renovate/base` SHALL label each updat
 - **AND** each label is in `.github/labels.yml` or in the workflow labels of `src/devops_cli/roadmap/workflow_labels.py`
 
 #### Scenario: An update of a chart
-- **WHEN** Renovate opens a pull request in devops-cli that moves the chart of an Argo CD Application under `k8s/argocd/apps/`
+- **WHEN** Renovate opens a pull request in a repository of the preset that moves the chart of an Argo CD Application
 - **THEN** the labels of the pull request are `type/chore`, `scope/deps` and `scope/infra`
 
 ### Requirement: Renovate sets no minimum release age
@@ -59,12 +59,12 @@ The shared preset `github>dan-petty/infra//renovate/base` SHALL turn on OSV aler
 - **THEN** the Dependency Dashboard issue of devops-cli lists the minor for an approval, and no Renovate pull request moves the Python minor
 
 ### Requirement: Every pin of the repository has a Renovate manager
-No rule SHALL turn off a manager. Each pinned file SHALL match a file pattern of its manager. Custom managers SHALL read the pins that no built-in manager reads: the Python minor, CloudNativePG and Mattermost images, values tags with no repository and Grafana plugins. No custom manager SHALL write a tool version into a file under `src/`, except `DEFAULT_PYTHON_VERSION`. Pins of one tool in several files SHALL share one group of every update type.
+No rule SHALL turn off a manager. Each pinned file SHALL match a file pattern of its manager. Custom managers SHALL read the pins that no built-in manager reads: the Python minor. No custom manager SHALL write a tool version into a file under `src/`, except `DEFAULT_PYTHON_VERSION`. Pins of one tool in several files SHALL share one group of every update type.
 
 #### Scenario: The managers are read against the tracked files
-- **WHEN** a test applies the file patterns and the match strings of the configuration to the tracked files
-- **THEN** each pinned file matches its manager, and the custom managers find exactly the expected pins
-- **AND** the coupled groups `uv`, `node`, `python runtime`, `ruff`, `actionlint`, `openspec`, `dcgm-exporter` and `devtools` set no update type
+- **WHEN** a person reads the detected dependencies of the Dependency Dashboard of devops-cli
+- **THEN** it lists each pinned file under its manager
+- **AND** the coupled groups `uv`, `node`, `python runtime`, `ruff`, `actionlint`, `openspec` and `devtools` set no update type
 - **AND** the group `devtools` holds the devtools image of both Dockerfiles
 
 #### Scenario: A uv or Node update changes no runtime code
@@ -93,13 +93,6 @@ The shared preset `github>dan-petty/infra//renovate/base` SHALL set `vulnerabili
 - **WHEN** an advisory names a fixed release in the current major and one in a newer major of a dependency that devops-cli pins, and the next run of CronJob `renovate` ends
 - **THEN** one Renovate pull request of a security fix moves the dependency, and it moves it to the newest fixed release
 
-### Requirement: A chart update has the prefix of a release
-The repository configuration SHALL give each update of the `helm` datasource the prefix `fix(deps):`, because the update changes the chart that `deploy-stack` and Argo CD install: `deploy-stack` reads the version from the Application of the chart (#6060). Each coupled group that holds a chart SHALL set the same prefix.
-
-#### Scenario: A chart update
-- **WHEN** Renovate opens a pull request that moves a chart, alone or in the group `dcgm-exporter`
-- **THEN** its title has the prefix `fix(deps):`, and release-please adds a changelog line for it
-
 ### Requirement: A Renovate update of runtime code has the prefix of a release
 The repository configuration SHALL give each update that changes a file under `src/devops_cli/` the prefix `fix(deps):`, because the `Semantic PR title` check refuses a hidden type for runtime code and release-please must release the change. A group takes the prefix of its first update, so each group that holds such a file, and lock file maintenance, SHALL set the same prefix for each of their updates.
 
@@ -108,19 +101,8 @@ The repository configuration SHALL give each update that changes a file under `s
 - **THEN** its title has the prefix `fix(deps):`, the `Semantic PR title` check passes with no manual retitle, and release-please adds a changelog line for it
 - **AND** no update changes the runner tools table `RUNNER_TOOLS`, because it holds no version
 
-### Requirement: Renovate updates no environment path of the homelab repository
-Until step 17 of `docs/HOMELAB_REPO_SWITCH.md` deletes the environment files, `.github/renovate.json` SHALL hold a package rule that turns off each dependency of a file under `k8s` outside the product folders `k8s/devops` and `k8s/overlays/homelab/devops`. Renovate of dan-petty/homelab updates the copy of those files. The rule SHALL leave the managers and their file patterns on, so Renovate SHALL still update the pins of the product folders.
-
-#### Scenario: The rule matches the environment paths only
-- **WHEN** a person gives the `matchFileNames` patterns of the rule and the paths `k8s/llm/valkey.yaml`, `k8s/argocd/apps/argocd.yaml`, `k8s/devops/renovate/cronjob.yaml`, `k8s/overlays/homelab/devops/kustomization.yaml` and `Dockerfile` to `matchRegexOrGlobList` of Renovate 44.239.2
-- **THEN** only `k8s/llm/valkey.yaml` and `k8s/argocd/apps/argocd.yaml` match
-
-#### Scenario: The configuration stays valid
-- **WHEN** a person runs `npx --yes --package renovate@44.239.2 -- renovate-config-validator --strict --no-global .github/renovate.json`
-- **THEN** the command exits 0
-
 ### Requirement: Release workflow requests owner review and Renovate avoids per-package automerge opt-outs
-`.github/workflows/release.yml` SHALL include a `Request review on the release pull request` step in the `release-please` job using `steps.app.outputs.token` to request `dan-petty` on open release pull requests when the author is not `dan-petty` and `dan-petty` is not already requested. `.github/renovate.json` SHALL NOT override `automerge` to `false` on package rules, including `seaweedfs`, so approved updates merge automatically once checks pass.
+`.github/workflows/release.yml` SHALL include a `Request review on the release pull request` step in the `release-please` job using `steps.app.outputs.token` to request `dan-petty` on open release pull requests when the author is not `dan-petty` and `dan-petty` is not already requested. `.github/renovate.json` SHALL NOT override `automerge` to `false` on package rules, so approved updates merge automatically once checks pass.
 
 #### Scenario: Release workflow and Renovate config pass validation
 - **WHEN** a person or CI runs `uv run devops ci --check --only actionlint,zizmor` and `renovate-config-validator --strict --no-global .github/renovate.json`

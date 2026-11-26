@@ -1,7 +1,7 @@
 # service-dashboard-template Specification
 
 ## Purpose
-The SRE template that builds the Grafana dashboard of a Kubernetes service from a spec of `k8s/monitoring/dashboards/services.toml`: its layout, units, series, colors and variables, and the check that each committed dashboard is the build.
+The SRE template that builds the Grafana dashboard of a Kubernetes service from a spec of the `services.toml` of the environment tree: its layout, units, series, colors and variables, and the build that writes each dashboard next to its spec file.
 
 ## Requirements
 
@@ -74,12 +74,15 @@ A spec with `variables` SHALL give the dashboard the single-value query variable
 - **WHEN** the test builds a spec with variables and one without
 - **THEN** the first has the variables `namespace` and `workload` with `multi` and `includeAll` false, and the second has no variable and no `$namespace` or `$workload`
 
-### Requirement: Each committed service dashboard is the build of its spec
-`make dashboards` SHALL write `<uid>.json` next to `services.toml` for each of its specs. Each committed service dashboard SHALL be the text of the build of its spec. The CI job "Design Tokens" SHALL run `make dashboards` and fail when `k8s/monitoring/dashboards` differs from the commit.
+### Requirement: The log row shows the warnings above all lines of the workload pods
+The log row of a service dashboard SHALL hold "Logs: warnings and errors" (`h8`) above "Logs: all lines" (`h12`), on the `loki` data source. The query of all lines SHALL be `{namespace="<namespace>"} | pod=~"<workload>-[a-z0-9]+-[a-z0-9]+"`, and the warnings query SHALL add `| detected_level=~"(?i)(warn|warning|error|err|critical|fatal|panic)"`.
 
-#### Scenario: The committed files
-- **WHEN** the test builds each spec of `services.toml`
-- **THEN** the specs are `devops-roadmap-service` and `devops-sre-service`, and each file is the build
+#### Scenario: The log row of a fixture build
+- **WHEN** the test reads the panels of the row "Logs" of the build of the namespace `shop` and the workload `cart`
+- **THEN** the two panels have these titles, queries and heights, in this order
+
+### Requirement: The template build writes each dashboard next to its spec file
+The `main` of `devops_cli.grafana.service_dashboard` SHALL write `<uid>.json` next to the spec file that it gets, for each spec of the file.
 
 #### Scenario: A build into a folder
 - **WHEN** `main` runs on a spec file with one spec in an empty folder

@@ -17,7 +17,7 @@ The ceilings over the retired test forms, which only fall: string patches of dev
 - **THEN** the count passes the ceiling and the test fails
 
 ### Requirement: No new test reads a committed manifest or config file
-The `test-tree` row of `devops ci` SHALL find each test that reads a committed manifest or config file: through a path built from `REPO_ROOT` or from the `k8s` tree of `tests.support.k8s_tree`, a relative `Path`, or a path reader of its module, and through a module-level constant, helper or fixture that reads one. For each test module, the count of such tests SHALL equal the count in `tests/gate/tree_checks/config_reads.toml`, and a count SHALL only fall (#6060).
+The `test-tree` row of `devops ci` SHALL find each test that reads a committed manifest or config file: through a path built from `REPO_ROOT`, a relative `Path`, or a path reader of its module, and through a module-level constant, helper or fixture that reads one. For each test module, the count of such tests SHALL equal the count in `tests/gate/tree_checks/config_reads.toml`, and a count SHALL only fall (#6060).
 
 #### Scenario: A new test reads a manifest
 - **WHEN** a test module adds a test that reads a file under `k8s/` through a helper of the module

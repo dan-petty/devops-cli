@@ -12,13 +12,14 @@ from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.exceptions.k8s import CatalogError
 from devops_cli.k8s.catalog import (
     CATALOG_MD_NAME,
+    SLO_SPEC_FOLDER,
     build_catalog,
     collect_catalog_charts,
     render_catalog_markdown,
 )
 from devops_cli.k8s.environment import resolve_environment
-from devops_cli.lang import HELP
-from devops_cli.output import print_error, print_info, print_success
+from devops_cli.lang import HELP, MESSAGES
+from devops_cli.output import print_error, print_info, print_success, print_warning
 from devops_cli.output.serialization import emit_serialized
 
 _FORMAT_MARKDOWN = "markdown"
@@ -79,6 +80,12 @@ def k8s_catalog(
 
     env = resolve_environment(k8s_dir)
     catalog = build_catalog(env)
+    if not env.path(SLO_SPEC_FOLDER).is_dir():
+        # To stderr, so `--format json` keeps its output whole.
+        print_warning(
+            MESSAGES.k8s.catalog_no_slo_folder.format(root=env.root, path=SLO_SPEC_FOLDER),
+            to_stderr=True,
+        )
 
     if fmt == _FORMAT_JSON:
         emit_serialized(catalog.to_dict(), _FORMAT_JSON)

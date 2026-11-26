@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from typer.testing import CliRunner
@@ -17,9 +18,16 @@ def _dry_run_details(output: str) -> dict[str, Any]:
     return json.loads(output[output.index("{") :])["details"]
 
 
+def _dry_run_all(tree: Path) -> Any:
+    """`deploy-stack --stack all --dry-run` on the environment tree `tree`."""
+    argv = ["k8s", "deploy-stack", "--stack", "all", "--dry-run", "--k8s-dir", str(tree)]
+    return runner.invoke(app, argv)
+
+
 def test_deploy_stack_dry_run_lists_config_writes_when_settings_empty(
     isolate_devops_cli_config: Any,
     process_fake: ProcessFake,
+    env_tree: Path,
 ) -> None:
     """deploy-stack --dry-run lists config writes for deployed service URLs whose settings are empty."""
     isolate_devops_cli_config.write_text(
@@ -34,7 +42,7 @@ def test_deploy_stack_dry_run_lists_config_writes_when_settings_empty(
         "    slug: devops-roadmap\n",
         encoding="utf-8",
     )
-    result = runner.invoke(app, ["k8s", "deploy-stack", "--stack", "all", "--dry-run"])
+    result = _dry_run_all(env_tree)
     assert result.exit_code == 0
     details = _dry_run_details(result.output)
     assert "config_writes" in details
@@ -48,6 +56,7 @@ def test_deploy_stack_dry_run_lists_config_writes_when_settings_empty(
 def test_deploy_stack_dry_run_does_not_overwrite_configured_urls(
     isolate_devops_cli_config: Any,
     process_fake: ProcessFake,
+    env_tree: Path,
 ) -> None:
     """deploy-stack --dry-run does not write settings that already have values."""
     isolate_devops_cli_config.write_text(
@@ -66,7 +75,7 @@ def test_deploy_stack_dry_run_does_not_overwrite_configured_urls(
         "  url: https://custom-qdrant.example.com:6333\n",
         encoding="utf-8",
     )
-    result = runner.invoke(app, ["k8s", "deploy-stack", "--stack", "all", "--dry-run"])
+    result = _dry_run_all(env_tree)
     assert result.exit_code == 0
     details = _dry_run_details(result.output)
     writes = details["config_writes"]

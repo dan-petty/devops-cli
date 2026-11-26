@@ -1,0 +1,2 @@
+# A folder with a kustomization, so deploy-stack and teardown-stack use `-k` for it.
+resources: []

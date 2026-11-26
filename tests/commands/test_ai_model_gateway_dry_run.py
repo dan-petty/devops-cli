@@ -38,6 +38,7 @@ from devops_cli.commands.ai_gateway import (
 from devops_cli.commands.benchmark import run_benchmark
 from devops_cli.main import app
 from tests.support.dry_run_classes import misclassified
+from tests.support.k8s_tree import write_gateway_render_inputs
 
 pytestmark = pytest.mark.usefixtures("refuse_requests")
 
@@ -126,9 +127,14 @@ def test_ai_gateway_failover_reset_dry_run(monkeypatch: pytest.MonkeyPatch) -> N
     assert "Model Failover Reset" in result.output
 
 
-def test_ai_gateway_render_no_external_request() -> None:
+def test_ai_gateway_render_no_external_request(tmp_path: Path) -> None:
     """Verify ai gateway render runs normally under devops --dry-run."""
-    result = runner.invoke(app, ["--dry-run", "ai", "gateway", "render"])
+    write_gateway_render_inputs(tmp_path)
+
+    result = runner.invoke(
+        app, ["--dry-run", "ai", "gateway", "render", "--k8s-dir", str(tmp_path)]
+    )
+
     assert result.exit_code == 0, f"render failed under --dry-run: {result.output}"
 
 

@@ -45,7 +45,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Security & Audits** | Dependency Security Audit | Weekly | `uv run devops ci audit` (`uv audit`, `osv-scanner`) | Scans installed packages and the root `package-lock.json` of the Node tools for known vulnerabilities | 0 known vulnerabilities |
 | **Security & Audits** | Ignore Entry Renewal | Daily / Pre-PR | `git grep -n 'expired_at:' -- '.*-ignore.yaml' .trivyignore.yaml` | Renews or drops each ignore entry before its `expired_at` date, as [SECURITY.md](../SECURITY.md#a-finding-with-no-fix) says | No entry is past its date; the image scans and the audit pass |
 | **Security & Audits** | Static Security Scan (SAST) | Weekly | `uv run devops ci security` (`bandit`) | Static security scan for code vulnerabilities | 0 issues in `src/`; 0 high/medium issues in `tests/` |
-| **Security & Audits** | Kubernetes Manifest Scans | Per Manifest Change | `devops k8s lint` / `devops k8s check-deprecated` / `devops scan trivy <dir> --type config` | Validates manifests against K8s security best practices (cluster health: `devops k8s audit`) | Zero deprecated APIs or misconfigurations |
+| **Security & Audits** | Kubernetes Manifest Scans | Per Manifest Change | `devops k8s lint k8s/devops` / `devops k8s check-deprecated k8s/devops` / `devops scan trivy <dir> --type config` | Validates manifests against K8s security best practices (cluster health: `devops k8s audit`) | Zero deprecated APIs or misconfigurations |
 | **Security & Audits** | Codebase Deduplication & Invariant Audit | Weekly / Pre-PR | `uv run ruff check --config pyproject.toml .` && `uv run devops ci test tests/invariants/test_architectural_invariants.py tests/commands/test_ruff_complexity_cap.py` | Ruff `C901` caps complexity at 10 and `PLR1702` caps nesting at 4 blocks; the tests hold their configuration, the `C901` marker ceiling and shared helper adoption | Zero invariant violations |
 | **Observability & Diagnostics** | Command Output, Logs, Metrics & Trace Audit | Continuous / On Execution | `devops telemetry status` / `devops telemetry logfire` | Comprehensive review of command outputs, application logs (`.data/logs/`), metrics, and tracing spans for latency, misconfigurations, and warnings | Nominal latencies, zero unhandled errors/warnings |
 | **Workspace & Sync** | DevContainer Lifecycle Hooks | Daily / On Start | `devops devcontainer run-lifecycle --post-start` | Cross-platform container initialization tasks | All lifecycle tasks complete successfully |
@@ -198,13 +198,13 @@ Executed weekly, or when dependencies are updated.
 - **Command**: `uv run devops ci security`, or `uv run bandit -r src --ini .bandit --severity-level low` and `uv run bandit -r tests --ini .bandit --severity-level medium`.
 
 #### 3. Kubernetes & IaC Security Scans
-- **Frequency**: Whenever `k8s/` manifests are modified.
+- **Frequency**: Whenever `k8s/devops/` manifests are modified. dan-petty/homelab scans the manifests of its environment tree in its own CI.
 - **Methodology**: Uses Kube-linter, Pluto (deprecated API versions), Popeye (cluster sanitization), and Trivy (misconfigurations and vulnerabilities).
 - **Commands**:
   ```bash
-  devops k8s lint
-  devops k8s check-deprecated k8s/
-  devops scan trivy k8s/ --type config
+  devops k8s lint k8s/devops
+  devops k8s check-deprecated k8s/devops
+  devops scan trivy k8s/devops --type config
   ```
 
 #### 4. SSRF Guardrails & OS Keyring Audit

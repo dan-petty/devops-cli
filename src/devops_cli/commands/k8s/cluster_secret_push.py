@@ -8,9 +8,9 @@ keyring and the cluster to print each key's state, and writes nothing.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 import typer
 
@@ -186,18 +186,12 @@ def run_push(
 
 
 def push_for_stacks(
-    stacks: Sequence[str],
-    context: str | None,
-    table: Iterable[ClusterSecret] | None = None,
-    k8s_dir: Path | None = None,
-    env: Any = None,
+    stacks: Sequence[str], context: str | None, table: tuple[ClusterSecret, ...]
 ) -> None:
-    """deploy-stack's push: its stacks' rows with `--stack` semantics, no rotation, restarts on."""
-    full_table = (
-        tuple(table) if table is not None else load_cluster_secrets_table(env=env, k8s_dir=k8s_dir)
-    )
+    """deploy-stack's push: the rows of its stacks in `table`, with `--stack` semantics, no
+    rotation, restarts on."""
     run_push(
-        secrets_for_stacks(stacks, table=full_table),
+        secrets_for_stacks(stacks, table=table),
         PushOptions(context=context),
         mode=PushMode.PUSH,
     )

@@ -53,6 +53,9 @@ from tests.support.cluster_secret_fakes import (
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
+# The Secret table and the push command read the environment tree.
+pytestmark = pytest.mark.usefixtures("environment_repo")
+
 _push_app = typer.Typer()
 _push_app.command()(push_secrets)
 PUSH_COMMAND = typer.main.get_command(_push_app)

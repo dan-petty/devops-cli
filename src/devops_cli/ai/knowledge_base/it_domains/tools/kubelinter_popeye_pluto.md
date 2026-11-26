@@ -38,14 +38,14 @@ Kubernetes cluster safety and manifest quality require multi-layered static and 
 ### DevOps CLI Kubernetes Security Commands
 ```bash
 # Lint the build of each Argo CD Application of the environment tree with KubeLinter and the
-# .kube-linter.yaml of the repository
-devops k8s lint
+# .kube-linter.yaml of the repository. The tree comes from --k8s-dir, else from infra.repos
+devops k8s lint --k8s-dir <homelab-checkout>/k8s
 
 # Sanitize live Kubernetes cluster resources with Popeye
 devops k8s audit
 
 # Detect deprecated Kubernetes API versions with Pluto
-devops k8s check-deprecated k8s/
+devops k8s check-deprecated k8s/devops
 ```
 
 ### Standard Tool CLI Commands

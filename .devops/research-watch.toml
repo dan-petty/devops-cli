@@ -25,29 +25,11 @@
 # `external` and line 0. Leave `version` out when the environment holds the version and this
 # repository does not, and write no host name, no address and no device path here.
 #
-# Not mapped, because the advisories of its repository name no package that matches the pin: the
-# image `portkeyai/gateway` (no package name). The devtools image audits the tools that it
-# installs, so no release binary is named here (#4363).
+# The devtools image audits the tools that it installs, so no release binary is named here
+# (#4363). The charts and the images of the cluster are pins of the environment repository, so
+# this list names none of them (#7290).
 
-# Images and charts.
-
-[[watch]]
-ecosystem = "helm"
-name = "qdrant"
-repo = "qdrant/qdrant"
-package = "qdrant"
-
-[[watch]]
-ecosystem = "docker"
-name = "ghcr.io/berriai/litellm"
-repo = "BerriAI/litellm"
-package = "litellm"
-
-[[watch]]
-ecosystem = "docker"
-name = "ghcr.io/open-webui/open-webui"
-repo = "open-webui/open-webui"
-package = "open-webui"
+# Images.
 
 [[watch]]
 ecosystem = "docker"
@@ -60,21 +42,6 @@ ecosystem = "docker"
 name = "ghcr.io/astral-sh/uv"
 repo = "astral-sh/uv"
 package = "uv"
-
-[[watch]]
-ecosystem = "docker"
-name = "ollama/ollama"
-repo = "ollama/ollama"
-
-[[watch]]
-ecosystem = "docker"
-name = "mattermost/mattermost-team-edition"
-repo = "mattermost/mattermost"
-
-[[watch]]
-ecosystem = "docker"
-name = "ghcr.io/oliver006/redis_exporter"
-repo = "oliver006/redis_exporter"
 
 # Pins outside the repository: no file of it holds these, so the inventory lists them at the file
 # `external` and line 0.

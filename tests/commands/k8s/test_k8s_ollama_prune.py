@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from tests.support.fakes.kubernetes import FakeCluster, pod
@@ -43,9 +44,14 @@ def _ollama_pod(
     return p
 
 
-def test_dry_run_makes_no_cluster_call(cli: Any, cluster: FakeCluster) -> None:
+def _prune(cli: Any, tree: Path, *args: str) -> Any:
+    """`devops k8s ollama prune` with the tiers of the environment tree `tree`."""
+    return cli(["k8s", "ollama", "prune", "--k8s-dir", str(tree), *args])
+
+
+def test_dry_run_makes_no_cluster_call(cli: Any, cluster: FakeCluster, env_tree: Path) -> None:
     """Criterion: --dry-run prints kubectl exec and ollama rm for each target and calls no cluster API."""
-    result = cli(["k8s", "ollama", "prune", "--dry-run"])
+    result = _prune(cli, env_tree, "--dry-run")
 
     assert result.exit_code == 0
     assert len(cluster.core.calls) == 0
@@ -54,7 +60,7 @@ def test_dry_run_makes_no_cluster_call(cli: Any, cluster: FakeCluster) -> None:
 
 
 def test_a_failed_ollama_list_stops_the_node(
-    cli: Any, cluster: FakeCluster, process_fake: ProcessFake
+    cli: Any, cluster: FakeCluster, process_fake: ProcessFake, env_tree: Path
 ) -> None:
     """Criterion: a node whose ollama list fails removes no model, is named, and exits non-zero."""
     cluster.core.answers["list_namespaced_pod"] = [
@@ -64,14 +70,16 @@ def test_a_failed_ollama_list_stops_the_node(
         _ollama_call("list"), ProcessAnswer(returncode=1, stderr="connection refused")
     )
 
-    result = cli(["k8s", "ollama", "prune"])
+    result = _prune(cli, env_tree)
 
     assert result.exit_code != 0
     assert "node-control-plane" in result.stdout or "node-control-plane" in result.stderr
     assert _ollama_calls(process_fake, "rm") == []
 
 
-def test_ollama_prune_plan(cli: Any, cluster: FakeCluster, process_fake: ProcessFake) -> None:
+def test_ollama_prune_plan(
+    cli: Any, cluster: FakeCluster, process_fake: ProcessFake, env_tree: Path
+) -> None:
     """Criterion: --plan prints each node and the models it would remove without calling ollama rm."""
     cluster.core.answers["list_namespaced_pod"] = [
         _ollama_pod("ollama-48gib-fast-abcde", "node-control-plane", "fast")
@@ -79,7 +87,7 @@ def test_ollama_prune_plan(cli: Any, cluster: FakeCluster, process_fake: Process
 
     process_fake.answer(_ollama_call("list"), ProcessAnswer(stdout=_LIST_OUTPUT))
 
-    result = cli(["k8s", "ollama", "prune", "--plan"])
+    result = _prune(cli, env_tree, "--plan")
 
     assert result.exit_code == 0
     assert "node-control-plane" in result.stdout
@@ -88,7 +96,7 @@ def test_ollama_prune_plan(cli: Any, cluster: FakeCluster, process_fake: Process
 
 
 def test_ollama_prune_executes_rm(
-    cli: Any, cluster: FakeCluster, process_fake: ProcessFake
+    cli: Any, cluster: FakeCluster, process_fake: ProcessFake, env_tree: Path
 ) -> None:
     """Criterion: prune removes only the models not in keep set for each node."""
     cluster.core.answers["list_namespaced_pod"] = [
@@ -97,7 +105,7 @@ def test_ollama_prune_executes_rm(
 
     process_fake.answer(_ollama_call("list"), ProcessAnswer(stdout=_LIST_OUTPUT))
 
-    result = cli(["k8s", "ollama", "prune"])
+    result = _prune(cli, env_tree)
 
     assert result.exit_code == 0
     assert "node-control-plane" in result.stdout

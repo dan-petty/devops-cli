@@ -1,8 +1,8 @@
 """The pydantic-ai model of a call to a chat group of the LLM gateway: one retry layer (#5965).
 
 The gateway owns the retries and the fallbacks of a call (`router_settings` of
-`k8s/llm/gateway/config.yaml`). The client sends a call again only in two cases that no layer of
-the gateway retries:
+`llm/gateway/config.yaml` of the environment tree). The client sends a call again only in two
+cases that no layer of the gateway retries:
 
 - The call did not reach the gateway: its connect failed, or the pool had no free connection.
 - A streamed reply failed before its first event. LiteLLM writes such a failure into the open

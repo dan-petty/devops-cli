@@ -119,9 +119,14 @@ class KubelinterScanner(BaseSecurityScanner):
 
     def build_command(self, target_path: Path, **kwargs: Any) -> list[str]:
         """Build argument command list for invoking Kube-linter. The scan's `config` names the
-        config file that kube-linter reads, when the caller gives one."""
+        config file that kube-linter reads, when the caller gives one, and `require_objects`
+        fails a target with no Kubernetes object."""
         target_abs = target_path.resolve() if target_path.exists() else target_path
-        return build_kubelinter_cmd(target_abs, config=kwargs.get("config"))
+        return build_kubelinter_cmd(
+            target_abs,
+            config=kwargs.get("config"),
+            require_objects=kwargs.get("require_objects", False),
+        )
 
     def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
         """Parse raw Kube-linter JSON payload into Finding models."""
@@ -149,15 +154,17 @@ def run_kubelinter_scan(
     isolated: bool = False,
     tool_executor: ToolExecutor | None = None,
     config: Path | None = None,
+    require_objects: bool = False,
 ) -> ScanOutcome:
     """Execute Kube-linter scanner and return scan outcome; `isolated` for a review (#972).
 
     `config` names the config file of a scan that is not isolated, such as the `.kube-linter.yaml`
     of the repository for a scan of a folder outside it (#6068). Without it, kube-linter reads the
-    `.kube-linter.yaml` of its working directory, if there is one.
+    `.kube-linter.yaml` of its working directory, if there is one. With `require_objects`, a
+    target with no Kubernetes object is a failed scan, not a scan with no finding (#7290).
     """
     scanner = KubelinterScanner(tool_executor)
-    return scanner.scan(target, isolated=isolated, config=config)
+    return scanner.scan(target, isolated=isolated, config=config, require_objects=require_objects)
 
 
 __all__ = [

@@ -18,10 +18,6 @@ from tests.support.fakes.keyring import FakeKeyring
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
-# The folders that `grafana dashboards sync` and `lint` read when no folder is given (#5292).
-DASHBOARD_DIRS = (Path("k8s/monitoring/dashboards"), Path("k8s/devops/dashboards"))
-
-
 GRAFANA_ENV = {
     "DEVOPS_CLI_GRAFANA_URL": "http://example.com:3000",
     "DEVOPS_CLI_GRAFANA_TOKEN": "glsa-test",
@@ -29,8 +25,25 @@ GRAFANA_ENV = {
 BEARER = "Bearer glsa-test"
 
 
-def test_grafana_dashboards_sync_dry_run(cli: Callable[..., Any], web: WebFake) -> None:
+def _write_dashboard_repo(root: Path) -> None:
+    """Write at `root` a repository whose profile names its environment tree `k8s`, with dashboard
+    `a` in the environment folder and dashboard `b` in the product folder."""
+    (root / ".git").mkdir()
+    (root / ".devops").mkdir()
+    (root / ".devops" / "project.toml").write_text('[kubernetes]\ndir = "k8s"\n', "utf-8")
+    for folder, uid in (("k8s/monitoring/dashboards", "a"), ("k8s/devops/dashboards", "b")):
+        (root / folder).mkdir(parents=True)
+        document = {"uid": uid, "title": uid, "panels": []}
+        (root / folder / f"{uid}.json").write_text(json.dumps(document), encoding="utf-8")
+
+
+def test_grafana_dashboards_sync_dry_run(
+    cli: Callable[..., Any], web: WebFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Verify grafana dashboards sync in dry-run mode."""
+    _write_dashboard_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
     result = cli("--dry-run", "grafana", "dashboards", "sync")
 
     assert (result.exit_code, "devops grafana dashboards sync" in result.output, web.recorded) == (
@@ -40,9 +53,13 @@ def test_grafana_dashboards_sync_dry_run(cli: Callable[..., Any], web: WebFake) 
     )
 
 
-def test_grafana_dashboards_sync_success(cli: Callable[..., Any], web: WebFake) -> None:
-    """Verify successful sync of the built-in dashboards: one save for each file of the
-    environment folder and of the product folder (#5292)."""
+def test_grafana_dashboards_sync_success(
+    cli: Callable[..., Any], web: WebFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no folder, sync saves one dashboard for each file of the environment folder and of the
+    product folder (#5292)."""
+    _write_dashboard_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
     web.serve(
         lambda request: httpx2.Response(200, json={"slug": "test-dashboard", "status": "success"})
     )
@@ -55,16 +72,7 @@ def test_grafana_dashboards_sync_success(cli: Callable[..., Any], web: WebFake) 
         "Dashboard sync completed" in result.output,
         sorted(request.json["dashboard"]["uid"] for request in saves),
         {request.headers["authorization"] for request in saves},
-    ) == (
-        0,
-        True,
-        sorted(
-            json.loads(f.read_text(encoding="utf-8"))["uid"]
-            for d in DASHBOARD_DIRS
-            for f in d.glob("*.json")
-        ),
-        {BEARER},
-    )
+    ) == (0, True, ["a", "b"], {BEARER})
 
 
 def _sync_against(

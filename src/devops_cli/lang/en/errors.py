@@ -228,22 +228,33 @@ class K8sErrorMessages:
         "Non-interactive session requires --yes to confirm PersistentVolume reclaim."
     )
     environment_root_not_found: str = (
-        "No environment tree is known. Give {option} with the Kubernetes folder of the infra "
-        'repo, or declare it in {file} of the repository ([kubernetes] dir = "k8s").'
+        "No environment tree is known. Add to infra.repos the checkout of the infra repo, whose "
+        "{file} gives kubernetes.dir, or, if the command has the option {option}, give the "
+        "Kubernetes folder of that repo with it."
+    )
+    environment_path_missing: str = (
+        "The environment tree {root} has no {path}. Add to infra.repos the checkout of the infra "
+        "repo that holds it, or, if the command has the option {option}, give the Kubernetes "
+        "folder of that repo with it."
+    )
+    environment_applications_missing: str = (
+        "The environment tree {root} has no Argo CD Application under {folders}. Add to "
+        "infra.repos the checkout of the infra repo that holds them, or, if the command has the "
+        "option {option}, give the Kubernetes folder of that repo with it."
     )
     environment_root_ambiguous: str = (
-        "Two or more infra repos give an environment tree: {roots}. Give {option} with the one "
-        "to read."
+        "Two or more infra repos give an environment tree: {roots}. Keep one of them in "
+        "infra.repos, or, if the command has the option {option}, give the one to read with it."
     )
     chart_version_not_pinned: str = (
         "No Argo CD Application under {folders} pins the chart of release {release}. Add the "
-        "Application of the chart with its targetRevision, or give --k8s-dir with the tree that "
-        "holds it."
+        "Application of the chart with its targetRevision in the infra repo, or give --k8s-dir "
+        "with the tree that holds it."
     )
     application_not_found: str = (
         "Stack {stack} builds the path sources of the Argo CD Application {application}, and no "
-        "Application under {folders} has that name. Add the Application, or give --k8s-dir with "
-        "the tree that holds it."
+        "Application under {folders} has that name. Add the Application in the infra repo, or "
+        "give --k8s-dir with the tree that holds it."
     )
     path_source_leaves_repository: str = (
         "The path {path} of the git source {repo} goes out of the folder of its repository, and "
@@ -314,6 +325,10 @@ class ArgoErrorMessages:
     url_not_configured: str = "ArgoCD URL not configured. Run: devops config set argocd.url <url>"
     connect_failed: str = "Failed to connect to ArgoCD: {exc}"
     app_not_found: str = "Application '{name}' not found."
+    watched_path_empty: str = (
+        "No manifest and no change of one under {paths}. A report on such a path would read "
+        "nothing. Give a path that holds manifests."
+    )
 
 
 @dataclass(frozen=True)

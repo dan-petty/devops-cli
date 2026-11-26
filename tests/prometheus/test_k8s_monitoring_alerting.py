@@ -1,27 +1,27 @@
-"""The alert rules of the Prometheus server: promtool checks them and runs their unit tests.
+"""The alert rules of the product: promtool checks them and runs their unit tests.
 
-The environment rules live in `k8s/monitoring/prometheus-values.yaml`
-(`serverFiles.alerting_rules.yml`). The product rules, which watch the `devops_cli_` series, live
-in `k8s/devops/monitoring/prometheus-rules-values.yaml`
-(`serverFiles.devops_cli_alerting_rules.yml`), the second values file of the chart (#5292). The
-server loads each file that `rule_files` of the environment values names. A rule over a series
-nothing in the stack serves never fires, so every expression may name only the series in
-`SERVED_SERIES`, each served by a scrape or by the OpenTelemetry collector that this repository
-defines. The k3s server runs the controller manager, scheduler and proxy in its own process, so
-no scrape targets them and none of their series is listed: a rule over them would fire on the
-missing target, as `KubeControllerManagerDown`, `KubeSchedulerDown` and `KubeProxyDown` did.
+The product rules, which watch the `devops_cli_` series, live in
+`k8s/devops/monitoring/prometheus-rules-values.yaml`
+(`serverFiles.devops_cli_alerting_rules.yml`), the second values file of the Prometheus chart
+(#5292). The environment repository holds the first values file, with the rules of the
+environment and the `rule_files` of the server. A rule over a series nothing in the stack serves
+never fires, so an expression may name only the series in `SERVED_SERIES`, each served by a scrape
+or by the OpenTelemetry collector of the environment. The k3s server runs the controller manager,
+scheduler and proxy in its own process, so no scrape targets them and none of their series is
+listed: a rule over them would fire on the missing target, as `KubeControllerManagerDown`,
+`KubeSchedulerDown` and `KubeProxyDown` did.
 
-The checks read files only, except the two that run promtool: `promtool check rules` over every
-rule, and `promtool test rules` over each group that has unit tests in
-`tests/fixtures/prometheus_rules/`. Each skips where promtool is not installed. They run the
-promtool of the devtools image, which the devcontainer has and which CI copies with
-`.github/actions/devtools-commands` and puts on PATH.
+The checks read files only, except the one that runs promtool: `promtool check rules` over every
+product rule. It skips where promtool is not installed. It runs the promtool of the devtools
+image, which the devcontainer has and which CI copies with `.github/actions/devtools-commands`
+and puts on PATH. `tests/fixtures/prometheus_rules/` holds the promtool unit tests of the groups,
+and a test holds each file within a budget of rule evaluations.
 """
 
 from __future__ import annotations
 
 from functools import cache
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -72,7 +72,6 @@ if TYPE_CHECKING:
 K8S = REPO_ROOT / "k8s"
 K8S_README = K8S / "README.md"
 CLUSTER_DOC = REPO_ROOT / "docs" / "CLUSTER.md"
-PROMETHEUS_VALUES = K8S / "monitoring" / "prometheus-values.yaml"
 PRODUCT_RULES_VALUES = K8S / "devops" / "monitoring" / "prometheus-rules-values.yaml"
 ROADMAP_SERVICE_RULE_TESTS = FIXTURES / "prometheus_rules" / "roadmap_service_tests.yaml"
 ROADMAP_SERVICE_RECORDING_RULE_TESTS = (
@@ -94,13 +93,9 @@ ROADMAP_SERVICE_TOOLS_RULE_TESTS = (
     FIXTURES / "prometheus_rules" / "roadmap_service_tools_tests.yaml"
 )
 CRAWL4AI_RULE_TESTS = FIXTURES / "prometheus_rules" / "crawl4ai_tests.yaml"
-OTEL_COLLECTOR_RULE_TESTS = FIXTURES / "prometheus_rules" / "otel_collector_tests.yaml"
-VALKEY_MEMORY_RULE_TESTS = FIXTURES / "prometheus_rules" / "valkey_memory_tests.yaml"
 RESEARCH_RULE_TESTS = FIXTURES / "prometheus_rules" / "research_tests.yaml"
 REPOS_DRIFT_RULE_TESTS = FIXTURES / "prometheus_rules" / "repos_drift_tests.yaml"
 AI_SPEND_RULE_TESTS = FIXTURES / "prometheus_rules" / "ai_spend_tests.yaml"
-GATEWAY_DATABASE_RULE_TESTS = FIXTURES / "prometheus_rules" / "llm_gateway_db_tests.yaml"
-METRIC_STREAMS_RULE_TESTS = FIXTURES / "prometheus_rules" / "metric_streams_tests.yaml"
 # The SLO groups of #4709: the render of the Sloth specs of k8s/devops/monitoring/slos/, one case
 # file for each.
 SLO_ROADMAP_SERVICE_ROUNDS_RULE_TESTS = (
@@ -141,20 +136,12 @@ ROADMAP_SERVICE_GROUP_TESTS = (
 )
 # The page fetches of the Crawl4AI service and its Deployment (#3893).
 CRAWL4AI_GROUP = "crawl4ai"
-# The rules over the OpenTelemetry collector's own telemetry (#1642).
-OTEL_COLLECTOR_GROUP = "otel-collector"
-# The rule of a Valkey that refuses writes at its memory bound (#2094).
-VALKEY_MEMORY_GROUP = "valkey-memory"
 # The rule over the open findings of `devops research sweep` (#3899).
 RESEARCH_GROUP = "research"
 # The rules over the nightly drift check of the repository settings (#6783).
 REPOS_DRIFT_GROUP = "repos-drift"
 # The rules over the daily USD spend of the hosted models (#4222).
 AI_SPEND_GROUP = "ai-spend"
-# The rule of two metric streams that write one Prometheus series (#4697).
-METRIC_STREAMS_GROUP = "metric-streams"
-# The rules of the database of the LLM gateway, a CloudNativePG Cluster of one instance (#4994).
-GATEWAY_DATABASE_GROUP = "llm-gateway-db"
 # The four SLO groups of #4709, one for each Sloth spec of k8s/devops/monitoring/slos/: the row
 # runs of the roadmap Service, the duration of its runner Jobs and the requests and the latency of
 # the LLM gateway.
@@ -166,13 +153,9 @@ SLO_LLM_GATEWAY_LATENCY_GROUP = "slo-llm-gateway-latency"
 RULE_GROUP_TESTS = (
     *ROADMAP_SERVICE_GROUP_TESTS,
     (CRAWL4AI_GROUP, CRAWL4AI_RULE_TESTS),
-    (OTEL_COLLECTOR_GROUP, OTEL_COLLECTOR_RULE_TESTS),
-    (VALKEY_MEMORY_GROUP, VALKEY_MEMORY_RULE_TESTS),
     (RESEARCH_GROUP, RESEARCH_RULE_TESTS),
     (REPOS_DRIFT_GROUP, REPOS_DRIFT_RULE_TESTS),
     (AI_SPEND_GROUP, AI_SPEND_RULE_TESTS),
-    (GATEWAY_DATABASE_GROUP, GATEWAY_DATABASE_RULE_TESTS),
-    (METRIC_STREAMS_GROUP, METRIC_STREAMS_RULE_TESTS),
     (SLO_ROADMAP_SERVICE_ROUNDS_GROUP, SLO_ROADMAP_SERVICE_ROUNDS_RULE_TESTS),
     (SLO_RUNNER_JOBS_DURATION_GROUP, SLO_RUNNER_JOBS_DURATION_RULE_TESTS),
     (SLO_LLM_GATEWAY_REQUESTS_GROUP, SLO_LLM_GATEWAY_REQUESTS_RULE_TESTS),
@@ -376,19 +359,10 @@ def _yaml(path: Path) -> dict[str, Any]:
     return loaded
 
 
-def _server_files() -> dict[str, Any]:
-    """The `serverFiles` of the chart: the environment values, then the product values."""
-    return {
-        **_yaml(PROMETHEUS_VALUES)["serverFiles"],
-        **_yaml(PRODUCT_RULES_VALUES)["serverFiles"],
-    }
-
-
 def _rule_files() -> dict[str, dict[str, Any]]:
-    """Each rule file that the server loads and that holds groups, by its key of `serverFiles`."""
-    server_files = _server_files()
-    keys = [PurePosixPath(path).name for path in server_files["prometheus.yml"]["rule_files"]]
-    return {key: server_files[key] for key in keys if (server_files.get(key) or {}).get("groups")}
+    """Each rule file of the product values that holds groups, by its key of `serverFiles`."""
+    server_files = _yaml(PRODUCT_RULES_VALUES)["serverFiles"]
+    return {key: rules for key, rules in server_files.items() if (rules or {}).get("groups")}
 
 
 def _unserved(expression: str) -> list[str]:
@@ -455,8 +429,8 @@ def test_each_row_of_the_alerting_table_renders_every_cell() -> None:
 
 @pytest.mark.live("promtool")
 def test_promtool_accepts_every_alert_rule(tmp_path: Path) -> None:
-    """`promtool check rules` accepts each rule file the server loads, with each expression and
-    each annotation template (#2472, #5292)."""
+    """`promtool check rules` accepts each rule file of the product values, with each expression
+    and each annotation template (#2472, #5292)."""
     paths = []
     for key, rules in _rule_files().items():
         path = tmp_path / key

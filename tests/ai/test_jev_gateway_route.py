@@ -3,12 +3,11 @@
 `SystemOneModel` posts the Decisions protocol to `{ai.gateway_url}/systemone`. A LiteLLM
 pass-through serves that path and forwards it to the System One endpoint of OpenRouter, which
 takes the same request and answer as the Decisions API (https://openrouter.ai/docs/guides/community/jev).
-The tests fail when the client and `k8s/llm/gateway/config.yaml` stop naming the same path.
+The environment repository configures the pass-through route.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -20,7 +19,6 @@ from devops_cli.config.constants import CONST_AI_JEV_MODEL
 from devops_cli.config.settings import Settings
 from tests.support.fakes.http import WebFake
 
-GATEWAY_CONFIG = Path("k8s/llm/gateway/config.yaml")
 EXAMPLE_GATEWAY = "http://example.com:4000/v1"
 OPENROUTER_ANSWER: dict[str, Any] = {
     "id": "gen-dec-1789738314-X5e5eKGQdvR9rblyX250",

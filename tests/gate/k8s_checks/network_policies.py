@@ -1,18 +1,19 @@
-"""Every network policy has a path that deploy-stack applies (#2164), the pods that reach SearXNG
-(#3924), and no policy has both types, `Ingress` and `Egress` (#6708)."""
+"""Every network policy of the product base `k8s/devops` has a path that deploy-stack applies
+(#2164), the pods that reach SearXNG (#3924), and no policy has both types, `Ingress` and `Egress`
+(#6708)."""
 
 from __future__ import annotations
 
 import functools
 from collections.abc import Iterable
-from pathlib import Path
 from typing import Any
 
 import yaml
 
-from devops_cli.commands.k8s import stack_lifecycle
-from devops_cli.commands.k8s.networking import _resolve_stacks
-from devops_cli.commands.k8s.stack_lifecycle import KUSTOMIZATIONS_BY_STACK
+from devops_cli.commands.k8s.stack_lifecycle import (
+    PRODUCT_MANIFESTS_BY_STACK,
+    PRODUCT_POST_HELM_BY_STACK,
+)
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.k8s.cluster_job import (
     RUNNER_TEMPLATE,
@@ -21,108 +22,33 @@ from devops_cli.k8s.cluster_job import (
     build_job,
     stage_job_labels,
 )
-from tests.gate.k8s_render import applied_objects, kustomize, kustomized_objects, manifest_objects
-from tests.support.k8s_tree import deploy_stack_manifests
+from tests.gate.k8s_render import applied_objects, kustomize, manifest_objects
 from tests.support.paths import REPO_ROOT
 
-K8S_DIR = REPO_ROOT / "k8s"
+DEVOPS_DIR = REPO_ROOT / "k8s" / "devops"
 
 
-# The NetworkPolicies `devops k8s deploy-stack` does not apply: (namespace, name) to the file that
-# declares the policy and the issue that owns its deploy path, or the path that applies it instead.
-# An Argo CD Application is such a path, never a deploy-stack one: a cluster without Argo CD gets
-# only what deploy-stack applies (#913). Delete an entry once its policy gains a deploy-stack path
-# or leaves its file; the guard below fails until then.
-UNDEPLOYED_NETWORK_POLICIES: dict[tuple[str, str], tuple[str, str]] = {}
-
-
-def _deploy_stack_network_policies() -> set[tuple[str, str]]:
-    """(namespace, name) of every NetworkPolicy `deploy-stack --stack all` applies without Argo CD.
-
-    It applies the root kustomization, then each stack's kustomizations, then its manifest paths,
-    then its post-Helm paths. A manifest path is a file or a kustomization directory.
-    """
-    stacks = _resolve_stacks("all")
-    post_helm_by_stack: dict[str, tuple[Path, ...]] = getattr(
-        stack_lifecycle, "POST_HELM_BY_STACK", {}
-    )
-    post_helm = [
-        *(K8S_DIR / entry for stack in stacks for entry in post_helm_by_stack.get(stack, ())),
-        *(
-            K8S_DIR / "devops" / entry
-            for stack in stacks
-            for entry in stack_lifecycle.PRODUCT_POST_HELM_BY_STACK.get(stack, ())
-        ),
-    ]
-    kustomizations = [
-        K8S_DIR,
-        *(K8S_DIR / entry for stack in stacks for entry in KUSTOMIZATIONS_BY_STACK.get(stack, ())),
-        *(path for path in post_helm if path.is_dir()),
-    ]
-    manifests = [
-        *deploy_stack_manifests(stacks),
-        *(path for path in post_helm if path.is_file()),
-    ]
-    return {
-        policy
-        for kustomization in kustomizations
-        for policy in kustomized_objects(kustomization, "NetworkPolicy")
-    } | {policy for manifest in manifests for policy in applied_objects(manifest, "NetworkPolicy")}
-
-
-def _policies_from_source(src: dict[str, Any]) -> set[tuple[str, str]]:
-    rel_path = src.get("path")
-    if not rel_path:
-        return set()
-    target = REPO_ROOT / rel_path
-    if (target / "kustomization.yaml").is_file() or (target / "kustomization.yml").is_file():
-        return set(kustomized_objects(target, "NetworkPolicy"))
-    if target.is_file():
-        return set(manifest_objects(target, "NetworkPolicy"))
-    return set()
-
-
-def _argocd_network_policies() -> set[tuple[str, str]]:
-    """(namespace, name) of every NetworkPolicy rendered by Argo CD Applications (#1673)."""
-    apps_dir = K8S_DIR / "argocd" / "apps"
-    policies: set[tuple[str, str]] = set()
-    for app_file in sorted(apps_dir.glob("*.yaml")):
-        if app_file.name == "projects.yaml":
-            continue
-        for doc in yaml.safe_load_all(app_file.read_text(encoding="utf-8")):
-            if not isinstance(doc, dict) or doc.get("kind") != "Application":
-                continue
-            spec = doc.get("spec", {})
-            sources = list(spec.get("sources", []))
-            if "source" in spec and isinstance(spec["source"], dict):
-                sources.append(spec["source"])
-            for src in sources:
-                policies.update(_policies_from_source(src))
-    return policies
-
-
-def check_every_network_policy_has_a_deploy_stack_path_or_an_owned_exemption() -> None:
-    """deploy-stack and Argo CD apply every NetworkPolicy under k8s/, or an exemption names its owner (#913, #1673).
-
-    Each namespace's kustomization lists its policy, and a policy counts as deployed only when
-    rendered by both native deploy-stack and an Argo CD Application (or it carries an owned exemption).
-    """
+def check_every_network_policy_of_the_product_base_has_both_apply_paths() -> None:
+    """Argo CD and deploy-stack each apply every NetworkPolicy of `k8s/devops` (#913). Application
+    `devops` applies the build of the folder, and it prunes, so a policy that the root
+    kustomization does not reach leaves the cluster. A cluster without Argo CD gets only what
+    deploy-stack applies, so a policy that no product table names stays out."""
     declared = {
         policy
-        for path in K8S_DIR.rglob("*.y*ml")
+        for path in DEVOPS_DIR.rglob("*.y*ml")
         for policy in manifest_objects(path, "NetworkPolicy")
     }
-    applied = _deploy_stack_network_policies() & _argocd_network_policies()
-    exempted = set(UNDEPLOYED_NETWORK_POLICIES)
-    assert (
-        sorted(declared - applied - exempted),
-        sorted(exempted & applied),
-        sorted(
-            policy
-            for policy, (path, _owner) in UNDEPLOYED_NETWORK_POLICIES.items()
-            if policy not in manifest_objects(REPO_ROOT / path, "NetworkPolicy")
-        ),
-    ) == ([], [], [])
+    applied = {
+        policy
+        for table in (PRODUCT_MANIFESTS_BY_STACK, PRODUCT_POST_HELM_BY_STACK)
+        for paths in table.values()
+        for path in paths
+        for policy in applied_objects(DEVOPS_DIR / path, "NetworkPolicy")
+    }
+
+    built = applied_objects(DEVOPS_DIR, "NetworkPolicy")
+
+    assert (sorted(declared - applied), sorted(declared - built)) == ([], [])
 
 
 # ── Who reaches SearXNG (#3924, #5483) ────────────────────────────────────────
@@ -132,7 +58,7 @@ SEARXNG_PORT = 8080
 
 @functools.cache
 def _devops_documents() -> tuple[dict[str, Any], ...]:
-    rendered = yaml.load_all(kustomize(K8S_DIR / "devops").stdout, Loader=yaml.CSafeLoader)
+    rendered = yaml.load_all(kustomize(DEVOPS_DIR).stdout, Loader=yaml.CSafeLoader)
     return tuple(document for document in rendered if isinstance(document, dict))
 
 
@@ -253,11 +179,11 @@ def dual_type_problems(policies: Iterable[dict[str, Any]]) -> list[str]:
 
 
 @functools.cache
-def _tree_network_policies() -> tuple[dict[str, Any], ...]:
-    """Each NetworkPolicy document of each YAML file of the environment tree `k8s/`."""
+def _product_network_policies() -> tuple[dict[str, Any], ...]:
+    """Each NetworkPolicy document of each YAML file of the product base `k8s/devops`."""
     return tuple(
         document
-        for path in sorted(K8S_DIR.rglob("*.y*ml"))
+        for path in sorted(DEVOPS_DIR.rglob("*.y*ml"))
         for document in yaml.load_all(path.read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
         if isinstance(document, dict) and document.get("kind") == "NetworkPolicy"
     )
@@ -308,9 +234,9 @@ def check_the_dual_type_rule_accepts_single_type_policies() -> None:
     assert dual_type_problems(policies) == []
 
 
-def check_no_network_policy_of_the_tree_has_both_types() -> None:
-    """Each NetworkPolicy of the environment tree has one type, `Ingress` or `Egress`: kube-router
+def check_no_network_policy_of_the_product_base_has_both_types() -> None:
+    """Each NetworkPolicy of `k8s/devops` has one type, `Ingress` or `Egress`: kube-router
     lets the rules of one type of a policy with both types skip the rules of the other type for
     traffic between two pods that the policy selects (#6708)."""
-    problems = dual_type_problems(_tree_network_policies())
+    problems = dual_type_problems(_product_network_policies())
     assert not problems, "\n".join(problems)

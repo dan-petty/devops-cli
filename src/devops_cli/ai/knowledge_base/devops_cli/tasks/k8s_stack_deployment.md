@@ -17,6 +17,8 @@ tags:
 
 Local Kubernetes stack automation in `devops-cli` allows developers to bootstrap, configure, deploy, and teardown complete cloud-native infrastructure stacks on local Minikube clusters with a single command. Supported stacks include Prometheus metrics collection, Grafana dashboards, ArgoCD GitOps reconciliation, Grafana Tempo distributed tracing, OpenTelemetry collectors, the local LLM stack and centralized logging.
 
+devops-cli ships only the product base `k8s/devops`. The manifests and the chart values of the other stacks are in the environment tree, the `k8s/` folder of the infra repository (dan-petty/homelab). A command takes the tree from `--k8s-dir`, else from `infra.repos`.
+
 ---
 
 ## 2. Architecture & Stack Definitions
@@ -24,7 +26,7 @@ Local Kubernetes stack automation in `devops-cli` allows developers to bootstrap
 ```mermaid
 graph TD
     A[devops k8s bootstrap] --> B[Minikube Docker Driver Cluster]
-    B --> N[kubectl apply -k k8s/: namespaces, cloudflared]
+    B --> N[kubectl apply -k of the environment tree: namespaces, cloudflared]
     N --> S[push-secrets: cluster Secrets from the OS keyring]
     S --> C[deploy-stack --stack infra]
     S --> D[deploy-stack --stack llm]
@@ -56,23 +58,23 @@ devops k8s switch-context docker-desktop  # Target Docker Desktop
 devops k8s switch-context minikube
 
 # 2. Bootstrap local Minikube cluster explicitly with GPU passthrough
-devops k8s bootstrap
+devops k8s bootstrap --dir <homelab-checkout>/k8s
 
 # 3. Deploy the infrastructure stack (Argo CD, monitoring, OpenTelemetry & Tempo)
-devops k8s deploy-stack --stack infra
+devops k8s deploy-stack --stack infra --k8s-dir <homelab-checkout>/k8s
 
 # 4. Deploy local LLM stack (Ollama, Open-WebUI, Qdrant, Valkey, gateway)
-devops k8s deploy-stack --stack llm
+devops k8s deploy-stack --stack llm --k8s-dir <homelab-checkout>/k8s
 
 # 5. Preview a deploy: releases, manifests, and the Secrets it pushes (key names only).
 #    The devops stack needs service.repos and the GitHub App (service.github_app) in
 #    config.yaml first.
-devops k8s deploy-stack --stack all --dry-run
+devops k8s deploy-stack --stack all --k8s-dir <homelab-checkout>/k8s --dry-run
 
 # 6. Write or check the cluster Secrets from the keyring alone
-devops k8s push-secrets --dry-run    # no request: the requests a push would make, in order
-devops k8s push-secrets --plan       # reads the keyring and the cluster: each key's state
-devops k8s push-secrets --only llm/qdrant-api-key
+devops k8s push-secrets --k8s-dir <homelab-checkout>/k8s --dry-run    # no request: the requests a push would make, in order
+devops k8s push-secrets --k8s-dir <homelab-checkout>/k8s --plan       # reads the keyring and the cluster: each key's state
+devops k8s push-secrets --k8s-dir <homelab-checkout>/k8s --only llm/qdrant-api-key
 
 # 7. Run one devops command as a Job in the cluster (after `devops k8s deploy-stack --stack devops`)
 devops k8s run-job -- ai gateway status --format json
@@ -81,7 +83,7 @@ devops k8s run-job -- ai gateway status --format json
 devops k8s pods --all-namespaces
 
 # 9. Teardown stack cleanly
-devops k8s teardown-stack --stack llm
+devops k8s teardown-stack --stack llm --k8s-dir <homelab-checkout>/k8s
 ```
 
 ---
@@ -92,7 +94,7 @@ devops k8s teardown-stack --stack llm
 2. **Resource Allocation**: Ensure Minikube has sufficient CPU/memory (`--cpus=4 --memory=8192` or GPU node) when running multiple concurrent stacks.
 3. **Idempotent Deployments**: `deploy-stack` uses `helm upgrade --install --wait --timeout <t>` (plus `--force-conflicts` on Helm 4) and recovers stuck releases, so it can be re-run safely.
 4. **Clean Teardown**: Run `teardown-stack` before deleting clusters to allow Helm hooks and finalizers to release external resources cleanly.
-5. **Multi-Namespace Root Kustomization**: The root `k8s/kustomization.yaml` coordinates child namespaces without setting a single top-level `namespace:` override.
+5. **Multi-Namespace Root Kustomization**: The root `kustomization.yaml` of the environment tree coordinates child namespaces without setting a single top-level `namespace:` override.
 6. **Cluster Target Verification**: Run `devops k8s contexts` or `devops k8s status` before executing `deploy-stack` to ensure workloads are deployed to the intended cluster context (e.g. Minikube vs. Docker Desktop vs. Cloud EKS).
 
 ---

@@ -1,4 +1,5 @@
-"""The workloads of the devops stack on the digest that Image Updater sets (#2164)."""
+"""The workloads of the devops stack on the digest that Image Updater sets, and the ConfigMap that
+no commit holds (#2164)."""
 
 from __future__ import annotations
 
@@ -13,9 +14,10 @@ from devops_cli.config.constants import (
     CONST_RUNNER_PHASE_PREPARE,
     CONST_RUNNER_PHASE_PUBLISH,
 )
+from tests.gate.k8s_render import applied_documents
 from tests.support.paths import REPO_ROOT
 
-K8S_DIR = REPO_ROOT / "k8s"
+DEVOPS_DIR = REPO_ROOT / "k8s" / "devops"
 
 
 def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when_missing(
@@ -24,17 +26,17 @@ def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when
     """Application devops renders the CronJob and roadmap-service on Image Updater's digest (#1485).
 
     Git names the image untagged, and Argo CD adds the Application's `spec.source.kustomize.images`
-    entry, which sets the digest, to the kustomization it builds, as this overlay does. A tag of
-    `latest` would default the pull policy to Always, so both containers set IfNotPresent.
+    entry, which sets the digest, to the kustomization it builds, as the kustomization that this
+    check writes does. A tag of `latest` would default the pull policy to Always, so both
+    containers set IfNotPresent.
     """
     service = "ghcr.io/dan-petty/devops-cli/service"
     runner = "ghcr.io/dan-petty/devops-cli/runner"
     digest = f"sha256:{'0' * 64}"
-    overlay = K8S_DIR / "overlays" / "homelab" / "devops"
     (tmp_path / "kustomization.yaml").write_text(
         yaml.safe_dump(
             {
-                "resources": [os.path.relpath(overlay, tmp_path)],
+                "resources": [os.path.relpath(DEVOPS_DIR, tmp_path)],
                 # Image Updater writes the entry of the runner in the Application (#2667).
                 "images": [
                     {"name": service, "newTag": "latest", "digest": digest},
@@ -116,3 +118,27 @@ def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when
         ("Deployment", "mcp-server", "ghcr.io/dan-petty/devops-cli/mcp-server", "IfNotPresent"),
         ("Deployment", "service", f"{service}:latest@{digest}", "IfNotPresent"),
     }
+
+
+def check_no_application_renders_the_devops_cli_config_map_and_no_commit_holds_it() -> None:
+    """The ConfigMap is rendered from the active config at deploy time, never from git."""
+    objects = [(d["kind"], d["metadata"]["name"]) for d in applied_documents(DEVOPS_DIR)]
+    ignored = subprocess.run(
+        ["git", "check-ignore", "-q", "k8s/devops/configmap.yaml"],
+        cwd=REPO_ROOT,
+        check=False,
+        timeout=30,
+    ).returncode
+    tracked = subprocess.run(
+        ["git", "ls-files", "k8s/devops/configmap.yaml"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    ).stdout
+    assert (("ConfigMap", "devops-cli-config") in objects, ignored, tracked) == (
+        False,
+        0,
+        "",
+    )

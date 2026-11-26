@@ -22,7 +22,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_WEBHOOK_EVENTS,
 )
 from devops_cli.core.process import run_subprocess
-from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.exceptions import ConfigurationError, DevOpsCLIError
 from devops_cli.github.labels import LabelSpec, diff_labels
 from devops_cli.github.onboard.baseline import LABELS_FILE
 from devops_cli.github.onboard.model import (
@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     from devops_cli.github.onboard.baseline import Baseline
     from devops_cli.github.onboard.routes import RouteWriter
     from devops_cli.github.session import GitHubSession
+    from devops_cli.k8s.environment import EnvironmentTree
 
 _WEBHOOK_SECRETS: Final[str] = "service.webhook_secrets"
 _ALL_EVENTS: Final[str] = "*"
@@ -270,9 +271,25 @@ def _git(workdir: Path, *args: str) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
+def _stale_reason(checkout: Path) -> str | None:
+    """Why `checkout` is not clean at `origin/main`, or None when it is. The fetch reads
+    `origin/main` as it stands now."""
+    if _git(checkout, "fetch", "--quiet", "origin", "main") is None:
+        return "git fetch origin main failed"
+    head, main = _git(checkout, "rev-parse", "HEAD"), _git(checkout, "rev-parse", "origin/main")
+    if head is None or head != main:
+        return "HEAD is not origin/main"
+    status = _git(checkout, "status", "--porcelain")
+    if status is None:
+        return "git status failed"
+    if status:
+        return f"the checkout has {len(status.splitlines())} changed files"
+    return None
+
+
 def clean_main_reason(workdir: Path) -> str | None:
     """Why `workdir` is no clean checkout of `origin/main` of devops-cli, or None when it is one
-    (D4). The fetch reads `origin/main` as it stands now."""
+    (D4)."""
     from urllib.parse import urlsplit
 
     from devops_cli.core.repo import find_repo_root, get_repo_origin_name
@@ -282,16 +299,26 @@ def clean_main_reason(workdir: Path) -> str | None:
     origin = get_repo_origin_name(find_repo_root(workdir))
     if origin is None or RepoRef(origin) != expected:
         return f"the working directory is no checkout of {expected.display}"
-    if _git(workdir, "fetch", "--quiet", "origin", "main") is None:
-        return "git fetch origin main failed"
-    head, main = _git(workdir, "rev-parse", "HEAD"), _git(workdir, "rev-parse", "origin/main")
-    if head is None or head != main:
-        return "HEAD is not origin/main"
-    status = _git(workdir, "status", "--porcelain")
-    if status is None or status:
-        count = len(status.splitlines()) if status else 0
-        return f"the checkout has {count} changed files"
-    return None
+    return _stale_reason(workdir)
+
+
+def _deploy_tree(settings: Settings, workdir: Path) -> tuple[EnvironmentTree | None, str | None]:
+    """The environment tree that the deploy from `workdir` reads, or why the deploy must not read
+    it: no tree, a tree with no Application or Secret table, or one whose checkout is not clean at
+    `origin/main`. The deploy writes the live cluster, so a stale tree must not reach it."""
+    from devops_cli.k8s.environment import find_repository, resolve_environment
+
+    try:
+        env = resolve_environment(settings=settings, start=workdir)
+        env.require_applications()
+        env.require(env.cluster_secrets)
+    except ConfigurationError as exc:
+        return None, exc.message
+    checkout = find_repository(env.root.resolve())
+    reason = "it is in no git checkout" if checkout is None else _stale_reason(checkout)
+    if reason is not None:
+        return None, f"environment tree {env.root}: {reason}"
+    return env, None
 
 
 def _run_devops(workdir: Path, *args: str) -> None:
@@ -315,14 +342,16 @@ def _add_to_service_repos(settings: Settings, repo: str) -> None:
 _PUSH_ARGS: Final[tuple[str, ...]] = ("k8s", "push-secrets", "--only", _SERVICE_SECRET, "--rotate")
 _DEPLOY_ARGS: Final[tuple[str, ...]] = ("k8s", "deploy-stack", "--stack", _SERVICE_STACK)
 _DEPLOY_STEP: Final[str] = (
-    "From a clean checkout of origin/main of devops-cli, run "
+    "From a clean checkout of origin/main of devops-cli, with infra.repos naming a clean checkout "
+    "of origin/main of the infra repo, run "
     f"`devops {' '.join(_PUSH_ARGS)}` and `devops {' '.join(_DEPLOY_ARGS)}`."
 )
 
 
 def service_row(writer: RouteWriter, ctx: RowContext, settings: Settings) -> Row:
     """Row 13 (D4): the repository in `service.repos`, then push-secrets and deploy-stack, only
-    from a clean checkout of `origin/main` of devops-cli."""
+    from a clean checkout of `origin/main` of devops-cli, with an environment tree whose checkout
+    is clean at its `origin/main` (#7290)."""
     name = "Service"
     listed = ctx.repo in settings.service.repos
     if listed and not ctx.service_changed:
@@ -336,6 +365,9 @@ def service_row(writer: RouteWriter, ctx: RowContext, settings: Settings) -> Row
     if not writer.confirm:
         return Row(13, name, RowState.PENDING, changes=tuple(changes))
     reason = clean_main_reason(ctx.options.workdir)
+    env: EnvironmentTree | None = None
+    if reason is None and ctx.options.deploy:
+        env, reason = _deploy_tree(settings, ctx.options.workdir)
     if reason is not None:
         step = PersonStep(
             f"Add {ctx.repo} to service.repos with `devops config set service.repos`, then: "
@@ -345,10 +377,12 @@ def service_row(writer: RouteWriter, ctx: RowContext, settings: Settings) -> Row
         return Row(13, name, RowState.REFUSED, reason=reason, steps=(step,))
     if not listed:
         writer.run("service-repos", lambda: _add_to_service_repos(settings, ctx.repo))
-    if not ctx.options.deploy:
+    if env is None:
         return Row(13, name, RowState.APPLIED, changes=tuple(changes), steps=(deploy_step,))
-    writer.run("push-secrets", lambda: _run_devops(ctx.options.workdir, *_PUSH_ARGS))
-    writer.run("deploy-stack", lambda: _run_devops(ctx.options.workdir, *_DEPLOY_ARGS))
+    # The child commands read the tree that the check read.
+    tree = ("--k8s-dir", str(env.root))
+    writer.run("push-secrets", lambda: _run_devops(ctx.options.workdir, *_PUSH_ARGS, *tree))
+    writer.run("deploy-stack", lambda: _run_devops(ctx.options.workdir, *_DEPLOY_ARGS, *tree))
     return Row(13, name, RowState.APPLIED, changes=tuple(changes))
 
 

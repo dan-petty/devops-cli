@@ -2,6 +2,8 @@
 
 This runbook moves the source of the homelab environment from devops-cli to the private repository dan-petty/homelab. It gives steps 10 to 17 of the plan of #5134 (tracker #5120). Each step gives the work, the check after it and the revert.
 
+**Status: step 17 deletes the environment files from devops-cli (#7290). The environment of the cluster lives only in dan-petty/homelab, and the [revert of the switch](#revert-of-the-switch) is no longer possible.** This page stays as the record of the switch. Its paths of `k8s/` outside `k8s/devops` are files of dan-petty/homelab now.
+
 Before step 10, these items are done:
 
 - The owner made the repository credential, Secret `repo-homelab` in namespace `argocd`. `argocd repo list --core` shows the homelab repository as Successful.
@@ -292,6 +294,8 @@ Start this step only when these items are true:
 - The fixture pull request of #5131 is merged.
 - Step 16 is merged.
 
+On 2026-11-26, the owner waived the first item, the 7 days, and started step 17 (#7290). The revert of the switch is no longer possible.
+
 In one devops-cli pull request, delete the environment files of the path list, the overlay `k8s/overlays/homelab/devops`, the environment managers of Renovate, the environment tests, gate modules and fixtures, and the freeze check of step 12: its module `tests/gate/k8s_checks/environment_freeze.py`, its test `tests/invariants/test_environment_freeze_check.py`, the package rule of `.github/renovate.json` that turns off the environment paths, and the text on the check and the rule in `k8s/README.md`, `docs/TESTING.md` and `docs/SDLC.md`. Scope `.github/workflows/image-pins.yml` to `k8s/devops/**`, and keep it. Change each OpenSpec spec that names a deleted path.
 
 Check:
@@ -305,17 +309,4 @@ Revert: `git revert` of the devops-cli pull request. After this step, the revert
 
 ## Revert of the switch
 
-Use this revert from step 11 until step 17.
-
-1. Run shared check 8 with `<devops-cli-checkout>` in place of `<homelab-checkout>`. It must print nothing. If the name sets differ, stop. The devops-cli `bootstrap` and `cluster` have prune on, so a sync deletes each Application that devops-cli does not hold, together with its objects. Make the two sets equal with a pull request first. The freeze check of step 12 refuses a devops-cli pull request that changes an environment path, so that pull request also removes the check, its test and its Renovate rule.
-2. Apply the bootstrap file of a devops-cli `main` checkout.
-
-   ```bash
-   git -C <devops-cli-checkout> fetch origin main
-   git -C <devops-cli-checkout> show origin/main:k8s/argocd/bootstrap/bootstrap.yaml > <temp-dir>/bootstrap.yaml
-   uv run devops argo cd apps bootstrap-gitops --root-app <temp-dir>/bootstrap.yaml
-   ```
-
-3. devops-cli holds the environment again. If the pull request of item 1 did not remove them, remove the freeze check of step 12, its test and its Renovate rule with a devops-cli pull request.
-
-Check: Shared checks 1, 3 and 4 equal the baseline, shared check 9 gives 0 and 0, and shared check 5 gives exit code 0 for each Application of the copy. The patches and the digests stay, because the field managers `kubectl-patch` and Image Updater also own them.
+The revert is no longer possible. It applied the bootstrap file of a devops-cli checkout, and step 17 (#7290) deleted that file and each other environment file from devops-cli. The owner waived the 7 day condition of step 17 on 2026-11-26. To undo a change of the environment, revert the pull request of dan-petty/homelab.

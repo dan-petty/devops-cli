@@ -1,296 +1,54 @@
-# k8s/ — Local Kubernetes Infrastructure & LLM Stacks
+# k8s/ — The Product Base and the Cluster Commands
 
-Kustomize + Helm-based configurations for deploying infrastructure management (`infra`) and local AI/LLM (`llm`) stacks to two clusters:
+**The environment of the cluster lives only in the `k8s/` folder of dan-petty/homelab.** That folder holds what one cluster runs: the Argo CD Applications, the values of the charts, the manifests of the stacks, the overlays, the dashboards of the cluster and its runbooks. Read, edit and apply an environment file there. devops-cli holds no copy of it, and the `k8s` row of `devops ci` refuses a tracked file under `k8s/` that is not in `k8s/devops` and is not Markdown (`tests/gate/k8s_checks/product_tree.py`).
 
-- the k3s homelab, which Argo CD keeps in line with `main` of dan-petty/homelab, and with `main` of this repository for the product base ([GitOps](#gitops));
-- the devcontainer's minikube cluster, which `devops devcontainer post-start` starts.
+This folder holds `k8s/devops/`, the product base that devops-cli ships. This document tells what the cluster commands of devops-cli do, and the decisions about the product base. The [Kubernetes guideline](../docs/guidelines/kubernetes.md) sets the performance targets of a cluster and the method to tune the requests, the limits, the placement and the runtimes.
 
-`devops k8s deploy-stack` deploys the same configurations to either cluster.
-
-The [Kubernetes guideline](../docs/guidelines/kubernetes.md) sets the performance targets of a cluster and the method to tune the requests, the limits, the placement and the runtimes. [Capacity targets](#capacity-targets) holds the decisions of this cluster.
-
-This folder is the environment tree of the homelab: what one cluster runs. Argo CD reads the environment tree from its copy in dan-petty/homelab, and this folder keeps the files until step 17 of [the switch](../docs/HOMELAB_REPO_SWITCH.md#step-17-delete-the-environment-files-from-devops-cli) deletes them ([GitOps](#gitops)). `k8s/devops/` is the product base that devops-cli ships. A command that reads the environment tree (`deploy-stack`, `teardown-stack`, `bootstrap`, `image-pins`, `lint`, `check-deprecated`, `ollama prune`, `devops grafana dashboards`, `devops ai gateway render`, `devops argo cd apps bootstrap-gitops` and `devops argo gitops`) takes its root from `--k8s-dir`, else from the project profile fact `kubernetes.dir` of the repository of the current folder (`.devops/project.toml` of this repository declares `k8s`), else from the one entry of `infra.repos` whose checkout gives `kubernetes.dir`. `deploy-stack` and `teardown-stack` read the product base from `--product-dir`, else from `k8s/devops` of the repository of the current folder. A path in the tree is relative to its root, such as `llm/gateway/config.yaml`.
+A command that reads the environment tree (`deploy-stack`, `teardown-stack`, `push-secrets`, `bootstrap-mattermost`, `catalog`, `image-pins` and `lint` with no target, `ollama prune`, `devops grafana dashboards` and `devops ai gateway render`) takes its root from `--k8s-dir`, else from the project profile fact `kubernetes.dir` of the repository of the current folder, else from the one entry of `infra.repos` whose checkout gives `kubernetes.dir`. This repository declares no `kubernetes.dir`. So from a checkout of devops-cli, give `--k8s-dir <homelab-checkout>/k8s`, or add the checkout of dan-petty/homelab to `infra.repos`. `devops k8s bootstrap` takes the tree as `--dir`. `devops k8s check-deprecated`, `devops argo cd apps bootstrap-gitops`, `devops argo gitops drift` and `watch`, and `devops config set <key> --generate` for a key of the environment have no `--k8s-dir`: they read the tree of `infra.repos`, or the path of their own argument or option (the target, `--root-app`, `--path`). Keep that checkout at the current `main`. A command that needs a path that the tree does not hold fails, and its message names the path. `deploy-stack` and `teardown-stack` read the product base from `--product-dir`, else from `k8s/devops` of the repository of the current folder. A path in the environment tree is relative to its root, such as `llm/gateway/config.yaml`.
 
 ## Stacks Overview
 
+The stacks are the units of `deploy-stack` and `teardown-stack`. The environment tree holds the manifests, the values and the versions of their components.
+
 | Stack | Components | Namespaces | Default Ports |
 | :--- | :--- | :--- | :--- |
-| **`infra`** *(Default)* | ArgoCD (backed by Valkey), Argo Workflows controller, Grafana k8s-monitoring (Alloy + kube-state-metrics + node-exporter), Prometheus server, Grafana, Alertmanager, Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector, Grafana Tempo, CloudNativePG operator, cert-manager and the Barman Cloud plugin ([CloudNativePG Backup Plugin](#cloudnativepg-backup-plugin)), the SeaweedFS operator and object store ([Object Store](#object-store)) | `argocd`, `argo-workflows`, `monitoring`, `otel`, `cnpg-system`, `cert-manager`, `object-store` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope), `3200` (Tempo), `8333` (S3, in the cluster) |
+| **`infra`** *(Default)* | ArgoCD (backed by Valkey), Argo Workflows controller, Grafana k8s-monitoring (Alloy + kube-state-metrics + node-exporter), Prometheus server, Grafana, Alertmanager, Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector, Grafana Tempo, CloudNativePG operator, cert-manager and the Barman Cloud plugin, the SeaweedFS operator and object store | `argocd`, `argo-workflows`, `monitoring`, `otel`, `cnpg-system`, `cert-manager`, `object-store` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope), `3200` (Tempo), `8333` (S3, in the cluster) |
 | **`llm`** | Ollama (per-VRAM-tier DaemonSets), LLM Gateway (LiteLLM) with its CloudNativePG database, Open-WebUI, Qdrant Vector DB, Valkey Cache | `llm` | `11434` (Ollama), `3000` (WebUI), `6333` (Qdrant), `6379` (Valkey) |
 | **`logging`** | Loki (pod and journal logs shipped by the `infra` stack's Alloy `alloy-logs` DaemonSet) | `logging` | `3100` (Loki) |
 | **`gitea`** | Gitea: the internal forge and container registry ([Gitea](#gitea)) | `gitea` | `3000` (Gitea HTTP, in the cluster) |
 | **`chat`** | Mattermost Team Edition on CloudNativePG ([Mattermost](#mattermost)) | `mattermost`, `mattermost-operator` | `8065` (Mattermost HTTP, in the cluster) |
-| **`all`** | All components from the stacks above, and the `devops` stack ([docs/CLUSTER.md](../docs/CLUSTER.md)); a closed plan pull request makes the roadmap `stage` and `implement` rows due, so a merged plan sets `status/planned` and submits the runner Job, and an unmerged plan records the rejection and returns the item to New | `argocd`, `argo-workflows`, `monitoring`, `otel`, `llm`, `logging`, `gitea`, `devops`, `mattermost`, `cnpg-system`, `mattermost-operator`, `cert-manager`, `object-store` | All ports above |
+| **`all`** | All components from the stacks above, and the `devops` stack ([docs/CLUSTER.md](../docs/CLUSTER.md)) | `argocd`, `argo-workflows`, `monitoring`, `otel`, `llm`, `logging`, `gitea`, `devops`, `mattermost`, `cnpg-system`, `mattermost-operator`, `cert-manager`, `object-store` | All ports above |
 
 Register each manifest and post-Helm step that runs in the cluster in `APPLICATIONS_BY_STACK`, `MANIFESTS_BY_STACK` or `POST_HELM_BY_STACK` (`src/devops_cli/commands/k8s/stack_lifecycle.py`), with an Argo CD Application or a path in the environment tree, or a file of the product base in `PRODUCT_MANIFESTS_BY_STACK` or `PRODUCT_POST_HELM_BY_STACK`, with a path in `k8s/devops`, and each Helm release in `HELM_RELEASES_BY_STACK`, so that `devops k8s deploy-stack --stack all` deploys it with the `infra`, `llm`, `logging`, `devops`, `gitea` and `chat` stacks. deploy-stack applies a file of `MANIFESTS_BY_STACK` with `kubectl apply -f` and a kustomization directory with `kubectl apply -k`. For each Application of `APPLICATIONS_BY_STACK`, deploy-stack builds each path source with Kustomize, as Argo CD builds it, and applies the build with `kubectl apply -f -` before the charts; `teardown-stack` deletes the build. So a component or a base of another repository in the folder of an Application gets to a cluster without Argo CD. A source of another repository is fetched at its `targetRevision`. The dry run of deploy-stack builds each folder of the checkout as a local read and lists the objects of each build in `details.path_sources`. The dry run of teardown-stack lists them in `details.path_source_deletes`, in the order of the deletes. A path source whose `path` goes out of the folder of its repository stops the command, because Argo CD builds no such path. Kustomize fetches a remote base, component or file, so the dry run gives `kubectl kustomize` no route to a host that is not a loopback address: `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY` (also in lower case) point to the closed port `127.0.0.1:9`, `NO_PROXY` is empty, and `GIT_ALLOW_PROTOCOL=file` lets git clone only local repositories. A download of Go and a clone of git then fail at once. Go sends a request to `localhost` or to a loopback address with no proxy, and no environment key changes this. So the dry run downloads each http or https URL of a loopback address: a file, and also the URL of a remote base, which Kustomize first loads as a file. Such a request is not a read of the checkout: it can reach a `kubectl port-forward` or a tunnel to a cluster. A git clone from a loopback address still fails. When a build fails, its objects are `null`, `details.kustomize_fetches` gives the error of kubectl as one line under the key of the build, and the dry run goes on. The real run builds with the normal environment. A path of `MANIFESTS_BY_STACK` stays only where the build of its Application holds objects that the path does not hold, such as the post-Helm objects of the Application `llm`. A row of `HELM_RELEASES_BY_STACK` gives the name, the chart and the namespace of a release. deploy-stack takes the chart version and the values files of the release from the chart source of the Argo CD Application of the same name: the `targetRevision`, and the files of `helm.valueFiles` in their order. A values file of another repository, such as `$infra/helm/<chart>/values.yaml`, is fetched at the `targetRevision` of its source before the deploy touches the cluster; the dry run lists the fetch in `details.source_fetches`.
 
+### valkey-roadmap
+
+`valkey-roadmap` (`devops/valkey-roadmap/`, namespace `devops`) holds the shared state of the roadmap jobs, with the brain index as its first data ([ADR 0021](../docs/adr/0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md), section 3). It is a part of the product base, so Application `devops` deploys it. The folder builds the shared Valkey base of dan-petty/infra with its components `valkey-persistence`, `valkey-exporter` and `valkey-acl` at a release tag, which Renovate updates. It keeps its data in an append-only file on a 2Gi `local-path` claim, and at its bound of 128 MiB it refuses a write and evicts no key. Its exporter gives the series that the alerts `ValkeyCacheErrors` and `ValkeyMemoryNearBound` of the environment read. Alloy of the environment finds it by annotation autodiscovery (job `valkey`). Its user `default` is off, and each client sends an ACL user of Secret `devops/valkey-roadmap-auth` (see Cluster Secrets). [valkey-roadmap](../docs/CLUSTER.md#valkey-roadmap) gives its users, its policies and its checks.
+
 ## Prerequisites
 
-- A cluster:
-  - the k3s homelab: its nodes run k3s with the bundled local-path storage turned off (`--disable local-storage`);
-  - or minikube running (`minikube status`, or started by `devops devcontainer post-start`).
-- kubectl and helm on PATH (installed by devcontainer features)
-- standard Kubernetes context configuration (the CLI uses `$KUBECONFIG` or defaults to `~/.kube/config`)
-- A storage layer that serves the `local-path` StorageClass, which the claims of the stacks use:
-  - On the homelab, the storage layer comes from the dan-petty/homelab repository: its `make storage` applies `k8s/manifests/local-path-storage.yaml`. That manifest holds namespace `local-path-storage`, the local-path provisioner (`rancher/local-path-provisioner` v0.0.28), the default StorageClass `local-path` (reclaim policy `Delete`) and the StorageClass `fast-nvme` (reclaim policy `Retain`). This repository does not deploy them. [Local-Path Volume Placement](#local-path-volume-placement) tells where the provisioner keeps a volume.
-  - On minikube, the default `storage-provisioner` addon serves only the class `standard`. The class `local-path` comes from the `storage-provisioner-rancher` addon. `devops` starts minikube with `--addons=storage-provisioner-rancher`, so the class `local-path` exists from the first start. A minikube that already runs keeps its addons. Run `minikube addons enable storage-provisioner-rancher` one time on that cluster, or the claims that name `local-path` stay `Pending`.
-
-Kubernetes supports `kubectl` within one minor version of the API server. The devtools image installs a current `kubectl` release, and `devops k8s doctor` reads its version from `kubectl version --client`. The homelab cluster runs Kubernetes 1.31 (`v1.31.4+k3s1`), which stays outside the supported skew range until dan-petty/homelab#3 lands. We do not pin `kubectl` to 1.31 or 1.32, because both versions are end of life and the devcontainer minikube runs a current release.
+- A cluster: the k3s homelab, or minikube (`minikube status`, or started by `devops devcontainer post-start`).
+- kubectl and helm on PATH, from the devtools image. `devops k8s doctor` reads the version of kubectl.
+- A Kubernetes context: the CLI uses `$KUBECONFIG`, or `~/.kube/config`.
+- A checkout of dan-petty/homelab at the current `main`, for each command that reads the environment tree.
+- A storage layer that serves the StorageClass `local-path`, which the claims of the stacks use. On the homelab, it comes from dan-petty/homelab. On minikube, the class comes from the `storage-provisioner-rancher` addon: `devops` starts minikube with `--addons=storage-provisioner-rancher`. On a minikube that already runs, run `minikube addons enable storage-provisioner-rancher` one time, or the claims that name `local-path` stay `Pending`.
 
 ## Quick Start
 
 ```bash
-# Ensure kubectl can access the cluster. The devops CLI uses the standard KUBECONFIG environment variable or ~/.kube/config:
 export KUBECONFIG=$HOME/.kube/config
 
-# Deploy default infrastructure stack (ArgoCD, K8s Monitoring, OTEL)
-devops k8s deploy-stack
+# Deploy the default infrastructure stack
+devops k8s deploy-stack --k8s-dir <homelab-checkout>/k8s
 
-# Deploy local LLM stack (Ollama, Open-WebUI, Qdrant, Valkey)
-devops k8s deploy-stack --stack llm
+# Deploy the LLM stack
+devops k8s deploy-stack --stack llm --k8s-dir <homelab-checkout>/k8s
 
-# Deploy all stacks simultaneously
-devops k8s deploy-stack --stack all
+# Deploy all stacks
+devops k8s deploy-stack --stack all --k8s-dir <homelab-checkout>/k8s
 ```
 
-## Accessing Stack Services
-
-On the homelab, each UI and API below has an Ingress host under the configured domain (`ingress/ingress-routes.yaml`, [Cloudflare Wildcard Tunnel & Ingress Routing](#cloudflare-wildcard-tunnel--ingress-routing)). On minikube, `minikube service` prints a URL for a Service. A `minikube service` command works only on minikube. `kubectl port-forward` works on both clusters.
-
-### Infrastructure Stack (`infra`)
-```bash
-# ArgoCD UI. Homelab: https://argocd.<domain> (Ingress argocd/argocd-ingress). Minikube only:
-minikube service argocd-server -n argocd --url
-# Shell in a pod from the UI: open its Application, select the pod, then the Terminal tab
-
-# ArgoCD initial admin password
-kubectl -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath="{.data.password}" | base64 -d; echo
-
-# Monitoring Stack (Alloy Metrics & Scrapes). Homelab: https://alloy.<domain> (Ingress monitoring/alloy-metrics-ingress).
-# The Service is a ClusterIP, so on minikube use a port-forward:
-kubectl -n monitoring port-forward svc/k8s-monitoring-alloy-metrics 12345:12345
-
-# Pyroscope Continuous Profiling UI
-kubectl -n monitoring port-forward svc/pyroscope 4040:4040
-```
-
-### LLM Stack (`llm`)
-```bash
-# Ollama REST API of the fast tier (a speed Service; see GPU Placement: Ollama tiers)
-kubectl -n llm port-forward svc/ollama-fast 11434:11434
-
-# Open-WebUI Web Interface. Homelab: https://chat.<domain> (Ingress llm/open-webui-ingress). Minikube only:
-# Open WebUI refuses a Socket.IO connection from an origin that is not an Ingress host (llm/open-webui-origins).
-minikube service open-webui -n llm --url
-
-# Qdrant Vector Database HTTP API. It requires the key of llm/qdrant-api-key (see Cluster Secrets).
-# The devops namespace reaches it on TCP 6333 with the read-only key from devops/devops-cli (#3823).
-# Homelab: https://qdrant.<domain> (Ingress llm/qdrant-ingress). The Service is a ClusterIP, so on minikube use a port-forward:
-kubectl -n llm port-forward svc/qdrant 6333:6333
-
-# Valkey In-Memory Cache: Open WebUI's state. It requires the password of llm/valkey-auth (see Cluster Secrets).
-kubectl -n llm exec -it svc/valkey -c valkey -- sh -c 'VALKEYCLI_AUTH="$VALKEY_PASSWORD" valkey-cli ping'
-
-# devops-cli's cache Valkey: the embeddings and threat-intelligence reads of the Service and the cluster jobs.
-# It requires the password of llm/valkey-devops-auth (see Cluster Secrets).
-kubectl -n llm exec -it svc/valkey-devops -c valkey -- sh -c 'VALKEYCLI_AUTH="$VALKEY_PASSWORD" valkey-cli ping'
-
-# Valkey Run Index (Argo CD's `llm` Application deploys it on the homelab; `devops k8s deploy-stack --stack llm` deploys it on either cluster; see Cluster Secrets for its password):
-# benchmark and evaluation runs shared by workstations. Its password Secret comes from the keyring (see Cluster Secrets),
-# then point devops-cli at it through its NodePort.
-devops k8s push-secrets --only llm/valkey-runs-auth
-devops ai runs connect
-
-# LLM Gateway: authenticated OpenAI-compatible API for every Ollama model.
-# Homelab: https://ai.<domain> (Ingress llm/llm-gateway-ingress), or its NodePort (below). Minikube only:
-minikube service llm-gateway -n llm --url
-```
-
-### LLM Gateway (`llm-gateway`)
-The LiteLLM gateway is the single entry point to every inference server. It serves the virtual models `devops-chat`, `devops-coder`, `devops-reasoning`, `devops-review` and `devops-triage`, plus models by name (`qwen3.8:27b`, `qwen3-embedding:0.6b`). It checks each prompt against the window of every deployment before it calls a backend, so a prompt never reaches a deployment that would cut it (see below). It falls back from an unavailable `devops-coder` or `devops-reasoning` to `devops-chat`, and rejects requests without its master key. `devops k8s deploy-stack` writes the key (`llm/llm-gateway-secrets`, starting with `sk-`) from the keyring before the gateway starts, adopting a live key the keyring lacks and generating one where neither has it; `devops k8s push-secrets --only llm/llm-gateway-secrets` does the same alone (see Cluster Secrets).
-
-The routing config is `llm/gateway/config.yaml`. LiteLLM reads it only at start. The gateway kustomization (`llm/gateway/kustomization.yaml`) generates ConfigMap `llm-gateway-config-<hash>` from that file, and writes the name into the Deployment. When the config changes, the name and the pod template change, and Kubernetes rolls the gateway onto the new config. Argo CD's `llm` Application renders the kustomization when it syncs, and `devops k8s deploy-stack --stack llm` applies it with `kubectl apply -k llm/gateway`. Thus a config change needs no `kubectl rollout restart` (#1929). Argo CD prunes the ConfigMap of the old config. Without Argo CD, that ConfigMap stays until `teardown-stack` deletes the namespace.
-
-A workstation reaches the gateway through the Cloudflare tunnel, and the Cloudflare edge cuts a request that has no data for 125 s (#2365). The CLI therefore streams every OpenAI-compatible chat call, and the gateway writes an SSE comment (`: ping`) into a streamed reply that has no data for 30 s (`litellm_settings.sse_keepalive_ping_interval_seconds`), also before its first token. Thus a long prefill, queue or reasoning does not end the call. A ping sends the status line before the gateway has routed the call, so a call whose first token comes after the first ping has no `x-litellm-*` response headers, and its spend-ledger row names no serving backend. A failure after the first ping comes as an SSE error frame under status 200, and the client reports it as the HTTP status that the frame names.
-
-#### Gateway database and virtual keys
-LiteLLM keeps its virtual keys (`/key/generate`: expiry, request and token limits, model list, alias) only in a Postgres database. The database is the CloudNativePG `Cluster` `llm-gateway-db` in `llm/gateway-db.yaml`, with one instance, 5 GiB on `local-path`, and Argo CD annotated `Prune=false,Delete=false`. The gateway keeps the master key as its admin key, and a virtual key does not replace it for the cluster Jobs yet.
-
-- **No secret in git, no person step.** The `Cluster` names no `bootstrap.initdb.secret`. CloudNativePG therefore creates the user `litellm`, the database `litellm` and Secret `llm-gateway-db-app` with a generated password when it creates the database. The Deployment reads `DATABASE_URL` from the `uri` key of that Secret. `devops k8s push-secrets` has no row for it.
-- **Network.** The gateway's policy gains an egress rule to the pods with label `cnpg.io/cluster: llm-gateway-db` on 5432. Policy `llm-gateway-db-perimeter-ingress` admits the gateway's pods and the operator in `cnpg-system` (8000 and 5432), and namespace `monitoring` on the metrics port 9187 only. The egress of `llm-gateway-db-perimeter-egress` is DNS and the Kubernetes API: the instance manager reads Secrets and updates status through the API, as the Mattermost database does. The default perimeter of `llm` leaves the database pods out.
-- **Start-up.** LiteLLM applies its migrations with `prisma migrate deploy` before it opens port 4000. The root file system stays read-only: `LITELLM_MIGRATION_DIR` is an `emptyDir`, and the Prisma engines are in the image under `/opt/prisma`. A `startupProbe` gives a migrating pod ten minutes before the liveness probe starts. `ENFORCE_PRISMA_MIGRATION_CHECK=true` makes a failed migration end the start-up. Without it LiteLLM logs the failure and starts on an empty schema, and nothing runs the migration again.
-- **When the database is down**, a virtual key that the gateway cannot check is refused: `allow_requests_on_db_unavailable` stays at its default `false`, because the gateway is reachable from outside the cluster. The master key needs no database, so the cluster Jobs, the CLI and Open WebUI keep working. The readiness probe uses `/health/liveliness`, because `/health/readiness` answers 503 while the database is down and Kubernetes would then remove every gateway pod from the Service. `/health/readiness` stays a manual check after a sync: its `db` field shows `connected`. Models stay in git (`store_model_in_db: false`).
-- **Stops and restarts.** A rolling update starts the new gateway pod before it stops the old pod. The gateway runs one replica, because each LiteLLM process keeps its own cooldowns of the provider routing (#5990): two replicas would each send calls to a provider that the other has cooled. A node drain therefore stops each model call until the pod runs on another node, and the gateway has no PodDisruptionBudget, because a budget for one replica would block the drain. A second replica needs the cooldowns in a shared store (`router_settings.redis_host`, for example in Valkey) and a PodDisruptionBudget (#6066). On SIGTERM, uvicorn stops to accept connections and waits for each open call, and LiteLLM sets no `timeout_graceful_shutdown`, so only the kubelet ends the wait. The pod has `terminationGracePeriodSeconds: 600`, not the default 30 s, so a long call that is open at a rollout ends normally, and the old pod writes its spend queue (#5301). A call that continues for more than 600 s after the SIGTERM fails. The grace period stays below the router timeout (900 s), and the router timeout stays below the deadline of a client call (1200 s), so the gateway ends a stuck attempt and can retry it or fall back first (#5965). The operator stops the database instance first with a smart shutdown, which refuses new connections and waits for each open session, and then with a fast shutdown. The idle sessions of the old gateway pod keep a smart shutdown open, and a gateway pod that starts in that time stops after the 4 tries of its migration check, which take about 5 s. Thus the `Cluster` sets `smartShutdownTimeout: 15`, not the default 180 s, and a restart of the database takes seconds. The instance manager reads the value at each stop, so a change of it restarts nothing. Each probe of the gateway waits 5 s (`timeoutSeconds`), not the default 1 s, because one slow request holds the one uvicorn worker for some seconds. Change the PostgreSQL image and the LiteLLM image in different pull requests, as Renovate does: one change of both restarts the database while the new gateway pod starts.
-- **The roadmap Service's virtual key.** Only the roadmap Service Deployment calls the gateway with its own virtual key, not the master key (#3685, #5741). Run `devops k8s bootstrap-roadmap-key` to mint it on the gateway with a budget, a requests-per-minute limit and the `devops-*` models, store it in the keyring as `roadmap_service.llm_key`, and write Secret `roadmap-service-llm-key` with key `api-key`. The Deployment `devops/roadmap-service` reads `DEVOPS_CLI_AI_API_KEY` from Secret `roadmap-service-llm-key`; the stage Job and the runner Jobs read `DEVOPS_CLI_AI_API_KEY` from Secret `devops-cli` (owner decision of 2026-11-20, #2695, comment 7045868447, keeps the runner Jobs on the current model key for now). To rotate the key, run `devops k8s bootstrap-roadmap-key --force` and delete the old key on the gateway. No key value is in this repository.
-- **No `LITELLM_SALT_KEY`.** LiteLLM uses the salt key only to encrypt values that it stores in the database, such as provider keys of models added at run time, and it falls back to the master key. It stores virtual keys as a SHA-256 hash of the key, so a salt key does not protect them. With `store_model_in_db: false` the database holds nothing to encrypt. Set a salt key, generated once and never rotated, before the first change that stores a credential in the database.
-- **Order.** The operator is Helm release `cloudnative-pg` of stack `infra` (Argo CD Application `cloudnative-pg`). On a cluster without Argo CD, deploy-stack applies `llm/gateway-db.yaml` after the Helm releases, because the `Cluster` needs the operator's CRD. A gateway pod that starts before the database waits for Secret `llm-gateway-db-app`, and then restarts until the database accepts connections.
-- **Rollout under Argo CD.** After the merge, Argo CD creates the policy and the `Cluster`, and starts a new gateway pod beside the old one (one replica, `maxSurge` 1, `maxUnavailable` 0). The new pod waits for the Secret, restarts a few times until the database accepts connections, migrates the empty database, and passes its readiness probe. Then Kubernetes stops the old pod. The old pod answers all requests meanwhile, so the gateway has no downtime. No person runs a command.
-- **Monitoring.** PodMonitor `llm-gateway-db`, in the same file, selects the instance pods on their port `metrics` (9187), and Alloy scrapes them as it scrapes `mattermost-db`. The rules of group `llm-gateway-db` warn when the exporter has no connection or no series, when the client connections pass 80% of `max_connections`, and when the databases and the WAL pass 80% of the claim (see Alerting). The CloudNativePG dashboard shows the database (see Grafana Dashboards).
-- **Spend logs.** The gateway writes a row for each request to its spend-log table, about 71,000 rows a week. No code reads that table: the AI spend dashboard reads Prometheus. To read rows by hand, use the paginated `/spend/logs/v2`. The v1 `/spend/logs` reads and serializes up to 10,000 rows in the one uvicorn worker, and the probes of the gateway wait for it. `general_settings.maximum_spend_logs_retention_period` is `30d`, so a cleanup job of the gateway deletes the rows older than 30 days, and the table stays inside the claim. LiteLLM starts the job 24 hours after each start of the gateway process, and then each 24 hours. The gateway frequently restarts before 24 hours, and each restart starts the count again, so a run can come some days late. One run deletes up to 500,000 rows, so a late run still removes all the rows older than 30 days. If no run occurs, `GatewayDatabaseNearClaim` warns before the claim fills.
-- **Backups.** The database has none yet. A lost node loses its virtual keys, and a person mints them again. #3741 adds the backup, in the form that #2144 chooses.
-
-The Service is a NodePort that Kubernetes assigns; find it with `kubectl -n llm get svc llm-gateway`, then call the API from any node address:
-```bash
-KEY=$(kubectl -n llm get secret llm-gateway-secrets -o jsonpath='{.data.master-key}' | base64 -d)
-curl -H "Authorization: Bearer $KEY" http://<node>:<node-port>/v1/models
-```
-Five groups call a hosted provider: `gemini-3.8-flash` (Google), `claude-sonnet-5-5` and `claude-haiku-5-5` (Anthropic), and `deepseek-v4.1-flash-1017` and `deepseek-v4.1-flash` (DeepSeek, through OpenRouter). A prompt sent to one of them leaves the cluster, and the provider bills each token. No pool names them, and each fallback of a hosted group goes to a hosted group (`claude-sonnet-5-5` to `deepseek-v4.1-flash-1017`, #3152, and `deepseek-v4.1-flash-1017` to `deepseek-v4.1-flash`, #5564), so a request reaches a provider only when its caller names a hosted group. A call to `claude-sonnet-5-5` that fails (an Anthropic error, a rate limit, a spend limit) then goes to OpenRouter and not to Anthropic: in the review of 12 golden plans that model found 38% of the known defects against 56% for Sonnet 5.5, and the Gemini Flash Lite, Gemma and older Gemini models found 7 to 25%, so only it is a fallback. The group `deepseek-v4.1-flash-1017` has two deployments (#5990). The router sends a call to order 1, the dated model, while it is healthy. While order 1 is cooled or failed its last health check, the router sends the call to order 2: the undated model `deepseek-v4.1-flash` with no `floor` route, so OpenRouter balances the call across its providers, with the same fp8 and `data_collection: deny` filters. One failure cools order 1 for 120 s (`allowed_fails: 0`). The gateway checks each DeepSeek deployment every 60 s (`background_health_checks`, at most 30 s for a check), so a stall moves the new calls within 90 s, before any call fails. A call in flight still fails: OpenRouter sends its timeout as a 408 inside the stream, and LiteLLM 1.103.11 raises it with no retry. Order 1 gets its calls back when a later check passes. Order 2 is priced at the list price of the undated model, the top of what its providers charge: about 4 times the input price of order 1. A call that neither deployment can answer, such as a call while both are cooled, goes to the group `deepseek-v4.1-flash`, which has its own deployment and its own cooldown (#5564). No Ollama group gets health checks: each Ollama tier serves one request at a time, and a check would take that slot from a caller (#5302). A person stores each key in the keyring with `devops config set gemini.api_key`, `devops config set anthropic.api_key` or `devops config set openrouter.api_key`. Then `devops k8s push-secrets --only llm/llm-gateway-secrets` writes it to the Secret as `gemini-api-key`, `anthropic-api-key` or `openrouter-api-key` and restarts the gateway. The gateway starts without a key, and a call to a group with no key fails with an error that names the missing key; the other groups work. The gateway NetworkPolicy admits TCP 443 to public addresses for these calls, and to no private range (SECURITY.md rule 13). OpenRouter picks the provider of a `deepseek-v4.1-flash-1017` call. The group asks for the cheapest provider (the OpenRouter `floor` route) with fp8 weights that does not store or train on prompts (`data_collection: deny`); a provider that fails a filter is skipped, so the price can be above the cheapest one, and a call fails when no provider passes. devops-cli records the spend of each hosted group: genai-prices holds the prices of the Gemini and Claude groups, and `_HOSTED_GROUP_PRICES` in `src/devops_cli/ai/spend/pricing.py` holds the prices of the two DeepSeek groups, at the rates of their gateway entries (#4403). A prompt token that the provider reads from its cache costs the cached input rate. A caller sets the reasoning effort. The implement job of the Service and its runner Jobs call this group ([docs/CLUSTER.md](../docs/CLUSTER.md#roadmap-service), Roadmap service, item 19). Both Claude models refuse `temperature`, `top_p` and `top_k` with a 400, and the cost map of the pinned LiteLLM image marks both models `supports_sampling_params: false`. Their groups also drop the three themselves and set their own prices, so a new map changes neither. Sonnet 5.5 also refuses a forced tool call, so a caller of the group sends `tool_choice` `auto`. LiteLLM turns a `response_format` into a forced tool call unless its model map says the model supports native structured output, so each Claude group sets `supports_native_structured_output` and `supports_response_schema` and a structured reply works (#3140). Above 100,000 prompt tokens Haiku 5.5 costs 0.50 USD for input and 2.50 USD for output per million tokens, and LiteLLM has no price tier at that size: the spend of such a call reads low. To check a key after the rollout, run `curl -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{"model":"gemini-3.8-flash","messages":[{"role":"user","content":"Say ok"}],"max_tokens":16}' http://<node>:<node-port>/v1/chat/completions`.
-
-TypeSafe Jev (`typesafe/jev-1.14`) is a decision model, not a group. OpenRouter refuses it on chat completions with HTTP 400, so `model_list` has no entry for it. The gateway serves it as the pass-through `POST /v1/systemone` (`general_settings.pass_through_endpoints`), which forwards the request body unchanged to `https://openrouter.ai/api/v1/systemone` (#4289). The client `SystemOneModel` posts to `{ai.gateway_url}/systemone`, so a Jev call needs no setting beyond `ai.gateway_url` and the gateway key. The pass-through checks the gateway key of the caller, sends the OpenRouter key from the Secret key `openrouter-api-key` (keyring `openrouter.api_key`) and forwards no header of the caller. It cannot set provider preferences such as `data_collection` in the body, so the privacy setting of the OpenRouter account applies to Jev calls. A prompt sent to Jev leaves the cluster (SECURITY.md rule 13). OpenRouter bills 0.042 USD per million input tokens and nothing for output; the spend ledger of the gateway does not see these calls, because the pass-through has no cost entry. To check the route after a rollout, run `curl -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{"model":"typesafe/jev-1.14","state":"The page is blank after Pay.","questions":{"is_bug":{"type":"noul","instructions":"Is this a software defect?"}}}' http://<node>:<node-port>/v1/systemone`.
-
-Each Claude group asks Anthropic to cache its prompt prefix (#3658). The group sets two LiteLLM `cache_control_injection_points`: one on the system messages and one on the last message (`index: -1`). LiteLLM writes the Anthropic marker `cache_control: {type: ephemeral}` on these blocks, with the 5-minute TTL. The tools and the system prompt come before the first marker, so calls that share them read them from the cache. The second marker caches the full history of an agent run, so the next request of the run reads that history from the cache and writes only its new turn. Anthropic allows 4 markers in a request, and LiteLLM adds no marker past that limit. No other group sets injection points. The reply names the cache counts in `usage.prompt_tokens_details`: `cached_tokens` (read) and `cache_write_tokens` (written), both parts of `prompt_tokens`. The spend ledger of devops-cli stores both counts in each row (`cache_read_tokens`, `cache_write_tokens`), and genai-prices prices them at the cache rates of the model: on Sonnet 5.5 a read costs 0.10 USD and a write 2.50 USD per million tokens, against 2.00 USD for an input token. The gateway counts the same tokens in `litellm_input_cached_tokens_metric_total` and `litellm_input_cache_creation_tokens_metric_total`, so the cache hit share of a group is the first series over `litellm_input_tokens_metric_total`.
-
-Each `ollama_chat` deployment sets `max_input_tokens` in its own top-level `model_info`, equal to the `OLLAMA_CONTEXT_LENGTH` of its tier, and `devops ai gateway render` keeps the two equal. LiteLLM reads the window only from that place: a `model_info` under `litellm_params` has no effect. A deployment that sets no window reads the cost-map entry of its backend model, which the last deployment registered wrote. Thus each deployment sets its own window, and a test holds this (#2825). Ollama cuts a prompt that is longer than its window and returns no error, so the check is the only guard. The gateway sets no `context_window_fallbacks`: `devops-chat`, `devops-coder` and `devops-reasoning` run on `ollama-48gib-fast`, and `devops-background` and `devops-triage` run on `ollama-64gib-standard`. Both tiers have the same window, 262,144 tokens, so none of these groups could take a prompt that another of them refused. A prompt fails with a context-window error only when no group of the chain holds it.
-
-These groups route reviews, embeddings and background work:
-
-- `devops-review` spreads one model name over two Ollama tiers: `qwen3.8:27b` on `ollama-48gib-fast` and `ollama-64gib-standard`. The router sends each request to the deployment with the fewest requests in flight (`least-busy`), and pre-call checks keep a prompt off any deployment whose window it exceeds. Both deployments have the window of 262,144 tokens, so a prompt up to that size fits either one. The CLI holds at most 2 review requests in flight, one for each tier (`DEFAULT_GATEWAY_REVIEW_SLOTS`). No deployment is capped with `max_parallel_requests`: LiteLLM waits on the cap only after routing, so queued requests pile up behind it while larger servers idle, and the backends queue excess requests themselves.
-- Ollama models are also served under their own names: `qwen3.8:27b` and the embedding model `qwen3-embedding:0.6b`. An embedding group configures `model_info.mode: embedding` so health checks embed rather than generate.
-- `qwen3-embedding:0.6b` has a deployment on each tier that serves embeddings, and LiteLLM's `order` sets which the router tries first. `ollama-48gib-fast` and `ollama-64gib-standard` serve none: they load `qwen3.8:27b` and no other model, so an embedding batch never evicts it (#3567). The gateway routes the embedding group with `simple-shuffle` across order 1 deployments (#2027). Order 1 is each instance of a tier at or below the `embedding_only` threshold (GPU Placement): `ollama-24gib-embed-gpu0` and `-gpu1`, which embed a 32-chunk RAG batch in 2 s and have no chat model to wait for or to evict. There is no next order, so an embedding call fails when both deployments of order 1 fail. Each deployment sets `num_ctx` to `CONST_RAG_MAX_CHUNK_TOKENS` (8,192), so the largest RAG chunk fits. With its 32,768-token default, the embedder takes 5.2 GB, not 2.9 GB, on `ollama-64gib-standard`.
-- `qwen3.8:27b` pins the model of `devops-review`: it copies the backends and windows of the `devops-review` deployments of that model, so a pinned review is routed as the pool routes it. `devops-triage` and `devops-background` fall back to it.
-- `devops-triage` is the fast triage model for candidate intake: `qwen3.8:27b` on `ollama-64gib-standard`. It serves candidate triage alone so backlog placement completes within one poll round. The router falls back to `qwen3.8:27b` if unavailable. The Service does not call it while the ConfigMap names one hosted chat model ([docs/CLUSTER.md](../docs/CLUSTER.md#roadmap-service), Roadmap service, item 19).
-- `devops-background` is the group of background work: `qwen3.8:27b` on `ollama-64gib-standard`. That tier serves one request per model at a time, and it also serves interactive and review groups, so background work and those calls wait for each other. The router falls back to `qwen3.8:27b` if unavailable. A `devops-review` fallback reaches it, and so does a cluster job whose settings name it (the ConfigMap of `k8s/devops/` names it for none while it names one hosted chat model); the pinned group has no fallback. The client streams the call and the gateway's pings keep it open, so the client reads the reply of a `devops-review` call that falls back to this tier. Use it for `devops review path --watch`, `devops ai agents` and `devops ai analyze` through environment overrides, never in workstation `config.yaml`, so no interactive run lands on it. Set `DEVOPS_CLI_AI_MAX_RETRIES=1`; the ConfigMap template of `k8s/devops/` sets `ai.max_retries: 1` for the in-cluster services, which call `deepseek-v4.1-flash-1017` and not this group (item 19), and `devops k8s deploy-stack --stack devops` applies it ([docs/CLUSTER.md](../docs/CLUSTER.md#go-live-check), Roadmap service, Go-live check). The gateway owns the retries: it retries a call of that hosted group up to 5 times (`router_settings.num_retries`) and then falls back (#5965). A deployment with no `allowed_fails` of its own that fails 3 times within 30 s is cooled for 30 s (`router_settings.allowed_fails: 2`, `cooldown_time: 30`), so the next calls go to the next order or the fallback at once (#5990). The gateway stops a call when the tier sends no token for 1,100 s, and does not retry it. The client sends a call again only when the call did not reach the gateway (a failed connect), or, for a pydantic-ai call of a roadmap job, when its stream failed before its first event. It sends a call at most `ai.max_retries + 1` times, each send is a call that the provider bills, and each send waits for the same single slot. A status of the gateway and a call that fails after its reply starts are not sent again. With `1` a call is sent at most two times, and with `0` one time:
-  ```bash
-  DEVOPS_CLI_AI_MAX_RETRIES=1 DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL=devops-background \
-    DEVOPS_CLI_AI_TASK_COMPOSE_MODEL=devops-background devops review path src --watch --concurrency 1
-  DEVOPS_CLI_AI_MAX_RETRIES=1 DEVOPS_CLI_AI_MODEL=devops-background devops ai agents   # likewise devops ai analyze
-  ```
-
-Measure the `devops-review` backends again whenever a backend, model or node changes. `devops ai gateway tune` measures each deployment of a group on its own, from an ephemeral Python container attached to the gateway pod (`kubectl debug`), so each backend is measured over the gateway's own network path. For each deployment it reports the engine, the GPUs, the capacity (fixed-length tokens per second at the best concurrency) and the cost (the tokens the model writes per request). It changes nothing. The `least-busy` router reads none of these numbers: it sends each request to the deployment with the fewest requests in flight. Use the numbers to decide which backends a group holds.
-```bash
-devops ai gateway tune                      # devops-review at concurrency 1, 4 and 8
-devops ai gateway tune --model devops-chat --format json
-```
-
-Point devops-cli at the gateway, so reviews, chat and embeddings all go through it (the key comes from `DEVOPS_CLI_AI_API_KEY` or the keyring):
-```yaml
-ai:
-  gateway_url: http://<node>:<node-port>/v1
-  tasks:
-    analysis:            # devops ai review
-      provider: gateway
-      model: devops-review
-      context_window: 16384   # review page size; every devops-review backend holds at least 48K
-    chat:                # devops ai chat
-      provider: gateway
-      model: devops-coder
-    embedding:
-      provider: gateway
-      model: qwen3-embedding:0.6b
-```
-Provider `gateway` always sends to `ai.gateway_url`, even when `ai.api_base_url` is set for another provider. To send one task to a different gateway, set `api_base_url` on that task.
-
-Open WebUI uses the same key: on a fresh install it connects to the gateway automatically, and it sends its RAG embeddings to the gateway's `qwen3-embedding:0.6b`. An existing installation keeps the connections and the document settings stored in its database. Add `http://llm-gateway.llm.svc.cluster.local:4000/v1` under Admin Panel > Settings > Connections, and turn off the Ollama API there: Open WebUI has no connection to Ollama's native API, so each of its model calls is on the gateway's series that the AI spend dashboard reads. Under Admin Panel > Settings > Documents, set the embedding engine to OpenAI, with the gateway URL, the master key and `qwen3-embedding:0.6b`.
-
-#### Smoke check after a gateway upgrade
-The LiteLLM upgrade changes the provider path of each hosted group, and no offline test reaches a
-provider. After the gateway rolls onto the new image, run five calls from a host that reaches the
-gateway node port, record each result as a comment on the upgrade issue, and open an issue with
-`devops gh issue create --title "<title>" --label source/agent` for a call that fails.
-
-Each call sends the gateway master key and no provider key: the gateway pod holds the provider keys
-in its environment. `$KEY` is the `master-key` of Secret `llm-gateway-secrets`, which the keyring
-holds as `llm_gateway_master_key`.
-
-| Group | Provider key of the gateway pod |
-| --- | --- |
-| `claude-sonnet-5-5` | `ANTHROPIC_API_KEY` |
-| `claude-haiku-5-5` | `ANTHROPIC_API_KEY` |
-| `gemini-3.8-flash` | `GEMINI_API_KEY` |
-| `deepseek-v4.1-flash-1017` | `OPENROUTER_API_KEY` |
-
-```bash
-curl -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{"model":"claude-sonnet-5-5","messages":[{"role":"user","content":"Say ok"}],"max_tokens":16}' http://<node>:<node-port>/v1/chat/completions
-curl -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{"model":"claude-haiku-5-5","messages":[{"role":"user","content":"Say ok"}],"max_tokens":16}' http://<node>:<node-port>/v1/chat/completions
-curl -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{"model":"gemini-3.8-flash","messages":[{"role":"user","content":"Say ok"}],"max_tokens":16}' http://<node>:<node-port>/v1/chat/completions
-curl -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{"model":"deepseek-v4.1-flash-1017","messages":[{"role":"user","content":"Say ok"}],"max_tokens":16}' http://<node>:<node-port>/v1/chat/completions
-```
-
-The fifth call asks `claude-sonnet-5-5` for a structured reply. It fails when the group loses
-`supports_native_structured_output` or `supports_response_schema`.
-
-```bash
-curl -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{"model":"claude-sonnet-5-5","messages":[{"role":"user","content":"Answer with one field."}],"max_tokens":64,"response_format":{"type":"json_schema","json_schema":{"name":"probe","schema":{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}}}}' http://<node>:<node-port>/v1/chat/completions
-```
-
-#### Gateway spans
-The `otel` callback of LiteLLM sends a span for each gateway request to the OpenTelemetry Collector over OTLP/HTTP, with the service name `llm-gateway` (#4518). The spans show the time of the queue, the retries and the fallbacks of a call. The `OTEL_*` variables of `llm/gateway/deployment.yaml` name the Collector Service. `turn_off_message_logging: true` in `llm/gateway/config.yaml` keeps the prompt and the reply off the spans. LiteLLM still writes the key hash, the key alias, the user and the `x-` headers of each request as `metadata.*` attributes, and a refused key puts its hash in the error text. A management endpoint span gets each field of the request and response bodies as a `request.*` or `response.*` attribute, for example the raw key of `/key/block` and the callback secrets of `/team/{team_id}/callback` (#4539). The `transform/key_data` processor of the Collector's traces pipeline (`otel/values.yaml`) deletes these attributes and each attribute whose name holds `authorization` or `api-key`, and it replaces each 64-digit hex value of a gateway span or span event, before Tempo stores the span. The gateway's egress admits port 4318 of the Collector pods only, so no gateway span goes to Tempo past this rule. A request with a `traceparent` header gets its gateway span as a child of the caller's span; a request without one starts its own trace. The `k8s` row of `devops ci` checks the callback, the endpoint, the egress rule and the effect of the processor on the attributes that LiteLLM writes.
-
-### GPU Placement: Ollama tiers
-Ollama runs as one DaemonSet per total-VRAM tier (`ollama-16gib` … `ollama-128gib`, `llm/profiles/ollama-profiles.yaml`), each behind its ClusterIP Service `ollama-<n>gib`. The gateway reaches the tiers through aliases of those Services, `ollama-48gib-fast` and `ollama-64gib-standard`, and through the Services of the embedding instances, `ollama-24gib-embed-gpu0` and `-gpu1` (`llm/gateway/config.yaml`).
-
-**The models each target keeps.** The gateway config (`llm/gateway/config.yaml`) sends each model to the targets below. A node that runs the tier of a target keeps the models of that target and no other model, and a prune of the model store removes the rest.
-
-| Gateway target | Models it keeps |
-| :--- | :--- |
-| `ollama-24gib-embed-gpu0` | `qwen3-embedding:0.6b` |
-| `ollama-24gib-embed-gpu1` | `qwen3-embedding:0.6b` |
-| `ollama-48gib-fast` | `qwen3.8:27b` |
-| `ollama-64gib-standard` | `qwen3.8:27b` |
-
-**Prune unused models.** `devops k8s ollama prune` removes the models that no tier of a node serves. `--plan` prints the models that each node would lose and removes none. `--dry-run` prints the `kubectl exec` commands of each gateway target and makes no request to the cluster. A node whose `ollama list` fails loses no model.
-
-**GPU thresholds.** `llm/profiles/gpu-thresholds.yaml` holds two values of `nvidia.com/gpu.architecture`, both `pascal`. Argo CD tracks `main`, so the values are in git and not in `config.yaml`. A tier in `llm/profiles/tier-templates/` is at or below a threshold when the newest architecture that it accepts is that architecture or an older one:
-
-- At or below `embedding_only`: the tier serves embedding models alone, keeps one model loaded and sets `LLAMA_ARG_THREADS: "1"`, because the model runs on the GPU. Each of its gateway deployments has order 1. Otherwise the tier runs as its template says: it is a chat tier, it loads one model, and the gateway sends it no embedding batch.
-- At or below `per_gpu`: the tier runs one DaemonSet per GPU, with `-gpu<n>` in the name. Each claims `nvidia.com/gpu: 1` and has its own Service and gateway deployment. A later instance requires a node with that many GPUs (`nvidia.com/gpu.count`). The annotation `llm.devops.io/gpu-count` of the template says how many instances exist, and `llm.devops.io/embedding-model` names the model of its gateway deployments when the tier is embedding-only. The instances of a node share the model directory, so they set `OLLAMA_NOPRUNE`.
-
-A rendered tier is named `ollama-<VRAM of one instance>gib-<embed or speed tier>`. Its speed tier is `embed` when it serves embedding models alone, so the Services `ollama-slow`, `ollama-24gib` and `ollama-24gib-slow`, which select `slow`, do not reach it.
-
-To change a value, edit the file and run `devops ai gateway render --apply`. The command writes the regions between the two `rendered` lines of `ollama-profiles.yaml`, `services.yaml` and `llm/gateway/config.yaml`. A test fails when those regions differ from its output. The command refuses:
-
-- A threshold newer than the newest architecture of the templates. Tiers such as `ollama-64gib` accept any architecture and have no template, so they cannot follow it. Add a template first.
-- A generation deployment on an embedding-only tier, and names each group. Which tier serves a group instead is a routing decision, so move the group in `llm/gateway/config.yaml` first.
-
-Only the tiers in `tier-templates/` follow the thresholds. A Pascal node with a total VRAM of another tier, such as `ollama-16gib` or `ollama-64gib`, runs that tier as it is written.
-
-**One model on the large tiers.** `ollama-48gib` and `ollama-64gib` load `qwen3.8:27b` and no other model (#3567). They set `OLLAMA_CONTEXT_LENGTH` to 262144, the native limit of the model, `OLLAMA_NUM_PARALLEL` to 1, `OLLAMA_MAX_LOADED_MODELS` to 1 and `OLLAMA_KEEP_ALIVE` to `-1`. The first request after a pod starts loads the model from the node model directory, and the model then stays loaded: no swap drops its KV cache. The gateway sends these tiers no other model and no embedding batch, and a test fails if a deployment does. A person who wants another model on them changes the DaemonSets and the gateway routes in one pull request. The model directories of the nodes still hold the files of other models. A request that names one of them straight to the tier, past the gateway, makes Ollama unload `qwen3.8:27b` to load it.
-
-The speed Services `ollama-fast`, `ollama-standard` and `ollama-slow` (`llm/profiles/services.yaml`) name no VRAM size. Clients of Ollama's native API use them: `ollama-fast` is the `ollama-ingress` backend and the CLI's default Service (`devops k8s port-forward`, `configure-urls`). Open WebUI uses none of them: it sends its chats and its RAG embeddings to the gateway. When a host changes, change the selector of the speed Service. Its clients then follow with no edit. [llm/profiles/README.md](llm/profiles/README.md) describes the profiles and their Services.
-
-A tier's pods schedule only on a node whose labels satisfy the tier's required node affinity. Every tier requires `nvidia.com/gpu.total-vram-gib` to be one of its values, and three also require `nvidia.com/gpu.architecture`. `nvidia.com/gpu.present=true` marks a GPU node, and `deploy-stack` treats a node with `nvidia.com/gpu` capacity above zero as one too.
-
-| Tier | `nvidia.com/gpu.total-vram-gib` | `nvidia.com/gpu.architecture` | Serves |
-| :--- | :--- | :--- | :--- |
-| `ollama-16gib` | `16Gi`, `20Gi` | any | no |
-| `ollama-24gib` | `24Gi`, `28Gi` | `pascal`, `maxwell`, `kepler` | no |
-| `ollama-32gib` | `32Gi`, `36Gi`, `40Gi`, `44Gi` | any | no |
-| `ollama-48gib` | `48Gi`, `52Gi`, `56Gi`, `60Gi` | `ada-lovelace`, `ampere`, `blackwell`, `hopper` | yes |
-| `ollama-24gib-embed-gpu0` | `48Gi`, `52Gi`, `56Gi`, `60Gi` | `pascal`, `maxwell`, `kepler` | yes |
-| `ollama-24gib-embed-gpu1` | `48Gi`, `52Gi`, `56Gi`, `60Gi` | `pascal`, `maxwell`, `kepler` | yes |
-| `ollama-64gib` | `64Gi`, `68Gi` | any | yes |
-| `ollama-72gib` | `72Gi`, `76Gi`, `80Gi`, `84Gi`, `88Gi`, `92Gi` | any | no |
-| `ollama-96gib` | `96Gi`, `100Gi` … `124Gi` in steps of 4 | any | no |
-| `ollama-128gib` | `128Gi` | any | no |
-
-**Serves** says whether a node of the cluster satisfies the tier, so that the tier has a pod. Every client that names an Ollama Service names one that selects a serving tier: the CLI defaults, the `ollama-ingress` backend, the gateway's `api_base` targets and the devcontainer's `ollama.endpoint`. When a host goes offline or a tier gets a node, change the column and move each client.
-
-`ollama-16gib` has a node, and its **Serves** value is `no` because its host is unstable. A cordon does not stop a DaemonSet pod, so the gateway, the review slots and the devcontainer name no Service of this tier. The DaemonSet and its Services stay, so a revert of the change that removed the clients brings the tier back. The node of the tier has 16 GiB of memory, of which about 13 GiB is allocatable, so the `ollama` container limits its memory to its request of `8Gi`: a model load past the gateway ends in an OOM kill of the container, not in a node with no free memory.
-
-**What sets the labels.** The cluster's node-provisioning automation, which lives outside this repository, sets `nvidia.com/gpu.present` and `nvidia.com/gpu.architecture` on every GPU node. It sets `nvidia.com/gpu.total-vram-gib` only on a node with more than one GPU, as the sum of its GPUs' memory rounded to the nearest whole GiB. GPU Feature Discovery labels per-GPU memory and the GPU count, not a total. So a single-GPU node gets no total, and a multi-GPU total can come out as a value no tier lists, such as `47Gi`. Set the label by hand, with a value from the table:
-
-```bash
-kubectl label node <node> nvidia.com/gpu.total-vram-gib=<N>Gi --overwrite
-```
-
-`deploy-stack --stack llm` reads the nodes once, right after it checks the cluster is reachable, and warns about each GPU node no tier accepts: the missing or unaccepted `total-vram-gib` with the command above, or an `architecture` outside the accepted ones. If no node satisfies any tier, it says no Ollama pod will schedule, and if it cannot read the nodes it says it could not check the labels. It also warns on an Argo CD-managed cluster. It never stops the deploy, since the stack's other workloads need no GPU label. The accepted values are read from `ollama-profiles.yaml`, so a tier changed there is checked with no other edit.
-
-The gateway's policies `llm-gateway-perimeter-ingress` and `llm-gateway-perimeter-egress` (`llm/gateway/networkpolicy.yaml`) are applied with the llm manifests, by `deploy-stack` or Argo CD's `llm` Application. The ingress policy admits TCP 4000 from any source, since LiteLLM rejects a request without the master key, and the egress policy limits the gateway's egress to the pods labelled `llm.devops.io/provider: ollama` on 11434 and kube-system DNS on port 53.
-
-The cache Valkey's policy `valkey-perimeter-ingress` (`llm/valkey.yaml`) admits Open WebUI on TCP 6379 and the `monitoring` namespace on the exporter port 9121. `valkey-perimeter-egress` allows no egress, and the default perimeter of `llm` leaves the Valkey pods out. Valkey requires the password of `llm/valkey-auth` (see Cluster Secrets). Open WebUI sends it in its Redis URL, and Valkey reads it from a quoted config line. A typed value must therefore use only letters, digits, `-`, `.`, `_` and `~`. The gateway and Portkey use no Valkey: the gateway config turns on no cache, and Portkey reads a cache only from `REDIS_CONNECTION_STRING`, which is not set.
-
-The cache Valkey keeps at most 1536 MiB of data (`--maxmemory`), three quarters of its 2048Mi limit. The rest of the limit holds fragmentation and Valkey's own overhead. At the bound, Valkey refuses writes and evicts no key (`--maxmemory-policy noeviction`). Open WebUI keeps its session pools and token revocations there, and an evicted revocation makes a signed-out token valid again. The run index (`llm/valkey-runs.yaml`) uses the same policy with a bound of 512 MiB. `ValkeyMemoryNearBound` warns when the cache Valkey keeps its data above 80% of the bound for 10 minutes. The rule selects each exported Valkey with the policy `noeviction`, and the run index has no exporter, so the rule does not watch it.
-
-devops-cli's cache Valkey (`llm/valkey-devops.yaml`) holds the caches of the roadmap Service and the cluster jobs: the embeddings that `EmbeddingsEngine` writes, the threat-intelligence reads, the listing snapshots of the public repositories (`valkey:roadmap:v1:snapshot:<owner>/<name>`, 7 days), the issues of the public repositories that the rows read (`valkey:roadmap:v1:issue:<owner>/<name>:<number>`, 24 hours, #6013) and the PyPI and deps.dev facts of the alternatives check (`valkey:brain:v1:fact:<source>:<name>`, 24 hours) (#4668). It loads its ACL users from the aclfile of key `users.acl` of Secret `llm/valkey-devops-auth`: `devops k8s push-secrets` generates the four role passwords, builds the aclfile from them and from key `password` in the same push, and the valkey container mounts the key at `/run/valkey` and starts `valkey-server` with `--aclfile /run/valkey/users.acl` (#4704). The `sweep` user writes the roadmap and gh keys, `brain` writes the brain keys and reads the roadmap ones, `agent` writes the rag keys and reads the brain fact keys, and `metrics` holds the commands of the exporter scrape and no key pattern. A process writes, reads and keeps the shared snapshot of a private repository only when it sends the ACL user `sweep`, and it removes that copy under any other user or none: a round removes the snapshot of a repository that became private when its visibility read gives private. The cached issues follow the same visibility check: a process that sends another user or none sends no command for an issue of a private repository, no process sends one for an issue of a repository whose visibility is not known, and each reads such an issue from GitHub (#7292). No round removes the cached issues of a repository that became private: such a process does not use them after its public answer ends, and each key expires 24 hours after its last write. A process keeps a visibility answer for 30 minutes. A failed visibility read leaves a snapshot that a process saved in the last 30 minutes, and removes an older one (#6611). Thus the snapshot of a repository that became private stays at most 1 hour after the change, at the first run after that. Each round of the Service and each job is a new process with an empty memory cache, so without it intake embeds every item of the roadmap again on each round. The devops ConfigMap names it in `valkey.url`, and its password reaches the pods from `devops/devops-cli` as `DEVOPS_CLI_VALKEY_PASSWORD`, the variable of `valkey.password`. Its policy `valkey-devops-perimeter-ingress` admits namespace `devops` on TCP 6379 and the `monitoring` namespace on the exporter port 9121, and `valkey-devops-perimeter-egress` allows no egress. The default perimeter of `llm` leaves its pods out, and `devops-default-perimeter-egress` lets namespace `devops` reach namespace `llm` on 6379 beside the gateway's 4000. It keeps at most 256 MiB of data, two thirds of its 384Mi limit, writes no RDB or AOF, and at the bound evicts the least recently used key (`--maxmemory-policy allkeys-lru`): an evicted key costs one more embedding request or listing read. While it is down, each process reads and writes its local tiers only and makes one connection attempt in each cooldown of 60 s. It can't share the cache Valkey, which must not evict Open WebUI's state.
-
-`valkey-roadmap` (`devops/valkey-roadmap/`, namespace `devops`) holds the shared state of the roadmap jobs, with the brain index as its first data ([ADR 0021](../docs/adr/0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md), section 3). It is a part of the product base, so Application `devops` deploys it. The folder builds the shared Valkey base of dan-petty/infra with its components `valkey-persistence`, `valkey-exporter` and `valkey-acl` at a release tag, which Renovate updates. It keeps its data in an append-only file on a 2Gi `local-path` claim, and at its bound of 128 MiB it refuses a write and evicts no key. Its exporter gives the series that `ValkeyCacheErrors` and `ValkeyMemoryNearBound` read. Its user `default` is off, and each client sends an ACL user of Secret `devops/valkey-roadmap-auth` (see Cluster Secrets). [valkey-roadmap](../docs/CLUSTER.md#valkey-roadmap) gives its users, its policies and its checks.
-
-Qdrant requires the key of `llm/qdrant-api-key` (see Cluster Secrets) on every REST and gRPC request. Only `/`, `/healthz`, `/readyz`, `/livez` and the files of its web UI need no key. The qdrant container reads `api-key` as `QDRANT__SERVICE__API_KEY` and `read-only-api-key` as `QDRANT__SERVICE__READ_ONLY_API_KEY` through `env` in `llm/values-qdrant.yaml`. Open WebUI names the Service in `QDRANT_URI` and sends the admin key as `QDRANT_API_KEY`; the devops ConfigMap names it in `qdrant.url`, and a pod that loads `devops/devops-cli` with `envFrom`, such as a Job of CronJob `devops-cli` or the MCP server, gets the read-only key as `DEVOPS_CLI_QDRANT_API_KEY` (#3823). The runner pod and the roadmap Service hold no Qdrant key (#6518). So a devops pod holds the search path and no write or delete path. Only WorkflowTemplate `rag-ingest` writes, with the admin key. `devops-default-perimeter-egress` admits namespace `llm` on TCP 6333, and `llm-default-perimeter-ingress` admits namespace `devops` on 6333 and no other new peer. Alloy scrapes `/metrics` with the admin key as a bearer token. Helm drops a key of `llm/values-qdrant.yaml` that the chart does not declare with no error, so read the values of the chart (`helm show values qdrant/qdrant --version <version>`) when you add a key or bump the chart.
-
-Every tier runs ollama as UID and GID 10001, which no host login account uses, with RuntimeDefault seccomp, no privilege escalation, all capabilities dropped and a read-only root filesystem; `/tmp` is an emptyDir. `HOME` is `/home/ollama`, so the key and `models/` stay in the hostPath `/var/lib/ollama` on each GPU node, mounted at `/home/ollama/.ollama`. `fsGroup` does not apply to a hostPath volume, so the initContainer `own-model-directory` gives that directory to 10001 at every start (`chown -R`). It runs as root with `CAP_CHOWN` alone, no privilege escalation and a read-only root filesystem, and exits before ollama starts. It is the one exception to kube-linter's `run-as-non-root` in `ollama-profiles.yaml`. Each tier, and the tier template, holds the annotation `ignore-check.kube-linter.io/run-as-non-root` with this reason, so the `kube-linter` row of `devops ci` passes (#6068). `devops ai gateway render` keeps the annotation on each tier that it writes.
-
-Inference workloads pull models directly and are reachable inside the cluster through the gateway.
+The minikube cluster of the devcontainer uses the same environment tree, so these commands need the homelab checkout there too. The addresses of the services and the steps for each stack are in `k8s/README.md` of dan-petty/homelab.
 
 ## Port Forwarding & Automated Configuration
 
@@ -305,169 +63,19 @@ devops k8s configure-urls --stack infra
 devops k8s configure-urls --stack llm
 ```
 
-The `monitoring` perimeter (`monitoring/networkpolicy.yaml`) admits Grafana, Prometheus, Alloy and Pyroscope traffic from three places: the namespace's own pods, the `otel` namespace, and Traefik in `kube-system`. Argo CD's `monitoring` Application applies it on a cluster it manages. Without Argo CD, `devops k8s deploy-stack --stack infra` (or `all`) applies it with the `monitoring` kustomization before any chart installs into the namespace, and `teardown-stack` removes it with the namespace. External clients come in through the Cloudflare tunnel, and `cloudflared` forwards only to Traefik. The perimeter names no address range. The cluster's policy engine, kube-router, matches an ingress `ipBlock` against pod addresses, so `0.0.0.0/0` or a private range would admit every pod in the cluster. How each way of reaching the stack gets through:
+A NetworkPolicy of the environment can limit who reaches a Service. How each way to reach a stack gets through:
 
 - `devops k8s port-forward` works wherever the pods run: `kubectl port-forward` enters the pod's own network namespace, and no policy applies.
-- `--addressing fqdn` goes through Traefik.
-- `--addressing proxy` writes `k8s://` addresses that the API server proxies from the control-plane node's host network. kube-router admits host-network traffic only to pods on the same node, so in a namespace behind a perimeter (Grafana, Prometheus and Pyroscope in `monitoring`, and the `llm` Services), a Service answers this way only while its pod runs on the control-plane node, and the pods on local-path volumes keep off that node (Local-Path Volume Placement, below). So `configure-urls --addressing proxy` sends one GET through the API server for each address. It writes only the addresses that the Service answers. When the API server cannot dial the Service, it writes nothing for that key and names `fqdn` and port-forward.
+- `--addressing fqdn` goes through the ingress controller.
+- `--addressing proxy` writes `k8s://` addresses that the API server proxies from the control-plane node's host network. kube-router admits host-network traffic only to pods on the same node, so in a namespace behind a perimeter, a Service answers this way only while its pod runs on the control-plane node. So `configure-urls --addressing proxy` sends one GET through the API server for each address. It writes only the addresses that the Service answers. When the API server cannot dial the Service, it writes nothing for that key and names `fqdn` and port-forward.
 
 ## NetworkPolicy
 
-The network policy controller of the cluster is kube-router, which k3s embeds. It does not apply the ingress rules of a NetworkPolicy with both types, `Ingress` and `Egress`, to traffic that an egress rule of the same policy allows, when the policy selects the source pod and the destination pod (#6707, #6708). kube-router keeps one chain for each policy, with its ingress rules and its egress rules. The chain of a pod jumps to the chain of each policy that selects the pod, and for a policy with both types the jump has no source or destination match. So the egress rule marks the traffic, and the destination pod accepts it before its ingress rules run. By the same chain, an ingress rule of such a policy can let the pods that it selects skip their egress rules. A policy selects only pods of its own namespace, so its ingress rules hold for the pods of other namespaces. Two single-type policies are enforced correctly, on one node and across nodes.
-
-- Each NetworkPolicy of `k8s/` has one type. A policy with ingress and egress rules is two policies with the same pod selector: `<name>-ingress` with the type `Ingress` and the ingress rules, and `<name>-egress` with the type `Egress` and the egress rules. The perimeters of `argocd`, `argo-workflows`, `cert-manager`, `cloudflared`, `cnpg-system`, `devops`, `gitea`, `llm`, `logging`, `mattermost`, `monitoring`, `object-store` and `otel` have this form.
-- The `k8s` row of `devops ci` refuses each policy whose types hold `Ingress` and `Egress` (`dual_type_problems` in `tests/gate/k8s_checks/network_policies.py`). It reads the types as the API server sets them: `policyTypes` as written; with no `policyTypes`, `Ingress`, and `Egress` when the policy has an egress rule.
-- An in-namespace egress rule gets ports only when the in-namespace ingress rules of its destinations give the exact ports, as in `gitea` (3000) and `object-store` (the 9 ports of the components). Elsewhere it has no ports, and the ingress rules of the destinations limit the traffic.
-
-## Scrape Ownership
-
-Alloy, run by the `k8s-monitoring` release (`monitoring/k8s-monitoring-values.yaml`), scrapes every target but two and remote-writes to the Prometheus server: the kubelet, cAdvisor, kube-state-metrics, node-exporter, the `argocd` (`controller`, `server`, `repoServer`, and `redis` exporter), `argo-workflows` (the workflow controller), `llm-gateway`, `pyroscope` and `qdrant` ServiceMonitors, the ServiceMonitors that the SeaweedFS operator makes in `object-store` (port 9327 of each component), the `llm-gateway-db` and `mattermost-db` PodMonitors (the CloudNativePG metrics exporter of each instance on port 9187), CoreDNS (`clusterMetrics.kubeDNS`), the pods annotated for scraping (`annotationAutodiscovery`), and the Alloy collectors, Grafana, Loki, Tempo and the DCGM exporter (`integrations`). The Prometheus server scrapes only itself and the OpenTelemetry Collector (#1130). These monitoring components run outside k8s-monitoring:
-
-| Component | Owner | Reason |
-| :--- | :--- | :--- |
-| Prometheus server and Alertmanager | Their own `prometheus` release (`monitoring/prometheus-values.yaml`) | k8s-monitoring ships collectors, not a metrics store or an alert router. Alloy writes to this server, which evaluates the alert rules and sends alerts to Alertmanager. The server scrapes itself, and Alloy scrapes Alertmanager through its pod annotations |
-| Grafana | Its own `grafana` release (`monitoring/grafana-values.yaml`) | k8s-monitoring does not deploy Grafana; its `grafana` integration scrapes Grafana's pod (#1131) |
-| Loki | Its own `loki` release, in the `logging` stack (`logging/loki-values.yaml`) | Loki belongs to the logging stack, so k8s-monitoring's Loki integration scrapes it only where that stack runs |
-| Pyroscope server | Separate `pyroscope` release (`monitoring/pyroscope-values.yaml`); collection: k8s-monitoring `profiling` | k8s-monitoring collects profiles (`profiling` in `monitoring/k8s-monitoring-values.yaml`, sent to `destinations.localPyroscope`); it does not deploy the server that stores profiles, and it scrapes Pyroscope through the chart's own ServiceMonitor (#1131, #1134) |
-| Trace backend (Tempo) | Its own `tempo` release (`otel/tempo-values.yaml`) | k8s-monitoring's Tempo integration scrapes Tempo, which its own chart deploys in `otel`. The collector's trace exporter has a Tempo to reach when the collector starts: `deploy-stack` installs `tempo` before `otel-collector`, and the `cluster` app-of-apps syncs the `otel-collector` Application in sync wave 1, after `tempo` (#409) |
-| dcgm-exporter | Its own `dcgm-exporter` chart (`monitoring/dcgm-exporter-values.yaml`) | k8s-monitoring's dcgm-exporter integration scrapes the exporter but ships none, so the chart deploys it on every GPU node; the chart's own ServiceMonitor stays off. The exporter collects the fields that `customMetrics` lists, and `podAnnotations` holds the checksum of that list, so a changed list restarts the pods |
-| otel-collector | Its own `otel-collector` release (`otel/values.yaml`), scraped by the Prometheus server's `kubernetes-pods` job, which keeps only namespace `otel` | devops-cli exports delta temporality, and Alloy's `delta_to_cumulative` is experimental only, so k8s-monitoring cannot replace the collector (#1132). The server scrapes it, not Alloy, so the collector's export failures stay visible when Alloy is what fails |
-| prometheus-operator-crds | Its own release, installed first | The `argocd`, `argo-workflows`, `llm-gateway`, `pyroscope` and `qdrant` ServiceMonitors, the ServiceMonitors that the SeaweedFS operator makes in `object-store`, and the CloudNativePG PodMonitors need the `monitoring.coreos.com` CRDs, which k8s-monitoring 4.x no longer ships |
-
-cloudflared, Traefik, Alertmanager, roadmap-service, the three cert-manager pods (port 9402), `llm/valkey` (`redis-exporter` sidecar on port 9121) and `devops/valkey-roadmap` (`exporter` sidecar on port 9121, job `valkey`) are found by annotation autodiscovery (#1130, #551), through the `prometheus.io/*` annotations their plain manifests carry, each with the pod's `app.kubernetes.io/name` as its job; CoreDNS comes through `clusterMetrics.kubeDNS`.
-
-`devops prometheus targets` reads the server's `/api/v1/targets`, so it lists only the server's two jobs; Alloy's targets appear in Prometheus as their `up` series.
-
-## Grafana Dashboards
-
-The environment dashboards live in `monitoring/dashboards/`, and the product dashboards of devops-cli, which read the `devops_cli_*` series, live in `devops/dashboards/` (#5292). The `kustomization.yaml` of `monitoring/dashboards/` generates seven ConfigMaps and lists `../../devops/dashboards`, whose `kustomization.yaml` generates the eighth ConfigMap with the same options. Each ConfigMap has the label `grafana_dashboard: "1"`, and the Grafana dashboard sidecar (`monitoring/grafana-values.yaml`) loads every ConfigMap with that label:
-
-| ConfigMap | Dashboards |
-| :--- | :--- |
-| `grafana-k8s-global-dashboards` | `k8s-views-global.json`, `k8s-views-pods.json` |
-| `grafana-k8s-node-dashboards` | `k8s-views-nodes.json`, `k8s-views-namespaces.json` |
-| `grafana-devops-cli-dashboards` | `devops-cli.json`, `ai-spend.json`, `project-metrics.json`, in `devops/dashboards/` |
-| `grafana-service-dashboards` | `devops-roadmap-service.json`, `devops-sre-service.json` |
-| `grafana-stack-dashboards` | `ingress-tunnel.json`, `llm-stack.json`, `otel-collector.json`, `prometheus-server.json`, `pyroscope.json`, `nvidia-dcgm.json`, `coredns.json` |
-| `grafana-database-dashboards` | `cloudnative-pg.json` |
-| `grafana-topology-dashboards` | `system-topology.json` |
-| `grafana-storage-dashboards` | `seaweedfs.json` |
-
-The service dashboards are generated. `make dashboards` builds each `[[service]]` table of `monitoring/dashboards/services.toml` into `<uid>.json` with the SRE template of `src/devops_cli/grafana/service_dashboard.py` ([DESIGN.md](../docs/DESIGN.md), row "Grafana"): the SLO tiles, the burn rate and the error budget, the golden signals, then the collapsed rows of capacity, logs and profiles. To change one, change its table and run `make dashboards`. Do not edit the JSON. The CI job "Design Tokens" fails when a committed dashboard is not the build.
-
-`cloudnative-pg.json` is the upstream dashboard of [cloudnative-pg/grafana-dashboards](https://github.com/cloudnative-pg/grafana-dashboards) (Apache-2.0) at commit `7dd1bc255b52`, with two changes: its indentation is one space, not two, so its ConfigMap stays under the annotation limit below, and the empty query of its replication lag stat is removed, which `devops grafana dashboards lint` refuses. The operator chart can also write this dashboard, but to `cnpg-system`, where the sidecar does not look, so `monitoring.grafanaDashboard.create` is `false` in `mattermost/cloudnative-pg-values.yaml`. To update the copy, take the file of a newer commit and make the same two changes.
-
-`seaweedfs.json` is `other/metrics/grafana_seaweedfs_k8s.json` of [seaweedfs/seaweedfs](https://github.com/seaweedfs/seaweedfs) (Apache-2.0) at tag 4.54, the release of the object store, with the changes that `devops grafana dashboards lint` needs: the uid `seaweedfs`, a data source object in place of each `$DS_PROMETHEUS` text, no empty query in the two filer panels, and the two S3 bucket panels moved under the last panel, where they no longer cover the volume server panels. Its indentation is one space. The main dashboard of the tag (`grafana_seaweedfs.json`) is larger than one ConfigMap holds. The operator chart can also write a dashboard, but to `object-store`, where the sidecar does not look, so `grafanaDashboard.enabled` is `false` in `object-store/operator-values.yaml`. To update the copy, take the file of the new tag and make the same changes.
-
-On a cluster Argo CD manages, its `monitoring` Application applies them; the root kustomization leaves them out, so the `base` Application does not own them as well. For the same reason, `devops/kustomization.yaml` does not list `dashboards`: then the `devops` Application takes the ConfigMap `grafana-devops-cli-dashboards` too. Without Argo CD, `devops k8s deploy-stack --stack infra` (or `all`) applies the `monitoring` kustomization, which lists the namespace's perimeter and `dashboards`, right after the root kustomization creates the `monitoring` namespace, and `teardown-stack` removes them with that namespace. Grafana holds these dashboards as provisioned and refuses to save over them, so change the JSON file and deploy again. To provision another dashboard, add it to a generator entry; each ConfigMap must stay under the 262,144 bytes kubectl's last-applied annotation allows.
-
-The AI spend dashboard (`ai-spend.json`) prices local savings in Prometheus. It takes the tokens that an in-cluster Ollama ran from the gateway's own token counters (`litellm_input_tokens_metric_total` for prompt tokens and `litellm_output_tokens_metric_total` for completion tokens) with `api_provider` `ollama_chat` (chat) or `ollama` (embeddings). A hosted call never counts, whatever label a client gives its own token series: before #5874, devops-cli gave hosted DeepSeek tokens `local="true"`, and the savings were about 1000 times too high (#5867, #5914). The queries multiply the tokens by the hidden constant `reference_price_usd_per_token`, a PromQL vector of one price for each operation and token type. Each price is the price that the spend reports of the Service give a local token: the price of `ai.reference_model` (`qwen3.8:27b`, 0.035 USD prompt and 1.50 USD completion per million tokens) and of `ai.reference_embedding_model` (`qwen/qwen3-embedding-8b`, 0.01 USD per million tokens) from `ai.price_overrides` in `devops/configmap.example.yaml` (#4241). Change the dashboard and the template in one pull request. A recording rule has samples only from its first evaluation, so the dashboard holds the prices and Prometheus records none. Local savings: USD per hour and Local savings by backend server: USD per hour draw hourly bars, as the spend panels do, and the savings of a projection take the rate of the last 7 days, as its spend does. The bars by backend name the Kubernetes service in the `api_base` that `litellm_deployment_total_requests_total` gives each deployment (`model_id`). LiteLLM gives an embedding deployment no `api_base`, so its model names its bar.
-
-The AI spend dashboard counts every caller of the gateway, not only devops-cli. AI Requests in Range and Tokens Processed in Range take a call through the gateway from the gateway's own series (`litellm_proxy_total_requests_metric_total` with a 2xx `status_code`, and `litellm_total_tokens_metric_total`), and add from devops-cli's series only its calls that bypassed the gateway. The spend panels (Cloud Spend in Range, the spend of the three projections, Spend: USD per hour and Spend by provider and model: USD per hour) take a call through the gateway from the gateway's spend counter `litellm_spend_metric_total`, and add `devops_cli_ai_spend_usd_total{provider!="gateway"}` for a call that did not go through the gateway (#4724). Prometheus scrapes the gateway counters each 15 s, but a Job pod sends devops-cli's series only a few times an hour, so a 5 min window of those series often holds no sample. Each spend bar is `increase(...[$__interval])` with a Min interval of 1h, so the bars of a range add up to the spend of the range. A projection takes the spend rate of the last 7 days, so the time range does not change it. The Gateway Traffic from Every Caller row shows the gateway's attempts by status, so a 408 or a 5xx is visible, and its requests and tokens by `end_user`. Every caller sends the gateway's one master key, so the gateway tells callers apart by the end-user id that a request names: devops-cli sends its OTel service name (`devops-cli`, `devops-cli-job` or `roadmap-service`) in `x-litellm-end-user-id`, and the gateway config sets `enable_end_user_cost_tracking_prometheus_only` to put it on the `end_user` label. A caller that names no end user, such as Open WebUI, shows as `unnamed`. The coverage stat is devops-cli's own spend of its gateway calls over the gateway's spend counter. It shows red under 95 % and over 105 %.
-
-The stack dashboards chart the cluster workloads and infrastructure services:
-
-| Dashboard | Exporter / Sources | How Prometheus / Loki gets its series |
-| :--- | :--- | :--- |
-| `devops-roadmap-service.json`, "Roadmap Service: SLO and golden signals" (`devops-roadmap-service`), and `devops-sre-service.json`, "Service: SLO and golden signals" (`devops-sre-service`, with the variables `namespace` and `workload`) | Traefik service metrics (`traefik_service_requests_total`, `traefik_service_request_duration_seconds`) of the Kubernetes Service that has the name of the workload, cAdvisor and kube-state-metrics container series, Loki pod logs (Logs: warnings and errors, Logs: all lines), and Pyroscope flame graphs | Traefik through Alloy's annotation autodiscovery; cAdvisor, the kubelet and kube-state-metrics through Alloy; logs pushed to Loki by Alloy; profiles queried from the Pyroscope data source |
-| `ingress-tunnel.json`, "SRE / Ingress & Cloudflare Tunnel" (`devops-ingress-tunnel`) | Traefik ingress metrics (port 9100) and Cloudflare Tunnel metrics (port 2000) | Alloy's annotation autodiscovery (`annotationAutodiscovery` in `monitoring/k8s-monitoring-values.yaml`), through the pods' `prometheus.io/*` annotations; network policy allows monitoring to scrape both ports |
-| `llm-stack.json`, "LLM Gateway & GPUs" (`devops-llm-stack`) | LiteLLM's Prometheus callback on the gateway (`/metrics/`), the NVIDIA DCGM exporter on every GPU node, and Qdrant's `/metrics` on port 6333 | The `llm-gateway` ServiceMonitor (`llm/gateway/servicemonitor.yaml`), the `dcgm-exporter` integration (`integrations` in `monitoring/k8s-monitoring-values.yaml`), and the `qdrant` ServiceMonitor (`metrics.serviceMonitor` in `llm/values-qdrant.yaml`, authenticating with the `qdrant-api-key` Secret), run by Alloy, which remote-writes to the server |
-| `otel-collector.json`, "OpenTelemetry Collector" (`devops-otel-traces`) | The collector's own telemetry on port 8888 | The server's `kubernetes-pods` job, which keeps only namespace `otel`, through the `prometheus.io/scrape` and `prometheus.io/port` pod annotations in `otel/values.yaml`; not through Alloy, whose annotation autodiscovery skips `otel`, so the collector's export failures stay visible when Alloy is what fails |
-| `prometheus-server.json`, "Prometheus Server" (`devops-prometheus-server`) | The Prometheus server's own `/metrics`, and `up` for every target | The server's `prometheus` job, which scrapes itself (`scrapeConfigs.prometheus` in `monitoring/prometheus-values.yaml`) |
-| `pyroscope.json`, "Continuous Profiling / Pyroscope Flamegraphs" (`devops-pyroscope`) | Grafana Pyroscope continuous profiling (CPU, memory, goroutines) | Continuous profiles collected by k8s-monitoring's `profiling` feature (`alloy-profiles` DaemonSet, eBPF `targetingScheme: all` and `pprof`, in `monitoring/k8s-monitoring-values.yaml`) and sent to `destinations.localPyroscope` (#1134) |
-| `coredns.json`, "CoreDNS" (`devops-coredns`) | CoreDNS metrics on port 9153 (`coredns_dns_*`, `coredns_cache_*`, `coredns_proxy_*`) | Alloy's `clusterMetrics.kubeDNS` job (`job="integrations/kubernetes/kube-dns"` in `monitoring/k8s-monitoring-values.yaml`) (#822) |
-| `cloudnative-pg.json`, "CloudNativePG" (`cloudnative-pg`) | The CloudNativePG metrics exporter of each instance on port 9187 (`cnpg_*`), and the operator's `controller_runtime_*` | The PodMonitors `llm-gateway-db` (`llm/gateway-db.yaml`) and `mattermost-db` (`mattermost/podmonitor.yaml`), and the operator's chart PodMonitor (`monitoring.podMonitorEnabled` in `mattermost/cloudnative-pg-values.yaml`), run by Alloy. Select the database with the `namespace` and `cluster` variables (#4994) |
-| `seaweedfs.json`, "SeaweedFS" (`seaweedfs`) | The metrics port 9327 of each SeaweedFS component (`SeaweedFS_*`) | The ServiceMonitors that the SeaweedFS operator makes from `serviceMonitor.enabled` of the `Seaweed` CR (`object-store/seaweed.yaml`), run by Alloy. Select the store with the `namespace` variable (#4750) |
-
-```bash
-devops grafana dashboards lint  # both folders; also catches a uid two files share
-devops grafana dashboards sync  # posts every file of both folders
-```
-`sync` exits 1 if any dashboard failed. It reports the provisioned dashboards as skipped, not failed.
-
-No query of `llm-stack.json`, `otel-collector.json`, `prometheus-server.json`, `coredns.json`, `ingress-tunnel.json`, `k8s-views-global.json`, `k8s-views-namespaces.json` or `k8s-views-nodes.json` falls back to a constant such as `or vector(0)`, so a panel without data reads "No data" rather than zero, and a panel drawn against a limit extends its axis to that limit. The gateway's failure panel, Qdrant's REST request rate and latency panels, and the collector's span export failures (`noValue: "none recorded"`) stay empty until the first such event. The gateway's cooldown and fallback stats count the events in the time range and show "none recorded" before the first one.
-
-## Grafana Image Renderer
-
-The `grafana` chart runs the [Grafana Image Renderer](https://github.com/grafana/grafana-image-renderer) (Apache-2.0) as Deployment and Service `grafana-image-renderer` in namespace `monitoring` (`imageRenderer` in `monitoring/grafana-values.yaml`). It gives a PNG of a panel or a dashboard to the render API of Grafana (`/render/d-solo/...` and `/render/d/...`), to the Grafana MCP tool `get_panel_image`, and to alert notifications.
-
-- Grafana calls the renderer at `http://grafana-image-renderer.monitoring:8081/render` (`GF_RENDERING_SERVER_URL`), and the renderer opens the page at `http://grafana.monitoring:80/` (`GF_RENDERING_CALLBACK_URL`). The chart sets both URLs from the Service names. No Ingress routes to the renderer. The NetworkPolicy of the chart, `grafana-image-renderer-ingress`, admits Grafana to port 8081, and `monitoring-default-perimeter-ingress` admits the other pods of the namespace.
-- Each request carries the token of Secret `monitoring/grafana-image-renderer` ([Cluster Secrets](#cluster-secrets)). The chart can make this Secret, but its template makes a new random token at each `helm template`, and Argo CD renders the chart with `helm template`. So each new revision would change the token while the pods keep the old one.
-- The image has a release tag, and the helm-values manager of Renovate reads it.
-- The renderer requests `100m` of CPU and `512Mi` of memory, and its limits are `2` CPUs and `1536Mi`. `GOMEMLIMIT` is `192MiB`: the renderer documents ask for a value below the limit, 1 GiB for each 8 GiB of limit, because Chromium uses the remaining memory. A local measurement with v5.12.11 and Grafana 13.3.1 under these limits: 10 panel renders in a row used 370 MiB at most (24 % of the limit), and 3 renders at one time and one render of the 55 panels of `devops-cli-telemetry` used 897 MiB at most (58 %). One panel render took 4 s to 7 s.
-
-After a change to a dashboard or to the renderer, render a panel in the light and the dark theme. Grafana lets an anonymous Viewer render:
-
-```bash
-kubectl -n monitoring port-forward svc/grafana 3000:80
-for theme in light dark; do
-  curl -s -o "panel-$theme.png" -w "%{http_code} %{content_type} $theme\n" \
-    "http://localhost:3000/render/d-solo/devops-cli-telemetry/x?orgId=1&panelId=11&width=1000&height=500&from=now-6h&to=now&theme=$theme"
-done
-```
-
-Each line shows `200 image/png`. Open the two files, and make sure that the text and the series are clear on each background. The MCP tool `get_panel_image` does the same check with the dashboard UID, the panel ID and the theme. After 10 renders in a row, the working set of the renderer stays below 80 % of its memory limit:
-
-```promql
-max_over_time(container_memory_working_set_bytes{namespace="monitoring", container="grafana-image-renderer"}[30m]) / (1536 * 1024 * 1024)
-```
-
-## Grafana LLM Plugin
-
-Grafana preinstalls the `grafana-llm-app` plugin pinned at release `1.2.0` (`monitoring/grafana-values.yaml`). The plugin provides LLM features across Grafana, such as panel explanations and query generation.
-
-- Grafana routes requests to the in-cluster LiteLLM AI Gateway at `http://llm-gateway.llm.svc.cluster.local:4000` (custom provider) targeting model `qwen3.8:27b`.
-- The network policy `monitoring-default-perimeter-egress` admits egress to port 4000 of namespace `llm`.
-- The feature toggle `dashgpt` under `[feature_toggles]` in `grafana.ini` enables generative AI capabilities across dashboards.
-- Grafana provisions the plugin settings from `apps.yaml` (`monitoring/grafana-values.yaml`) with provider `custom`, reading the LiteLLM key from `GF_LLM_GATEWAY_KEY` (Secret `monitoring/grafana-admin`). The configuration enables the developer sandbox at `/a/grafana-llm-app/dev-sandbox` and the MCP server at `/api/plugins/grafana-llm-app/resources/mcp/grafana`.
-
-## Log and Metric Retention
-
-Logs and metrics are kept for 30 days:
-
-| Store | Kept for | Deleted by | Volume |
-| :--- | :--- | :--- | :--- |
-| Loki (`logging/loki-values.yaml`) | `limits_config.retention_period: 720h` | The compactor, which applies retention only with `compactor.retention_enabled`, every 11 minutes | `storage-loki-0`, 20Gi |
-| Prometheus (`monitoring/prometheus-values.yaml`) | `server.retention: 30d` | The TSDB, by age. `server.retentionSize: 16GB` only guards the disk and sits well above 30 days of samples | `prometheus-server`, 20Gi |
-
-Logs leave Loki only by age: `limits_config.deletion_mode: disabled` closes the log delete API, which would otherwise accept requests without credentials while `auth_enabled` is false.
-
-Both volumes use the `local-path` class. It keeps a volume in a directory on one node ([Local-Path Volume Placement](#local-path-volume-placement)), does not hold the volume to its claimed size, and cannot expand a claim in place. Loki's claim comes from its StatefulSet's `volumeClaimTemplates`, which Kubernetes does not let an upgrade change, so a new `singleBinary.persistence.size` needs the StatefulSet deleted with `--cascade=orphan` and the volume rebound to the new claim before the upgrade.
-
-Two alerts in `serverFiles.alerting_rules.yml` (`monitoring/prometheus-values.yaml`) warn before a volume fills:
-
-- `LogOrMetricVolumeDiskLow`: the root filesystem of the node holding `storage-loki-0` or `prometheus-server` has had less than 10% free for 30 minutes.
-- `PrometheusNearRetentionSizeCap`: the TSDB has used over 80% of `server.retentionSize` for an hour, before the cap would delete blocks younger than 30 days.
-
-They route like every other rule (Alerting, below), and are listed there with the rest.
-
-Loki's compactor retention takes effect once #550's Loki migration has been applied, a step a person runs: the volume rebind above, then the Loki upgrade. Until then Loki deletes no logs by age. k8s-monitoring's Loki integration scrapes Loki wherever the logging stack runs (Scrape Ownership, above), and the migration only turns retention on; `LokiRetentionNotRunning` fires if the compactor stops applying it.
-
-## Alloy Metrics Write-Ahead Log
-
-The `alloy-metrics` collector (`collectors.alloy-metrics` in `monitoring/k8s-monitoring-values.yaml`) keeps its write-ahead log at `alloy.storagePath`, `/var/lib/alloy`, on the volume of the claim template `alloy-wal`. A pod restart keeps the samples that Alloy buffered and did not send, for example while Prometheus is down. Alloy keeps unsent samples for up to 8 hours (`max_keepalive_time`) and truncates the log every 2 hours. At the 14 MB an hour that it writes, the log holds about 140 MB at most, and the claim asks for 1Gi. The claim uses the `local-path` class, which binds the volume on the node where the pod first runs. The pod's node affinity (`node-role.kubernetes.io/control-plane` `DoesNotExist`) keeps the pod and its volume off the control-plane node, whose root disk has the least free space.
-
-The Alloy Operator, not Argo CD, makes the StatefulSet from the `Alloy` resource `k8s-monitoring-alloy-metrics` that Argo CD syncs. Kubernetes does not let an upgrade change `volumeClaimTemplates`, so after a change to the claim template the operator cannot upgrade the StatefulSet until the old StatefulSet is gone. When Argo CD has synced the change, a person runs these commands:
-
-```bash
-# The Alloy resource holds the new claim template.
-kubectl -n monitoring get alloys.collectors.grafana.com k8s-monitoring-alloy-metrics \
-  -o jsonpath='{.spec.controller.volumeClaimTemplates[*].metadata.name}'
-# Delete the old StatefulSet and keep its pod.
-kubectl -n monitoring delete statefulset k8s-monitoring-alloy-metrics --cascade=orphan
-# The operator makes the StatefulSet again with the claim template.
-kubectl -n monitoring get statefulset k8s-monitoring-alloy-metrics \
-  -o jsonpath='{.spec.volumeClaimTemplates[*].metadata.name}'
-# Delete the adopted pod, so that the StatefulSet makes a pod that mounts the volume.
-kubectl -n monitoring delete pod k8s-monitoring-alloy-metrics-0
-kubectl -n monitoring get pvc alloy-wal-k8s-monitoring-alloy-metrics-0
-```
-
-`--cascade=orphan` keeps the pod while the StatefulSet is gone, so the metrics stop only for the restart of the pod. The new StatefulSet adopts the pod but cannot replace it: Kubernetes does not let a pod's volumes change, so each update fails with `pod updates may not change fields other than ...`, and the claim stays `Pending`. The pod that the StatefulSet makes after the delete mounts the volume of `alloy-wal-k8s-monitoring-alloy-metrics-0`, and the claim binds on the node of that pod. The samples in the old pod's own filesystem are lost one time. The StatefulSet keeps its claims when it is deleted or scaled down, so the volume and its log stay.
+Each NetworkPolicy of `k8s/devops` has one type. A policy with ingress and egress rules is two policies with the same pod selector: `<name>-ingress` with the type `Ingress` and the ingress rules, and `<name>-egress` with the type `Egress` and the egress rules. The network policy controller of the homelab, kube-router, does not apply the ingress rules of a policy with both types to traffic that an egress rule of the same policy allows, when the policy selects the source pod and the destination pod (#6707, #6708). The `k8s` row of `devops ci` refuses each policy whose types hold `Ingress` and `Egress` (`dual_type_problems` in `tests/gate/k8s_checks/network_policies.py`). It reads the types as the API server sets them: `policyTypes` as written; with no `policyTypes`, `Ingress`, and `Egress` when the policy has an egress rule.
 
 ## Local-Path Volume Placement
 
-The StorageClasses `local-path` and `fast-nvme` use the local-path provisioner ([Prerequisites](#prerequisites)). It keeps a volume in a directory on one node, and it binds the volume on the node where the first pod of the claim runs (`WaitForFirstConsumer`). The volume then keeps each later pod of the claim on that node. The root disk of the control-plane node is the smallest in the cluster, and it also holds the model store of the slow Ollama tier (GPU Placement, above). So each pod that mounts a claim has this required node affinity:
+The StorageClasses `local-path` and `fast-nvme` use the local-path provisioner ([Prerequisites](#prerequisites)). It keeps a volume in a directory on one node, and it binds the volume on the node where the first pod of the claim runs (`WaitForFirstConsumer`). The volume then keeps each later pod of the claim on that node. The control-plane node of the homelab has the least free root disk space. So each pod that mounts a claim has this required node affinity:
 
 ```yaml
 affinity:
@@ -481,20 +89,7 @@ affinity:
 
 Kubernetes puts the label `node-role.kubernetes.io/control-plane` on each control-plane node, so the rule needs no label of its own. The affinity has an effect on a new volume and on a moved volume. A bound volume keeps its pod on its node.
 
-Each pod that mounts a claim sets this affinity, in its chart values file or in its manifest under `k8s/`. A CloudNativePG `Cluster` that sets `spec.storage` is a pod on a claim: the operator makes a claim from `spec.storage` and applies `spec.affinity` to the database pods. Each chart keeps its claims and its affinity at different values, so a new chart gets a review of both. Review holds this rule; no test reads the files (#6060).
-
-These pods stay on the control-plane node, each until its item moves the volume:
-
-| Key | Reason | Item |
-| :--- | :--- | :--- |
-| `k8s/mattermost/database.yaml:Cluster/mattermost-db` | The claim of the database is on the control-plane node. The pod stays Pending with the affinity. | #3803 moves the volume and then adds the affinity. |
-| `k8s/llm/gateway-db.yaml:Cluster/llm-gateway-db` | The claim of the gateway database is on the control-plane node. | #3782 moves the volume and then adds the affinity. |
-
-A pod that must stay on the control-plane node gets a row with its reason. An example is a pod whose volume is still on the control-plane node. With the affinity, that pod cannot start. Move the volume as below. Then remove its row and add the affinity to its values in one pull request. The move of the Mattermost database needs a backup first (#3803).
-
-On the homelab, the provisioner's config (ConfigMap `local-path-config` in namespace `local-path-storage`) gives each node two base directories, one under `/var` and one under `/mnt`. Neither StorageClass names one of them (`parameters.nodePath`), so the provisioner (v0.0.28, `getPathOnNode`) puts each new volume under one of the two at random. Thus `fast-nvme` differs from `local-path` only by its reclaim policy, `Retain`: it does not keep a volume on a faster disk.
-
-`LocalPathNodeDiskHigh` (Alerting, below) warns when the root filesystem of a node that runs a pod on a `local-path` claim is over 85% used. At 85% the kubelet starts to delete unused images. Under DiskPressure it evicts pods, and a pod on a local-path volume cannot start on another node. The alert reads only the root filesystem (`mountpoint="/"`). When the `/mnt` base directory is on another filesystem, `HostFilesystemSpaceLow` watches that filesystem.
+Each pod that mounts a claim sets this affinity, in its manifest under `k8s/devops` or in the environment tree. Review holds this rule; no test reads the files (#6060). The environment tree records the pods that still stay on the control-plane node.
 
 ### Move a volume to another node
 
@@ -521,7 +116,7 @@ The move does these steps, and prints each one:
 
 Before the point of no return, a failure undoes each change of the move, the last change first. From the point of no return on, a failure leaves Argo CD paused, because a self-heal would make an empty claim. The command then prints the saved claim and the steps that did not run.
 
-The copy pods run as root, so that tar keeps the owners. The namespace must allow that: `monitoring` (`privileged`) and `logging` (`baseline`) do.
+The copy pods run as root, so that tar keeps the owners. The namespace must allow that: its Pod Security level is `privileged` or `baseline`.
 
 The old volume stays `Released`, with its data, until a person deletes it. The command prints the command that deletes it: with the reclaim policy `Delete`, local-path deletes the volume and its directory on the node.
 
@@ -560,97 +155,13 @@ The measure creates one temporary namespace (`volume-move-measure`) with two 1 G
 
 The run deletes the temporary namespace when it ends, whether the copies pass or fail. The report prints a Markdown table with the count of complete copies and digest matches. At least 20 copies must complete with a matching digest (20/20 complete copies and 20/20 digest matches), else the command exits non-zero. A person runs the live measure against the cluster and records the 20/20 numbers in #3953.
 
-## Local-Path Retain Migration
-
-The cluster has 8 bound PersistentVolumes that use the `local-path` class with reclaim policy `Delete`. The `local-path-retain` class sets `Retain` for new volumes, but does not alter bound volumes or live StatefulSets. A person runs this migration in a maintenance window after the manifest sync.
-
-### 1. Identify bound Delete volumes
-
-List each bound PersistentVolume with reclaim policy `Delete` and a claim from a devops-cli workload:
-
-```bash
-kubectl get pv -o jsonpath='{range .items[?(@.spec.persistentVolumeReclaimPolicy=="Delete")]}{.metadata.name}{"\t"}{.spec.claimRef.namespace}{"/"}{.spec.claimRef.name}{"\n"}{end}'
-```
-
-### 2. Patch PersistentVolumes to Retain
-
-Patch each bound PersistentVolume to the `Retain` policy before deleting any StatefulSet:
-
-```bash
-kubectl patch pv <name> -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
-```
-
-Verify that the reclaim policy is now `Retain`:
-
-```bash
-kubectl get pv <name> -o jsonpath='{.spec.persistentVolumeReclaimPolicy}'
-```
-
-### 3. Recreate live StatefulSets
-
-Delete each live StatefulSet with orphan cascade to keep its pods and claims:
-
-```bash
-kubectl delete statefulset <name> --cascade=orphan
-```
-
-Argo CD or the controller recreates the StatefulSet with the updated claim template. Then delete the adopted pod so the recreated StatefulSet provisions the new pod:
-
-```bash
-kubectl delete pod <name>-0
-```
-
-Wait for the StatefulSet rollout and the pod to become Ready:
-
-```bash
-kubectl rollout status statefulset <name>
-kubectl wait --for=condition=Ready pod/<name>-0 --timeout=300s
-```
-
-## Capacity targets
-
-The [Kubernetes guideline](../docs/guidelines/kubernetes.md) sets the targets and the tuning method of a cluster. This section holds only the decisions of this cluster. [Tracker #5542](https://github.com/dan-petty/devops-cli/issues/5542) holds the open capacity gaps of this cluster, so this section holds no gap row. The project review report gives the measured values.
-
-- **Pod start.** The p95 of `kubelet_pod_start_duration_seconds` is at most 30 s over 7 days, with the image pull. The value follows the warm p95 of the go line of [ADR 0008](../docs/adr/0008-argo-workflows-run-the-roadmap-jobs-after-a-measured-go.md), which measures a Workflow from its creation to `Succeeded`.
-- **Runner start.** The median time from the creation of a runner Job to the start of its container is at most 10 s over 7 days.
-- **Runner placement.** A runner Job runs only on a node whose allocatable memory is at or above its memory limit. It prefers a GPU worker to the control-plane node. The control-plane node runs the k3s server, so a runner there takes memory from the control plane. [Runner Jobs](../docs/CLUSTER.md#runner-jobs) owns the size of each Job.
-- **Profiler.** The eBPF profiler (the `alloy-profiles` DaemonSet of [Grafana Dashboards](#grafana-dashboards)) runs on every node, and target T10 of the guideline sets its cost. A node fault removes the profiler from a node only when a test shows that the profiler causes the fault. A node that stopped with the profiler on also stopped with no profiler, so the tracker holds the hardware test of that node.
-- **Node settings.** The infra repo of the setting `infra.repos` holds the kubelet, k3s and containerd settings of the nodes, not this tree. A gap in a node setting gets an issue in that repository (rule R6 of the guideline). [GPU Placement: Ollama tiers](#gpu-placement-ollama-tiers) tells which part of that repository sets the node labels.
-
-## Service Account Tokens
-
-Kubernetes mounts a token of the pod's ServiceAccount into each pod. A process in the pod can then call the Kubernetes API as that ServiceAccount. The pod field `automountServiceAccountToken: false` stops the mount. When the pod does not set the field, the field of the ServiceAccount applies. A volume can also give the pod a token, whatever the field says: a projected `serviceAccountToken` source, or a Secret of type `kubernetes.io/service-account-token`. A pod that does not call the API mounts no token (#1652):
-
-- The manifests set the field to `false` on the pod template of each workload that does not call the API. Examples are `cloudflared`, `gpu-feature-discovery`, `llm-gateway`, `portkey`, `valkey`, `valkey-runs` and the Ollama tiers.
-- The chart values turn the token off for Loki (`defaults` and `serviceAccount`), Tempo and the OpenTelemetry collector (`serviceAccount`). They also turn it off for Alertmanager (`alertmanager`), and for the Argo CD repo server and Redis (`repoServer` and `redis`). Gitea gets its own ServiceAccount (`serviceAccount.create: true`), which has no token.
-- A pod that calls the API keeps its token, and a Role or ClusterRole binds its ServiceAccount. Examples are Argo CD, Argo Workflows, Grafana, the k8s-monitoring collectors, the Prometheus server, Pyroscope and Traefik.
-
-kube-linter (`devops k8s lint`) checks the Argo CD builds of the manifests: a workload that mounts the token of the default ServiceAccount fails it. No test reads the manifests or the chart values for the field (#6060). Qdrant keeps its token with no binding: chart 1.20.2 has no value for the field, and qdrant/qdrant-helm#506 asks for the value. When a chart release adds it, set the value in one pull request.
-
-`kubectl get pods -A -o json` shows a `kube-api-access-*` volume only on the pods that keep a token.
-
-## Host Journals and Health Metrics
-
-Each node sends its journal to Loki and its health series to Prometheus through the k8s-monitoring chart (`monitoring/k8s-monitoring-values.yaml`), with no agent installed on the host:
-
-- **Journal (`nodeLogs`)**: the `alloy-logs` DaemonSet, which already reads pod logs, reads `/var/log/journal`. It keeps kernel lines at every priority, the `k3s`, `k3s-agent`, `nvidia-power-limit`, `containerd` and `systemd-journald` units and systemd's own lines about them at info and above, and every other line at warning and above. Each unit may send 1 line/s after a burst of 10,000; kernel lines have no limit. Lines carry `job="integrations/kubernetes/journal"`, `instance` (the node), `unit`, `transport` and `level`, with the boot ID as structured metadata (`boot_id`).
-- **What the journal reader drops**: counted only on each `alloy-logs` pod's own `/metrics` (port 12345), in series the Alloy integration's default allow list does not forward to Prometheus. Every entry the keep rules drop counts as `loki_source_journal_target_parsing_errors_total{error="empty_labels"}`, so that series counts the filter at work, not errors; lines the rate limit cuts count per unit in `loki_process_dropped_lines_by_label_total{label_name="unit"}`.
-- **Metrics (`hostMetrics`)**: Prometheus keeps every series node-exporter serves, with no allow list (#1129), because node-exporter's collector flags decide what is collected. Among them are `node_boot_time_seconds`, `node_hwmon_temp_celsius` with `node_hwmon_chip_names`, `node_pressure_*`, the EDAC correctable and uncorrectable error counters, `node_nvme_info`, filesystem size and free space, and `node_systemd_unit_state` for the units above, from the systemd collector the values turn on. node-exporter's systemd collector reads unit state over the host's D-Bus socket, reached through the node root the chart mounts at `/host/root`.
-
-```text
-{job="integrations/kubernetes/journal", transport="kernel"}               # LogQL: kernel lines
-{job="integrations/kubernetes/journal", unit=~"k3s(-agent)?\\.service"}   # LogQL: k3s
-changes(node_boot_time_seconds[30d])                                       # PromQL: reboots per node
-node_systemd_unit_state{state="failed"} == 1                               # PromQL: failed host units
-```
-
 ## Service levels
 
-The [SRE guideline](../docs/guidelines/sre.md) sets how a project runs its services, and the [production readiness guideline](../docs/guidelines/production-readiness.md) sets the rows that each service meets. [The guideline index](../docs/guidelines/index.md) lists each guideline. This section holds only the decisions of this cluster. [Tracker #5541](https://github.com/dan-petty/devops-cli/issues/5541) holds the open SRE and production readiness gaps of this cluster, so this section holds no gap row. The service dashboards, `devops prometheus rules` and `devops roadmap review run` give the measured values.
+The [SRE guideline](../docs/guidelines/sre.md) sets how a project runs its services, and the [production readiness guideline](../docs/guidelines/production-readiness.md) sets the rows that each service meets. [The guideline index](../docs/guidelines/index.md) lists each guideline. This section holds the SLOs of the product and the decisions of the owner about them. The decisions about one cluster are in `k8s/README.md` of dan-petty/homelab. [Tracker #5541](https://github.com/dan-petty/devops-cli/issues/5541) holds the open SRE and production readiness gaps, so this section holds no gap row. The service dashboards, `devops prometheus rules` and `devops roadmap review run` give the measured values.
 
-[`catalog.toml`](catalog.toml) is the catalog data: the Applications, the tier, the data class and the dependencies of each service. A service with a Homepage UI takes its description from the `gethomepage.dev/description` annotation of that UI (#4600), so its entry holds no description. A new service adds its entry in the pull request that adds the service (rule SRE1).
+`catalog.toml` of the environment tree is the catalog data: the Applications, the tier, the data class and the dependencies of each service. `devops k8s catalog` reads it. A new service adds its entry in the pull request that adds the service (rule SRE1).
 
-**SLOs.** The window of each SLO is 28 days. SLO 5 is the default of the service dashboards (`monitoring/dashboards/services.toml`) until the owner sets another target. Each other SLO is a Sloth spec under `devops/monitoring/slos/`, and the spec holds its objective, its error budget and the window: `src/devops_cli/prometheus/slo_rules.py` renders the rule groups of `devops/monitoring/prometheus-rules-values.yaml` from the specs, and the `k8s` row of `devops ci` refuses a spec that nobody rendered. SLO 5 has no spec yet, so its objective stays in this table.
+**SLOs.** The window of each SLO is 28 days. SLO 5 is the default of the service dashboards (`monitoring/dashboards/services.toml` of the environment tree) until the owner sets another target. Each other SLO is a Sloth spec under `devops/monitoring/slos/`, and the spec holds its objective, its error budget and the window: `src/devops_cli/prometheus/slo_rules.py` renders the rule groups of `devops/monitoring/prometheus-rules-values.yaml` from the specs, and the `k8s` row of `devops ci` refuses a spec that nobody rendered. SLO 5 has no spec yet, so its objective stays in this table.
 
 | SLO | Service | SLI: good events / valid events | Spec | Objective | Error budget |
 | :--- | :--- | :--- | :--- | ---: | ---: |
@@ -673,56 +184,16 @@ SLO 2 counts only the runner Jobs that end. kube-state-metrics shows a Job only 
 - The sweep and its Valkey keep state on `local-path` volumes, which stop with their node ([ADR 0021](../docs/adr/0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md)). The off-node backup of owned state limits the loss.
 - The roadmap Service runs one replica with no PodDisruptionBudget. A release rolls with a surge (`maxSurge: 1`, `maxUnavailable: 0`) and has no gap, but a drain of its node still stops the webhooks for a time ([Roadmap service](../docs/CLUSTER.md#roadmap-service), #4575).
 
-**Runbooks for the whole system:** the [stop switch](../docs/CLUSTER.md#stop-switch), the [planned maintenance](#planned-maintenance), the [recovery of Argo CD](#recovery) and the [failure recovery matrix](../docs/ROUTINE_TASKS.md#4-failure-recovery--troubleshooting-matrix).
+**Runbooks for the whole system:** the [stop switch](../docs/CLUSTER.md#stop-switch), the planned maintenance (`k8s/README.md` of dan-petty/homelab), the [recovery of Argo CD](#recovery) and the [failure recovery matrix](../docs/ROUTINE_TASKS.md#4-failure-recovery--troubleshooting-matrix).
 
 ## Alerting
 
-The [SRE guideline](../docs/guidelines/sre.md) sets the method of the SLOs, the burn-rate alerts, the page and ticket targets and the incident steps. [Service levels](#service-levels) holds the decisions of this cluster. This section holds the rules and the receiver.
+The [SRE guideline](../docs/guidelines/sre.md) sets the method of the SLOs, the burn-rate alerts, the page and ticket targets and the incident steps. [Service levels](#service-levels) holds the SLOs. This section holds the rules of the product. The rules of the cluster, Alertmanager, its receiver and the planned maintenance are in `k8s/README.md` of dan-petty/homelab (Alerting).
 
-Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prometheus-values.yaml`), and Grafana reads it as the `Alertmanager` datasource. The environment rules are in the same file, under `serverFiles.alerting_rules.yml`. The product rules, the groups that select a `devops_cli_*` series, are in `devops/monitoring/prometheus-rules-values.yaml`, under `serverFiles.devops_cli_alerting_rules.yml` (#5292). The `prometheus` Application gives the chart this file as its second values file, and `devops k8s deploy-stack` gives `helm upgrade` both files, in the order of the Application. The chart writes each key of `serverFiles` to the ConfigMap `prometheus-server`, and `serverFiles.prometheus.yml.rule_files` of the environment values names the 4 rule files of the chart and the product file. The row work series that more than one consumer reads have a group of recording rules (#4562): the group `roadmap-service-recording` records `repo_lane_row:devops_cli_service_jobs_total:increase1h`, the failed jobs of the last hour by repository, lane, row and result, `service:devops_cli_service_budget_requests_per_limit:ratio`, the spent requests of the last hour over the hourly budget, and `repo_row_class:devops_cli_service_job_suspended:max`, the rows that wait after a failed round by repository, row and class. Each rule of the group matches `job=~"roadmap-service|roadmap-.+"` and drops the `job` label, so one recorded series holds the series of the Service and of a `roadmap-<row>` pod, and a move of the row work changes one name in the group and no consumer. The row work alerts `RoadmapServiceJobsFailing`, `RoadmapServiceGitHubRequestsHigh` and `RoadmapServiceRowSuspended` read the recorded series, and the router health selectors keep `job="roadmap-service"`, because the router keeps its own job. The cases of the group are in `tests/fixtures/prometheus_rules/roadmap_service_recording_tests.yaml`. No rule watches the controller manager, scheduler or proxy: k3s runs them inside its server process, so nothing scrapes them and such a rule would fire on the missing target.
+The product rules, the groups that select a `devops_cli_*` series, are in `devops/monitoring/prometheus-rules-values.yaml`, under `serverFiles.devops_cli_alerting_rules.yml` (#5292). The `prometheus` Application of the environment gives the chart this file after the values of the environment, and `devops k8s deploy-stack` gives `helm upgrade` the files in the same order. The row work series that more than one consumer reads have a group of recording rules (#4562): the group `roadmap-service-recording` records `repo_lane_row:devops_cli_service_jobs_total:increase1h`, the failed jobs of the last hour by repository, lane, row and result, `service:devops_cli_service_budget_requests_per_limit:ratio`, the spent requests of the last hour over the hourly budget, and `repo_row_class:devops_cli_service_job_suspended:max`, the rows that wait after a failed round by repository, row and class. Each rule of the group matches `job=~"roadmap-service|roadmap-.+"` and drops the `job` label, so one recorded series holds the series of the Service and of a `roadmap-<row>` pod, and a move of the row work changes one name in the group and no consumer. The row work alerts `RoadmapServiceJobsFailing`, `RoadmapServiceGitHubRequestsHigh` and `RoadmapServiceRowSuspended` read the recorded series, and the router health selectors keep `job="roadmap-service"`, because the router keeps its own job. The cases of the group are in `tests/fixtures/prometheus_rules/roadmap_service_recording_tests.yaml`.
 
 | Alert | Fires when | For | Severity |
 | :--- | :--- | :--- | :--- |
-| `NodeNotReady` | Kubernetes reports a node not Ready | 5m | critical |
-| `TargetDown` | A scrape target is down (`up == 0`) | 10m | warning |
-| `NodeRebooted` | A node has been up for under 30 minutes | — | warning |
-| `K3sServiceNotActive` | A node's `k3s.service` or `k3s-agent.service` is not active | 5m | critical |
-| `GpuPowerLimitServiceNotActive` | `nvidia-power-limit.service` is not active, so the GPU power caps may not be applied | 10m | critical |
-| `GpuTemperatureHigh` | A GPU is over 85 °C (warning) or at 90 °C or more (critical) | 10m, 2m | warning, critical |
-| `GpuPowerOverSiteBudget` | All GPUs together draw more than the site budget in the rule (1000 W) | 5m | critical |
-| `HostFilesystemSpaceLow` | A node filesystem has under 10% (warning) or 5% (critical) free | 15m, 5m | warning, critical |
-| `LocalPathNodeDiskHigh` | The root filesystem of a node that runs a pod on a `local-path` claim is over 85% used, where the kubelet starts to delete unused images | 15m | warning |
-| `PersistentVolumeSpaceLow` | A volume that reports kubelet volume stats has under 10% free; no volume on this cluster reports them yet | 15m | warning |
-| `LogOrMetricVolumeDiskLow` | The root filesystem of the node holding `storage-loki-0` or `prometheus-server` has under 10% free; names the claim at risk | 30m | warning |
-| `PrometheusNearRetentionSizeCap` | Prometheus's data uses over 80% of `server.retentionSize`, before the cap deletes blocks younger than 30 days | 1h | warning |
-| `PrometheusSizeLimitCutHistory` | Prometheus deleted blocks to stay under its size cap | — | warning |
-| `PrometheusStorageNearClaim` | Prometheus's data uses over 80% of the `prometheus-server` claim, which with the cap at 80% of the claim means the cap is not holding it | 1h | warning |
-| `LokiRetentionNotRunning` | Loki's compactor has not applied retention for over an hour; retention runs once #550's Loki migration has turned it on | 30m | warning |
-| `LokiRequestErrors` | Over 5% of a Loki route's requests return 5xx | 15m | warning |
-| `PyroscopeQueryErrors` | A Pyroscope route's 5xx request rate over 15m is above 0 | 15m | warning |
-| `AlloyRemoteWriteSamplesFailed` | An Alloy collector failed to remote-write samples to Prometheus | 15m | warning |
-| `AlloyLogEntriesDropped` | An Alloy collector dropped log entries on their way to Loki | 15m | warning |
-| `PodLogsNotShipped` | An `alloy-logs` pod has sent 0 log entries to Loki (`node` joined from `kube_pod_info`) | 30m | warning |
-| `OtelCollectorExportFailing` | An exporter of the OpenTelemetry collector failed to send spans, metric points or log records to Tempo, Prometheus or Loki in each of two 15-minute periods in a row; it names the exporter and the signal | 15m | warning |
-| `OtelCollectorExportQueueFull` | An exporter queue of the OpenTelemetry collector is at 90% or more of its capacity; a full queue drops new data | 15m | warning |
-| `DevopsCliMetricStreamsShareSeries` | Prometheus holds two `target_info` series with the same `job` and `instance`, so two metric streams write one series and its totals are wrong (#4697, #5338). The rule sees only writers that send at the same time: after a pod change, the 15 minute lookback holds the old series for less than 30 minutes. Compare the labels of the two series (`target_info{job="<job>", instance="<instance>"}`). A different `telemetry_sdk_*` label means that a second SDK sends with the same `service.name` and `service.instance.id`. Any other label that differs means that a devops-cli build with another metric Resource runs next to the current build: stop or update the old process (global install, long-lived MCP server, worktree on an old branch, Job from an old image). A `host_name` label means that the metrics did not go through `transform/metric_resource` of the collector (`otel/values.yaml`). The alert clears 15 minutes after the old writer stops | 30m | warning |
-| `ArgoCdApplicationOutOfSync` | An Argo CD Application's `sync_status` is not `Synced` | 15m | warning |
-| `ArgoCdApplicationUnhealthy` | An Argo CD Application's `health_status` is neither `Healthy` nor `Progressing` | 15m | warning |
-| `ArgoCdAutoSyncDisabled` | An Argo CD Application's `autosync_enabled` is `false` | 15m | warning |
-| `ArgoCdSyncOperationStuck` | An Argo CD Application has a sync operation running | 1h | warning |
-| `IngressServesPlaceholderHost` | An Ingress routes a host under the placeholder domain of git (`kube_ingress_path`), so Traefik returns 404 for its real host; see Homelab Values at Deploy Time | 5m | critical |
-| `CloudflareTunnelDegraded` | Total Cloudflare Tunnel HA connections across `cloudflared` replicas are under 2 | 5m | warning |
-| `CoreDnsServfailResponses` | Over 5% of CoreDNS responses return `SERVFAIL` | 5m | warning |
-| `ValkeyCacheErrors` | A Valkey exporter reports `redis_up == 0` or rejected client connections | 5m | warning |
-| `ValkeyMemoryNearBound` | A Valkey with the policy `noeviction` and a bound keeps its data above 80% of its `maxmemory`; at the bound it refuses each write | 10m | warning |
-| `GatewayDatabaseDown` | The CloudNativePG exporter of the gateway database (`llm/llm-gateway-db`) has no connection to PostgreSQL (`cnpg_collector_up` is 0), or Prometheus has no series from it. The gateway then refuses each virtual key (#4994). Run `kubectl get cluster -n llm llm-gateway-db` and read the log of pod `llm-gateway-db-1` | 5m | warning |
-| `GatewayDatabaseConnectionsNearMax` | The client connections of the gateway database are above 80% of `max_connections`; at the limit PostgreSQL refuses each new connection. Find the client on the Connections panels of the CloudNativePG dashboard | 10m | warning |
-| `GatewayDatabaseNearClaim` | The databases and the WAL of the gateway database are above 80% of its claim (5 GiB). local-path does not enforce the claim, so the data can fill the root disk of the node. Find what grows on the CloudNativePG dashboard; the spend logs keep 30 days (`maximum_spend_logs_retention_period` in `llm/gateway/config.yaml`) | 15m | warning |
-| `SeaweedFSNoLeader` | No master of the object store (`object-store`) is the Raft leader, or Prometheus has no series from a master; each new write fails. Read the log of each master pod ([Object Store](#object-store)) | 5m | warning |
-| `SeaweedFSUnderReplicatedVolumes` | The leading master counts volumes with fewer copies than replication `001` asks; one more lost volume server then loses data. Find the volume server that is down ([Object Store](#object-store)) | 15m | warning |
-| `SeaweedFSVolumeServerDown` | Fewer than 3 volume servers answer their scrape; each volume on a missing server has one copy left. Read the status of the volume pods, and restore the node ([Object Store](#object-store)) | 10m | warning |
-| `SeaweedFSReadOnlyVolumes` | A volume server has read-only volumes: its disk is under 10% free (`minFreeSpacePercent`), or a disk failed. Free the disk, or read the log of the pod | 15m | warning |
-| `SeaweedFSVolumeDiskLow` | The disk under a volume server has under 20% free; at 10% its volumes go read-only. local-path does not enforce the 300Gi claim. Free the disk of the node, or add a volume server | 15m | warning |
 | `RagIngestBehind` | No RAG ingestion run succeeded for repository `{{ $labels.repo }}` in the last two schedule periods (360s) | — | warning |
 | `ResearchCriticalFindings` | The last `devops research sweep` of the last 7 days found a critical advisory that affects a pin of the project (#3899). The sweep sets zero for a severity with no finding, so a clean sweep ends the alert. A sweep with a lookup that got no answer sets no value. Read the candidates that the sweep filed, or run `devops research advisories`, and update the pin. Run the sweep again | — | critical |
 | `RepositorySettingsDrift` | The last nightly drift check of the last 2 days (CronJob `repos-drift`, #6783) found rows of a repository of `service.repos` off the baseline of the template repository: `pending`, `failed` or `waiting`. Read the rows in the log of the last Job of `repos-drift`, or run `devops repos onboard <owner>/<name> --plan` with your own login. Then apply the baseline with `--confirm`, or change the baseline in the template repository ([onboard](../docs/repos/onboard.md#the-nightly-job)) | — | warning |
@@ -734,9 +205,6 @@ Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prome
 | `RoadmapServiceJobsFailing` | All jobs of one row of a repository failed in 1 hour, from the recorded series `repo_lane_row:devops_cli_service_jobs_total:increase1h` of the group `roadmap-service-recording` | 30m | warning |
 | `RoadmapServiceLaneStalled`, `RoadmapServiceRestarted`, `RoadmapServiceMemoryNearLimit`, `RoadmapServiceUnavailable`, `RoadmapServiceGitHubRequestsHigh`, `RoadmapServiceModelRequestsHigh`, `RoadmapServiceStateUnkept`, `RoadmapServiceRowSuspended` | The roadmap Service stalls, its pod restarts, uses almost all of its memory limit or is unavailable, its GitHub or model requests in an hour are high, it could not write a state record, or a row stays suspended; `RoadmapServiceGitHubRequestsHigh` and `RoadmapServiceRowSuspended` read the recorded series `service:devops_cli_service_budget_requests_per_limit:ratio` and `repo_row_class:devops_cli_service_job_suspended:max` of the group `roadmap-service-recording`; see [docs/CLUSTER.md](../docs/CLUSTER.md#alerts), Roadmap service, Alerts | 0–15m | warning |
 | `RoadmapServiceWebhooksRejected` | The webhook route of the roadmap Service rejected more than 20 deliveries in 15 minutes; see [docs/CLUSTER.md](../docs/CLUSTER.md#alerts), Roadmap service, Alerts | — | warning |
-| `ClusterMetricsMissing` | `kube_node_status_condition` is absent, so the node rules cannot fire | 10m | critical |
-| `PrometheusConfigReloadFailed`, `PrometheusRuleEvaluationFailures`, `PrometheusNotConnectedToAlertmanager`, `PrometheusDroppingAlerts`, `PrometheusCompactionsFailing` | Prometheus's own health | 0–15m | warning |
-| `AlertmanagerConfigReloadFailed`, `AlertmanagerNotificationsFailing` | Alertmanager's own health; the second only once the alertmanager-mattermost Secret exists | 10m, 15m | warning |
 | `RoadmapServiceRoundsPage1h` | The 1-hour and the 5-minute error ratios of the roadmap Service rounds SLO of one repository and row are above 13.44 times its 1 % error budget, and the 1-hour window holds 20 runs or more. Do this: read the failing row in `devops roadmap inbox`, and the log of the Service pod (`kubectl -n devops logs deployment/roadmap-service`) | — | critical |
 | `RoadmapServiceRoundsPage6h` | The 6-hour and the 30-minute error ratios of the roadmap Service rounds SLO of one repository and row are above 5.6 times its error budget, and the 6-hour window holds 20 runs or more. Do this: as for `RoadmapServiceRoundsPage1h`, then comment the cause on the open issue of the row | — | critical |
 | `RoadmapServiceRoundsTicket1d` | The 1-day and the 2-hour error ratios of the roadmap Service rounds SLO of one repository and row are above 2.8 times its error budget, and the 1-day window holds 20 runs or more. Do this: open an issue for the failing row with `devops roadmap intake`, and read the trend on the Service dashboard | — | warning |
@@ -754,83 +222,13 @@ Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prome
 | `LlmGatewayLatencyTicket1d` | The 1-day and the 2-hour error ratios of the LLM gateway latency SLO are above 2.8 times its error budget, and the 1-day window holds 20 requests or more. Do this: open an issue for the slow backend with `devops roadmap intake`, and read the trend on the LLM stack dashboard | — | warning |
 | `LlmGatewayLatencyTicket3d` | The 3-day and the 6-hour error ratios of the LLM gateway latency SLO are above 0.93 times its error budget, and the 3-day window holds 20 requests or more. Do this: open an issue for the slow backend, or change the objective or the backend of the SLO in its Sloth spec | — | warning |
 
-Retention, volume sizes and what `LogOrMetricVolumeDiskLow` and `PrometheusNearRetentionSizeCap` watch are in Log and Metric Retention, above.
-
-The local-path volumes are host directories. They report no kubelet volume stats and do not enforce their claim's size, so the host filesystem under them is what fills. `HostFilesystemSpaceLow` watches every filesystem of every node; `LogOrMetricVolumeDiskLow` watches the same 10% on the root filesystem of the node holding Loki's and Prometheus's claims and names the claim at risk, so on that node both fire. For Prometheus, `PrometheusNearRetentionSizeCap` warns before its size cap deletes anything, `PrometheusSizeLimitCutHistory` once it has, and `PrometheusStorageNearClaim` if the data outgrows the claim with no cap holding it.
-
-The GPU power budget is one number for the whole site, from the GPUs' draw before a breaker trip on the circuit every node shared. Once the power layout is settled, it should become one budget per circuit.
-
-### Free space of the root disk after a prune
-
-The prune of the model store (`devops k8s ollama prune`) frees the root disk of a node. This query shows if the free space of that disk stays above 25% for the 7 days after the prune. Run it in Grafana, in the Explore view of the `Prometheus` datasource, or in the expression browser of the Prometheus server:
-
-```promql
-min_over_time(node_filesystem_avail_bytes{mountpoint="/", instance="<node>"}[7d]) / max_over_time(node_filesystem_size_bytes{mountpoint="/", instance="<node>"}[7d]) < 0.25
-```
-
-Set `instance` to the node that runs the pruned store. An empty result means that the node stayed above 25% free for the 7 days. A result names the node that fell below 25% free. Prometheus keeps 30 days of samples (`server.retention` in `monitoring/prometheus-values.yaml`), so the `[7d]` window is readable. `LocalPathNodeDiskHigh` is no proof of this bound: it fires at 85% used, 10 points above 75%, and only after 15 minutes (Alerting, above).
-
-A node keeps the models of the gateway targets that its tier serves (GPU Placement: Ollama tiers, the keep table). Check the models that the node keeps with `kubectl -n llm exec <tier-pod> -- ollama list`, in a pod of that tier. Compare the list with the row of the table for the targets of the tier.
-
-Post the query and its result as a comment on #3654. The next prune then has the method and the measurement together. #4001 holds the 7-day measurement and that comment.
-
-### Receiver
-
-Alerts without a routed severity go to the `null` receiver, which sends nowhere. `critical` and `warning` alerts go to `mattermost`, which posts to Mattermost's incoming webhook using the URL in the `url` key of the Secret `alertmanager-mattermost` in `monitoring`. The Secret is mounted optional, as a directory, at `/etc/alertmanager-mattermost`, so Alertmanager starts without it and the running pod sees the file about a minute after the Secret is created. Until then each notification fails, Alertmanager logs the failure, and nothing leaves the cluster. No alert arrives while Mattermost, Alertmanager, or the node under either is down (#1390).
-
-To wire the channel:
-
-1. Create the incoming webhook in Mattermost for `alerts`, with "Lock to this channel" selected.
-2. Store the webhook token in the keyring:
-   ```bash
-   uv run devops config set mattermost.alerts_hook
-   ```
-3. Push the Secret to the cluster:
-   ```bash
-   uv run devops k8s push-secrets --only monitoring/alertmanager-mattermost --context <context>
-   ```
-
-The monitoring perimeter allows Alertmanager egress to namespace `mattermost` on TCP port 8065, and ports 80 and 443 outside the cluster.
-
-### Planned maintenance
-
-Silence the node, then drain it. Every alert about one node carries a `node` label: node-exporter's rules copy it from `instance`; the discovery rules of Alloy's annotation autodiscovery, kube-dns job and DCGM integration, and the server's `kubernetes-pods` job for the collector, set it on the pods they scrape; the Loki integration puts Loki's node in `instance`, which `TargetDown` falls back to; and `LogOrMetricVolumeDiskLow` and `PodLogsNotShipped` take it from `kube_pod_info`. So one silence covers the node, its scrape targets, its units and the `NodeRebooted` that follows. Make it last the work plus 30 minutes:
-
-```bash
-kubectl -n monitoring exec statefulset/prometheus-alertmanager -c alertmanager -- \
-  amtool --alertmanager.url=http://localhost:9093 silence add 'node="<node>"' \
-  --duration=3h --author=<name> --comment="<reason>"
-kubectl drain <node> --ignore-daemonsets --delete-emptydir-data
-```
-
-The drain moves the pods that can move to other nodes. A few cluster-wide alerts have no `node` label. One pod, `k8s-monitoring-alloy-metrics-0`, forwards every series from kube-state-metrics, node-exporter and the DCGM exporter, and scrapes the annotated pods, the Alloy collectors, Grafana, Loki, Tempo, Pyroscope and CoreDNS. Its write-ahead log is on a `local-path` volume (Alloy Metrics Write-Ahead Log, above), so it cannot move to another node. Drained, or on a node that powers off, it waits for its node. While it waits, those series stop: the `up` series of the targets it scrapes go stale instead of reporting 0, so no `TargetDown` fires for them, and no other node's `NodeNotReady` can fire. After about 15 minutes `ClusterMetricsMissing` (critical, no `node` label) pages, because the node silence does not match it. Pods on `local-path` volumes (Prometheus, Loki, Grafana, Pyroscope, Alertmanager and `alloy-metrics`) cannot move and wait for their node. While the node holding Prometheus or Alertmanager is down, no alert is evaluated or sent at all.
-
-After the work, let pods back onto the node, and expire the silence if the work ended early:
-
-```bash
-kubectl uncordon <node>
-kubectl -n monitoring exec statefulset/prometheus-alertmanager -c alertmanager -- \
-  amtool --alertmanager.url=http://localhost:9093 silence query
-kubectl -n monitoring exec statefulset/prometheus-alertmanager -c alertmanager -- \
-  amtool --alertmanager.url=http://localhost:9093 silence expire <silence-id>
-```
-
-In Grafana, Alerting > Silences with the `Alertmanager` datasource selected does the same; anonymous viewers can only list silences. Alertmanager keeps silences on its volume, so they survive a restart.
-
 ## Cluster Secrets
 
-Every Secret the stacks read comes from the workstation's OS keyring. `devops k8s push-secrets` writes them (workstation keyring → cluster, the reverse of `devops k8s sync-secrets`), and `devops k8s deploy-stack` runs the same push right after the namespaces, before any manifest or Helm release. One table in `src/devops_cli/k8s/cluster_secrets.py` lists them. A pod that references a Secret with no row does not start: `kubectl -n <namespace> get pods` shows `CreateContainerConfigError`, and Argo CD shows the Application as degraded. Add a new secret as a row with a generator, so that `push-secrets` makes its value: an agent writes no secret value. Argo CD applies a manifest when it merges, and a pod that reads a missing Secret does not start. So a person runs `uv run devops k8s push-secrets --only <namespace>/<name>` from the branch of the pull request before the merge of the manifest that reads the new Secret. Run `devops k8s push-secrets --only <namespace>/<name> --plan` and merge only when the plan shows `unchanged` (#6064). Make the reference `optional: true` when the pod can start without it. A pull request that adds a Secret reference names the push command as its first line, so the person pushes the Secret before the merge (#5200). Check the pods after the merge. The table:
+Every Secret the stacks read comes from the workstation's OS keyring. `devops k8s push-secrets` writes them (workstation keyring → cluster, the reverse of `devops k8s sync-secrets`), and `devops k8s deploy-stack` runs the same push right after the namespaces, before any manifest or Helm release. The table of a cluster is the rows of `cluster-secrets.toml` of the environment tree, then the product rows of `src/devops_cli/k8s/cluster_secrets.py`. A command fails when the environment tree has no `cluster-secrets.toml`. A pod that references a Secret with no row does not start: `kubectl -n <namespace> get pods` shows `CreateContainerConfigError`, and Argo CD shows the Application as degraded. Add a new secret as a row with a generator, in the file of the repository that holds its consumer, so that `push-secrets` makes its value: an agent writes no secret value. Argo CD applies a manifest when it merges, and a pod that reads a missing Secret does not start. So a person runs `uv run devops k8s push-secrets --only <namespace>/<name>` from the branch of the pull request before the merge of the manifest that reads the new Secret. Run `devops k8s push-secrets --only <namespace>/<name> --plan` and merge only when the plan shows `unchanged` (#6064). Make the reference `optional: true` when the pod can start without it. A pull request that adds a Secret reference names the push command as its first line, so the person pushes the Secret before the merge (#5200). Check the pods after the merge. The product rows:
 
 | Secret | Key | Source | Required | When the keyring has no value | Stack | Restarted when it changes |
 |---|---|---|---|---|---|---|
-| `llm/llm-gateway-secrets` | `master-key` | keyring `llm_gateway_master_key` | yes | adopt the live value; else generate `sk-` + 48 hex | llm | `deployment/llm-gateway` |
-| `llm/llm-gateway-secrets` | `gemini-api-key` | keyring `gemini_api_key` | no | adopt the live value; else skip with a warning | llm | `deployment/llm-gateway` |
-| `llm/llm-gateway-secrets` | `anthropic-api-key` | keyring `anthropic_api_key` | no | adopt the live value; else skip with a warning | llm | `deployment/llm-gateway` |
-| `llm/llm-gateway-secrets` | `openrouter-api-key` | keyring `openrouter_api_key` | no | adopt the live value; else skip with a warning | llm | `deployment/llm-gateway` |
-| `llm/qdrant-api-key` | `api-key` | keyring `qdrant_api_key` | yes | adopt the live value; else generate `token_urlsafe(32)` | llm | `statefulset/qdrant`, `statefulset/open-webui` |
-| `llm/qdrant-api-key` | `read-only-api-key` | keyring `qdrant_read_only_api_key` | yes | adopt the live value; else generate `token_urlsafe(32)` | llm | `statefulset/qdrant`, `statefulset/open-webui` |
 | `llm/valkey-runs-auth` | `password` | keyring `runs_index_password` | yes | adopt the live value; else generate 64 hex | llm | `deployment/valkey-runs` |
-| `llm/valkey-auth` | `VALKEY_PASSWORD` | keyring `valkey_password` | yes | adopt the live value; else generate 64 hex | llm | `deployment/valkey`, `statefulset/open-webui` |
 | `llm/valkey-devops-auth` | `password` | keyring `valkey_devops_password` | yes | adopt the live value; else generate 64 hex | llm | `deployment/valkey-devops` |
 | `llm/valkey-devops-auth` | `sweep` | keyring `valkey_devops_sweep` | yes | adopt the live value; else generate 64 hex | llm | `deployment/valkey-devops` |
 | `llm/valkey-devops-auth` | `brain` | keyring `valkey_devops_brain` | yes | adopt the live value; else generate 64 hex | llm | `deployment/valkey-devops` |
@@ -841,7 +239,6 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `devops/valkey-roadmap-auth` | `agent` | keyring `valkey_roadmap_agent` | yes | adopt the live value; else generate 64 hex | devops | `deployment/valkey-roadmap` |
 | `devops/valkey-roadmap-auth` | `metrics` | keyring `valkey_roadmap_metrics` | yes | adopt the live value; else generate 64 hex | devops | `deployment/valkey-roadmap` |
 | `devops/valkey-roadmap-auth` | `users.acl` | derived from keyring valkey_roadmap_brain, keyring valkey_roadmap_agent, keyring valkey_roadmap_metrics | yes | fail | devops | `deployment/valkey-roadmap` |
-| `cloudflared/cloudflared-token` | `token` | keyring `cloudflare_tunnel_token` | no | adopt the live value; else skip with a warning | base | `deployment/cloudflared` |
 | `devops/crawl4ai` | `CRAWL4AI_API_TOKEN` | keyring `crawl4ai_api_token` | yes | adopt the live value; else generate `token_urlsafe(32)` | devops | `deployment/crawl4ai` |
 | `devops/searxng` | `SEARXNG_SECRET` | keyring `searxng_secret_key` | yes | adopt the live value; else generate 64 hex | devops | `deployment/searxng` |
 | `devops/searxng-metrics-auth` | `username` | literal | yes | fail | devops | `deployment/searxng` |
@@ -862,34 +259,10 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `devops/devops-cli` | `DEVOPS_CLI_MCP_IMPLEMENT_TOKEN` | keyring `mcp_token` | no | adopt from `devops/mcp-server DEVOPS_CLI_MCP_TOKEN`; else skip with a warning | devops | `deployment/roadmap-service` |
 | `devops/devops-cli` | `DEVOPS_CLI_QDRANT_API_KEY` | keyring `qdrant_read_only_api_key` | yes | adopt from `llm/qdrant-api-key read-only-api-key`; else generate `token_urlsafe(32)` | devops | `deployment/roadmap-service` |
 | `devops/qdrant-api-key` | `api-key` | keyring `qdrant_api_key` | yes | adopt from `llm/qdrant-api-key api-key`; else generate `token_urlsafe(32)` | devops | none |
-| `monitoring/grafana-admin` | `admin-user` | literal | yes | fail | infra | `deployment/grafana` |
-| `monitoring/grafana-admin` | `admin-password` | keyring `grafana_password` | yes | adopt from `monitoring/grafana admin-password`; else generate `token_urlsafe(32)` | infra | `deployment/grafana` |
-| `monitoring/grafana-admin` | `secret-key` | keyring `grafana_secret_key` | yes | adopt the live value; else generate `token_urlsafe(32)` | infra | `deployment/grafana` |
-| `monitoring/grafana-admin` | `llm-gateway-key` | keyring `llm_gateway_master_key` | yes | adopt the live value; else generate `sk-` + 48 hex | infra | `deployment/grafana` |
-| `monitoring/grafana-image-renderer` | `token` | keyring `grafana_renderer_token` | yes | adopt the live value; else generate `token_urlsafe(32)` | infra | `deployment/grafana`, `deployment/grafana-image-renderer` |
-| `monitoring/alertmanager-mattermost` | `url` | derived from keyring mattermost_alerts_hook | no | skip with a warning | infra | none |
-| `argocd/argocd-notifications-secret` | `github-appID` | setting argocd.github_app_id | yes | fail | infra | none |
-| `argocd/argocd-notifications-secret` | `github-installationID` | setting argocd.github_app_installation_id | yes | fail | infra | none |
-| `argocd/argocd-notifications-secret` | `github-privateKey` | keyring `argocd_github_app_private_key` | yes | adopt the live value; else fail | infra | none |
-| `argocd/argocd-notifications-secret` | `mattermost-deploys-url` | derived from keyring mattermost_deploys_hook | no | skip with a warning | infra | none |
-| `argocd/gitea-repo-creds` | `url` | literal | yes | fail | gitea | none |
-| `argocd/gitea-repo-creds` | `username` | setting gitea.argocd_username | yes | fail | gitea | none |
-| `argocd/gitea-repo-creds` | `type` | literal | yes | fail | gitea | none |
-| `argocd/gitea-repo-creds` | `password` | keyring `gitea_argocd_token` | yes | adopt the live value; else fail | gitea | none |
-| `gitea/gitea-admin` | `username` | literal | yes | fail | gitea | `deployment/gitea` |
-| `gitea/gitea-admin` | `password` | keyring `gitea_admin_password` | yes | adopt the live value; else fail | gitea | `deployment/gitea` |
-| `mattermost/mattermost-db` | `username` | literal | yes | fail | chat | none |
-| `mattermost/mattermost-db` | `password` | keyring `mattermost_db_password` | yes | adopt from `mattermost/mattermost-db password`; else generate `token_urlsafe(32)` | chat | none |
-| `mattermost/mattermost-db` | `DB_CONNECTION_STRING` | derived from literal, keyring mattermost_db_password | yes | fail | chat | none |
-| `object-store/seaweedfs-admin` | `adminUser` | literal | yes | fail | infra | `statefulset/seaweedfs-admin` |
-| `object-store/seaweedfs-admin` | `adminPassword` | keyring `seaweedfs_admin_password` | yes | adopt the live value; else generate `token_urlsafe(32)` | infra | `statefulset/seaweedfs-admin` |
-| `object-store/seaweedfs-s3` | `s3.json` | literal | yes | fail | infra | `deployment/seaweedfs-s3` |
 
-- `object-store/seaweedfs-admin` holds the login of the admin UI of the object store. With no password, the admin HTTP API has no authentication (GHSA-m3m8-mrgq-hf9h). The push makes the password, and the keyring keeps it as `seaweedfs_admin_password` for a sign-in through a port-forward ([Object Store](#object-store)). `object-store/seaweedfs-s3` holds the identities file of the S3 gateway, which has no identity: the gateway refuses each request that no identity of the filer allows. The filer keeps the identities of the admin UI, and identity `anonymous` of the anonymous read of the store buckets ([Buckets](#buckets)). The JWT signing keys of the store have no row: the SeaweedFS operator mints them in Secret `object-store/seaweedfs-security-config`, which the `Seaweed` CR owns.
-- A Secret that a CloudNativePG `Cluster` without `bootstrap.initdb.secret` creates, such as `llm/llm-gateway-db-app`, has no row. The operator generates its password when it creates the database, and the Deployment reads it with `secretKeyRef`.
 - The keyring must be unlocked (`devops devcontainer unlock-keyring`); a locked or missing keyring stops the push before anything is read or written, and stops deploy-stack before it applies anything.
 - A value the keyring lacks but the cluster holds is adopted into the keyring, so a first push changes nothing live. Only values nobody types are generated, and each is stored in the keyring before it is pushed.
-- Typed values are stored at a hidden prompt: `devops config set cloudflare.tunnel_token` or `devops config set gitea.admin_password`.
+- Typed values are stored at a hidden prompt: `devops config set service.github_app.private_key --from-file <key.pem>` or `devops config set gitea.admin_password`.
 - A derived entry is built from other values of the same push, such as a connection string from a user and a password. The push resolves every other entry first, then fills each field of the entry's template with the value of its input, quoted with `urllib.parse.quote(..., safe="")`. It never adopts, generates or stores a derived value, and a live value that differs needs `--rotate`. `--plan` names the source as `derived from` and its inputs, and `--dry-run` shows a placeholder.
 - A row may name its Secret type, such as `kubernetes.io/basic-auth`. The default is `Opaque`. Kubernetes cannot change the type of an existing Secret, so a row names its type before its first push.
 - `CRAWL4AI_API_TOKEN` is the bearer token of Crawl4AI, which refuses to listen beyond loopback without it. One keyring value, `crawl4ai_api_token`, feeds Secret `devops/crawl4ai` and the key `DEVOPS_CLI_CRAWL4AI_API_TOKEN` of Secret `devops/devops-cli`, so the client and the service always hold the same token. `devops config set crawl4ai.api_token --generate` makes the token with the generator that the cluster Secret table declares and stores it in the OS keyring; `--rotate` replaces a stored token. A person runs `devops k8s push-secrets --only devops/crawl4ai --only devops/devops-cli` to create or change the two Secrets; no other command writes them.
@@ -897,136 +270,32 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 - `devops/valkey-roadmap-auth` holds the ACL users of `valkey-roadmap` ([valkey-roadmap](../docs/CLUSTER.md#valkey-roadmap)). The push generates the passwords of `brain`, `agent` and `metrics`, and builds the aclfile `users.acl` from them in the same push. Their keyring values, `valkey_roadmap_brain`, `valkey_roadmap_agent` and `valkey_roadmap_metrics`, are no managed credentials: no setting reads them. The pod of `valkey-roadmap` mounts `users.acl` and does not start without it, so a person runs `devops k8s push-secrets --only devops/valkey-roadmap-auth` before the merge of a manifest that reads a new key. A client pod reads the key of its user with `secretKeyRef`, as `DEVOPS_CLI_ROADMAP_STATE_PASSWORD`. A changed password restarts `deployment/valkey-roadmap`, which reads the aclfile only at its start.
 - `SEARXNG_SECRET` is the server secret of SearXNG, which refuses to start with its default key. Its keyring value, `searxng_secret_key`, is no managed credential: no setting reads it, and only the pod does. A person runs `devops k8s push-secrets --only devops/searxng` to create or change it, and a change restarts `deployment/searxng`.
 - `devops/searxng-metrics-auth` is the basic-auth Secret of the OpenMetrics endpoint of SearXNG ([SearXNG](../docs/CLUSTER.md#searxng)). The Secret is optional: SearXNG starts and searches without it, and only the endpoint is off. The user is the literal `searxng`, and its keyring value, `searxng_metrics_password`, is no managed credential: no setting reads it. The init container `render-settings` reads the password through an optional reference and writes it into the rendered settings file, and the ServiceMonitor sends both keys to the scrape. When the Secret has no password, `render-settings` logs one line that names the Secret and turns the endpoint off. A push with no keyring value and no live value skips the password with a warning. To turn the endpoint on, a person stores the password at a hidden prompt with `uv run keyring set devops-cli searxng_metrics_password`, then runs `devops k8s push-secrets --only devops/searxng-metrics-auth`. A push that adds the password to an existing Secret restarts `deployment/searxng`. A push that creates the Secret restarts nothing, so the person then runs `kubectl -n devops rollout restart deployment/searxng`.
-- `devops/renovate` holds the GitHub App `dan-petty-renovate` that self-hosted Renovate acts as ([Renovate](../docs/CLUSTER.md#renovate)). Its keys are the variables of `renovate.github_app_id`, `renovate.github_app_installation_id` and `renovate.github_app_private_key`, so the init container `token` of CronJob `renovate` reads them with `envFrom`, and no other container reads the Secret. Store the values with `devops config set renovate.github_app_id <app-id>`, `devops config set renovate.github_app_installation_id <installation-id>` and `devops config set renovate.github_app_private_key --from-file <key.pem>`, then run `devops k8s push-secrets --only devops/renovate --plan` and `devops k8s push-secrets --only devops/renovate`. Each run reads the Secret at its start, so no workload restarts, and the `homelab` project ignores the pushed Secret as an orphan. Renovate is an optional feature: a push with no Renovate settings skips the three keys and writes no Secret, and the `token` container then names the settings that are not set and stops the run. Push it to one cluster only: two clusters that run Renovate as the same App push to the same branches.
+- `devops/renovate` holds the GitHub App `dan-petty-renovate` that self-hosted Renovate acts as ([Renovate](../docs/CLUSTER.md#renovate)). Its keys are the variables of `renovate.github_app_id`, `renovate.github_app_installation_id` and `renovate.github_app_private_key`, so the init container `token` of CronJob `renovate` reads them with `envFrom`, and no other container reads the Secret. Store the values with `devops config set renovate.github_app_id <app-id>`, `devops config set renovate.github_app_installation_id <installation-id>` and `devops config set renovate.github_app_private_key --from-file <key.pem>`, then run `devops k8s push-secrets --only devops/renovate --plan` and `devops k8s push-secrets --only devops/renovate`. Each run reads the Secret at its start, so no workload restarts, and the `homelab` project of Argo CD ignores the pushed Secret as an orphan. Renovate is an optional feature: a push with no Renovate settings skips the three keys and writes no Secret, and the `token` container then names the settings that are not set and stops the run. Push it to one cluster only: two clusters that run Renovate as the same App push to the same branches.
 - `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` is the private key of GitHub App `devops-cli-service`, which the roadmap Service and the cluster Jobs act as ([ADR 0015](../docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md)). Store it with `devops config set service.github_app.private_key --from-file <key.pem>`. A pod whose environment holds the key acts as the App: it mints an installation token, mints a new one before the token expires, and gives the current token to each gh and git child as GH_TOKEN. A workstation keeps the key only in the keyring, so a workstation run keeps the gh login of its person.
-- `argocd/argocd-notifications-secret` holds the GitHub App that Argo CD's GitHub notifier acts as, and the webhook URL for Mattermost deploys. Its `service.github` refers to the keys as `$github-appID`, `$github-installationID` and `$github-privateKey`, and `service.webhook.mattermost` refers to `$mattermost-deploys-url`. Store the values with `devops config set argocd.github_app_id <id>`, `devops config set argocd.github_app_installation_id <id>`, `devops config set argocd.github_app_private_key --from-file <key.pem>`, and `devops config set mattermost.deploys_hook`, then run `devops k8s push-secrets --only argocd/argocd-notifications-secret`. The Argo CD values set `notifications.secret.create: false`, so the chart never creates a Secret of the same name, and the `homelab` project ignores the pushed Secret as an orphan.
-- `argocd/gitea-repo-creds` holds the repository credential that Argo CD uses to clone trial repositories from Gitea over internal HTTP (#1082). The setting `gitea.argocd_username` names the user, and `gitea_argocd_token` in the OS keyring holds the token. The `gitea` stack pushes it.
-- `monitoring/alertmanager-mattermost` holds the incoming webhook URL that Alertmanager uses to post critical and warning alerts to Mattermost. Store the webhook token with `devops config set mattermost.alerts_hook`, then push with `devops k8s push-secrets --only monitoring/alertmanager-mattermost`. The `homelab` project ignores the Secret as an orphan.
-- `monitoring/grafana-image-renderer` holds the token that Grafana sends to its image renderer ([Grafana Image Renderer](#grafana-image-renderer)). Its keyring value, `grafana_renderer_token`, is no managed credential: no setting reads it, and only the Grafana pod and the renderer pod do. Neither pod starts without the Secret. `deploy-stack` pushes it before the Helm releases. On a cluster that Argo CD manages, a person runs `devops k8s push-secrets --only monitoring/grafana-image-renderer` before the first sync of values that enable the renderer. A change restarts `deployment/grafana` and `deployment/grafana-image-renderer`. The `homelab` project ignores the Secret as an orphan.
 - `DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN` holds the authentication token that verifies `/roadmap` slash command requests from Mattermost to the Service's webhook router. Store the token with `devops config set mattermost.command_token`, then push with `devops k8s push-secrets --only devops/devops-cli`.
 - `devops` rows are pushed wherever namespace `devops` exists, also by every deploy-stack run. `devops k8s deploy-stack --no-push-secrets` skips the push on a cluster without a keyring.
-- `gitea` rows are pushed by `push-secrets` with no `--stack` or with `--stack gitea`, and by `deploy-stack --stack gitea` or `all`. The root kustomization creates namespace `gitea` on every cluster, so these pushes need the Gitea admin password in the keyring. A deploy of another stack never reads it.
-- `chat` rows are pushed by `push-secrets` with no `--stack` or with `--stack chat`, and by `deploy-stack --stack chat` or `all`. The database password is generated or adopted, and `DB_CONNECTION_STRING` is derived from it. The `homelab` project ignores the Secret as an orphan.
+- `gitea` rows are pushed by `push-secrets` with no `--stack` or with `--stack gitea`, and by `deploy-stack --stack gitea` or `all`. Where namespace `gitea` exists, these pushes need the Gitea admin password in the keyring. A deploy of another stack never reads it.
+- `chat` rows are pushed by `push-secrets` with no `--stack` or with `--stack chat`, and by `deploy-stack --stack chat` or `all`. The database password is generated or adopted, and `DB_CONNECTION_STRING` is derived from it.
 - Secrets are server-side applied from stdin under field manager `devops-cli`, labelled `app.kubernetes.io/managed-by: devops-cli`, with values in `data`: never in argv, a file, an annotation or the output. A Secret still carrying a client-side apply's `kubectl.kubernetes.io/last-applied-configuration` loses it.
 - `--plan` reads the keyring and the live Secrets, says so, and prints each key's state (`would adopt`, `unchanged`, `differs`, ...) and the workloads a change would restart, writing nothing. `--dry-run` makes no request at all, not even those reads: it prints the requests a push would make, in order, with `<placeholders>` for every value and the condition under which each later request runs.
-- A Secret whose data changed has its workloads restarted (`kubectl rollout restart`); `--no-restart` prints the commands instead. Open WebUI keeps the gateway connection in its database, so a changed gateway key is also updated under Admin Panel > Settings > Connections.
+- A Secret whose data changed has its workloads restarted (`kubectl rollout restart`); `--no-restart` prints the commands instead.
+- `devops/roadmap-service-llm-key` is the virtual key of the roadmap Service on the LLM gateway. `devops k8s bootstrap-roadmap-key` mints it on the gateway with a budget, a requests-per-minute limit and the `devops-*` models, stores it in the keyring as `roadmap_service.llm_key`, and writes Secret `roadmap-service-llm-key` with key `api-key`. The Deployment `devops/roadmap-service` reads `DEVOPS_CLI_AI_API_KEY` from this Secret. The stage Job and the runner Jobs read `DEVOPS_CLI_AI_API_KEY` from Secret `devops-cli` (owner decision of 2026-11-20, #2695, comment 7045868447, keeps the runner Jobs on the current model key for now). To rotate the key, run `devops k8s bootstrap-roadmap-key --force` and delete the old key on the gateway.
 
 Rotation: a live value that differs from the keyring stops the push. Either replace the live value with the keyring's, or adopt the live value by removing the keyring entry:
 ```bash
-devops k8s push-secrets --only llm/qdrant-api-key --plan      # reads the cluster; shows "differs"
-devops k8s push-secrets --only llm/qdrant-api-key --rotate     # the keyring's value wins
-uv run keyring del devops-cli qdrant_api_key                  # or: drop it, and the next push adopts the live value
+devops k8s push-secrets --only devops/crawl4ai --plan      # reads the cluster; shows "differs"
+devops k8s push-secrets --only devops/crawl4ai --rotate     # the keyring's value wins
+uv run keyring del devops-cli crawl4ai_api_token                  # or: drop it, and the next push adopts the live value
 ```
 To rotate a generated value, store a new one at a hidden prompt with `uv run keyring set devops-cli <keyring key>`, then push with `--rotate`.
 
-## gVisor Runtime
-
-`runtimeclass-gvisor.yaml` declares RuntimeClass `gvisor` with handler `runsc`. The root kustomization lists it, so Argo CD's `base` Application applies it on the homelab, and `devops k8s deploy-stack` applies it on a cluster with no Argo CD. gVisor (`runsc`) is a user-space kernel. A pod of this class runs on that kernel and reaches the host kernel only through a small, filtered set of system calls of the gVisor Sentry, so most defects of the host kernel are out of its reach ([ADR 0018](../docs/adr/0018-a-sandboxed-read-only-run-tool-for-the-planner.md)). The class is for pods that run code that a model writes, such as the runner Jobs, the run Job of the planner and the in-cluster browser. No workload uses the class yet.
-
-- **Node label.** The class sets `scheduling.nodeSelector` to `node-restriction.kubernetes.io/gvisor: "true"`. Admission adds this selector to each pod of the class, so such a pod runs only on a node with the label. When no node has the label, the pod stays Pending. It never runs on a node without `runsc`. The NodeRestriction admission plugin of k3s stops a kubelet from setting a label under `node-restriction.kubernetes.io/`, so only an admin sets it, and a node cannot label itself to attract the pods of the class.
-- **Node setup.** k3s finds some runtimes on a node by itself, but not `runsc`. The infra repository installs a pinned `runsc` on a node and adds the `runsc` runtime to the containerd config template of k3s. Then it sets the node label. The label comes last, so a node gets a pod of the class only after containerd has `runsc` there. The infra repository does not start a sandbox, so the first pod of the class on a node is a canary.
-- **Use.** A pod sets `runtimeClassName: gvisor`. In such a pod, `uname -r` prints the kernel version that gVisor reports, and not the kernel of the host. With the pinned `runsc` (release 20261109.0), it prints `4.19.0-gvisor`. An older `runsc` printed `4.4.0`.
-- **Seccomp.** Under `runsc`, the node does not load the seccomp profile of the pod (`RuntimeDefault`) into the sandbox, because the `runsc` option `oci-seccomp` is off. The seccomp filter of the gVisor Sentry on the host applies in its place. So the seccomp control of ADR 0018 has a different meaning in a pod of this class.
-- **Limits.** The CPU and memory limits of a pod hold under `runsc`. The measurement of `runc` against `runsc` on the labelled node ([#5434 result](https://github.com/dan-petty/devops-cli/issues/5434#issuecomment-6860621985)) shows this. A CPU limit of `500m` makes a CPU task 2.6 times slower, and an allocation past a memory limit of 224 MiB ends in `OOMKilled`. So the limit defect of [gVisor issue #13777](https://github.com/google/gvisor/issues/13777) did not occur. Under `runsc`, CPU work has no overhead, file work is 1.44 times slower, headless Chromium works, and a pod starts as fast as under `runc`.
-- **Overhead.** A pod of the class uses 15.1 MiB more memory than under `runc`, for the Sentry and the gofer. So the class sets `overhead.podFixed` to memory `16Mi`. The measurement found no CPU overhead, so the class sets no CPU overhead. Admission adds the overhead to each pod of the class. The scheduler, the kubelet and a ResourceQuota count it with the resources of the containers. The measurement ran on an agent node. The control-plane node has no `runsc`, so a pod of the class does not run there.
-
 ## Agent sessions
 
-Agents may apply manifests, restart workloads, and exercise workloads in the lab cluster (secrets and hardware stay with the owner; see [ADR 0038](../docs/adr/0038-owner-decisions-on-what-agents-may-do.md#decision-1)). `k8s/agents/` defines one read-only identity and boundaries for autonomous AI agent sessions that need read-only access, rather than the limit of agent access:
-
-- **Namespace `agents`**: Enforces `restricted` Pod Security Standards across `enforce`, `warn`, and `audit` levels.
-- **ServiceAccount `devops-agent`**: Created in namespace `agents` with `automountServiceAccountToken: false` to ensure agents do not automatically mount cluster credentials.
-- **ClusterRoleBinding `devops-agent-view`**: Binds `devops-agent` exclusively to the built-in read-only `view` ClusterRole. No other RBAC manifests grant mutating or secret-reading permissions to this identity.
-- **GitOps Management**: Managed by Application `agents` (`k8s/argocd/apps/agents.yaml`) under the `homelab` project, with AppProject orphan-ignore rules configured for transient session secrets (`agent-grant-*`).
-
-## Argo Workflows
-
-`k8s/argo-workflows/` installs the [Argo Workflows](https://argo-workflows.readthedocs.io/) controller in its own namespace, `argo-workflows`, with WorkflowTemplate `devops-cli-version`, which measured what a Workflow costs. [ADR 0008](../docs/adr/0008-argo-workflows-run-the-roadmap-jobs-after-a-measured-go.md) records why and what result counts as a go (#1535), and [ADR 0021](../docs/adr/0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md) records the go and the move of the roadmap jobs (#4517). No roadmap job runs on it yet. Namespace `devops` holds WorkflowTemplate and CronWorkflow `rag-ingest` (#4180), but the controller watches only namespace `argo-workflows` (`singleNamespace`), so it does not run them.
-
-- **Controller.** The argo-helm chart `argo-workflows`, pinned in Application `argo-workflows`, with `argo-workflows/values.yaml`: one replica that the Recreate strategy replaces, so two controllers never run, watching only namespace `argo-workflows` (`singleNamespace`). It has no argo-server, database or workflow archive. Its CRDs are the chart's minimal ones, kept when the release is uninstalled.
-- **Namespace.** `argo-workflows` enforces Pod Security `restricted` and carries `Prune=false,Delete=false` (`namespaces.yaml`). The `homelab` project lists it as a destination.
-- **Executor.** Workflows run as ServiceAccount `argo-workflows-executor`, whose Role grants only `create` and `patch` on `workflowtaskresults`. The controller and the executor's init and wait containers set the security context that `restricted` requires.
-- **Perimeter.** `argo-workflows/networkpolicy.yaml` admits only the metrics scrape from `monitoring` on port 9090, and lets pods reach only DNS and the API server on port 6443, through an ipBlock that excludes the cloud metadata address. There is no public HTTPS and no OpenTelemetry egress. Alloy scrapes the controller through the chart's ServiceMonitor ([Scrape Ownership](#scrape-ownership)), and `monitoring/networkpolicy.yaml` allows that egress.
-- **Template.** WorkflowTemplate `devops-cli-version` runs `devops --version` in the Service image: no GitHub request, no Secret, no `envFrom`, and telemetry off. It has the cluster job template's pod and container security context, an `activeDeadlineSeconds`, and `ttlStrategy` and `podGC` settings that delete finished Workflows and, once a Workflow succeeds, its pods. Application `argo-workflows-manifests` syncs the perimeter and the template from `k8s/argo-workflows/`, and skips the dry run until the chart's CRDs exist.
-
-On a cluster Argo CD manages, those two Applications install it. Without Argo CD, `devops k8s deploy-stack --stack infra` (or `all`) applies the perimeter before any chart, installs release `argo-workflows` after `argocd`, and applies the template after the Helm releases. `teardown-stack` deletes the template before it uninstalls the releases, and the namespace with the others. `deploy-stack --dry-run` lists every step.
-
-Check the install:
-
-```bash
-devops argo cd apps status argo-workflows              # Synced and Healthy
-devops argo cd apps status argo-workflows-manifests    # Synced and Healthy
-kubectl -n argo-workflows get deploy,pods              # one workflow-controller replica, Running
-kubectl get crd workflows.argoproj.io workflowtemplates.argoproj.io workflowtaskresults.argoproj.io   # the Workflow CRDs exist
-kubectl auth can-i create workflowtaskresults.argoproj.io -n argo-workflows \
-  --as=system:serviceaccount:argo-workflows:argo-workflows-executor   # yes
-devops prometheus query 'up{namespace="argo-workflows"}'  # the controller's metrics target is 1
-kubectl -n devops get deploy roadmap-service           # unchanged: the replicas that git sets for it
-```
-
-### Measurement
-
-The go/no-go measurement needs the cluster and the `argo` CLI of the devtools image. The CLI talks to the Kubernetes API directly, so no argo-server is needed. A person (or an agent on the homelab) runs it once after the install syncs:
-
-```bash
-# API-server requests handled so far, then how many of them were 429 or 5xx
-counters() { kubectl get --raw /metrics | awk '/^apiserver_request_total/ {all += $NF} /^apiserver_request_total\{.*code="(429|5[0-9][0-9])"/ {bad += $NF} END {print all, bad+0}'; }
-
-# one batch of 20 Workflows, <parallelism> at a time: prints the counters before and after, and the seconds it took
-batch() {  # batch <label> <parallelism>
-  counters; start=$(date +%s)
-  seq 20 | xargs -P "$2" -I{} argo submit --from workflowtemplate/devops-cli-version -n argo-workflows --wait --labels measurement="$1"
-  counters; echo "seconds $(( $(date +%s) - start ))"
-}
-
-batch sequential 1   # the first Workflow is the cold run when no node holds the Service image yet
-batch burst 20
-
-# the same counters over an idle interval as long as the batch took, for the baseline
-idle=120   # set to the seconds that `batch` printed
-counters; sleep "$idle"; counters
-
-# the controller's CPU and memory while a batch runs: run this in a second terminal during `batch`
-kubectl -n argo-workflows top pod
-```
-
-Read the durations before the template's `ttlStrategy` removes the Workflows (an hour after they finish). The first command prints the cold run and the warm p50 and p95 of the other 19 Workflows, the second the burst's p50 and p95, as the nearest-rank percentile (the value at position ceil(p x n) of the sorted durations):
-
-```bash
-kubectl -n argo-workflows get workflows -l measurement=sequential -o json | jq -r '
-  [.items | sort_by(.metadata.creationTimestamp)[] | (.status.finishedAt | fromdate) - (.metadata.creationTimestamp | fromdate)]
-  | "cold \(.[0]) s", (.[1:] | sort | "warm p50 \(.[(length * 0.5 | ceil) - 1]) s, p95 \(.[(length * 0.95 | ceil) - 1]) s")'
-kubectl -n argo-workflows get workflows -l measurement=burst -o json | jq -r '
-  [.items[] | (.status.finishedAt | fromdate) - (.metadata.creationTimestamp | fromdate)] | sort
-  | "burst p50 \(.[(length * 0.5 | ceil) - 1]) s, p95 \(.[(length * 0.95 | ceil) - 1]) s"'
-```
-
-Record these, each batch apart:
-
-- Creation to Succeeded for each Workflow, as the p50 and p95. Report the first sequential run (the cold run) apart, and take the warm p95 over the other 19. Both timestamps have one-second resolution.
-- API-server requests per Workflow: the change in the first counter across the batch, minus the change over an idle interval as long as the batch took (the `sleep` pair above, repeated for that many seconds), divided by the Workflows in the batch.
-- The change in the second counter across the burst, which must be 0, and any `argo submit` that fails with a 429 or a 5xx.
-- The controller's CPU and memory, from `kubectl top` or the cAdvisor series Alloy already scrapes (`container_cpu_usage_seconds_total`, `container_memory_working_set_bytes`).
-
-Go when the warm p95 is at most 30 seconds and the burst finished with no 429 or 5xx. The measurement of 2026-11-11 gave a warm p95 of 11 s, and the owner recorded the go on [#1535](https://github.com/dan-petty/devops-cli/issues/1535). [ADR 0021](../docs/adr/0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md) records the numbers and the later steps (tracker #4517).
+Agents may apply manifests, restart workloads, and exercise workloads in the lab cluster (secrets and hardware stay with the owner; see [ADR 0038](../docs/adr/0038-owner-decisions-on-what-agents-may-do.md#decision-1)). `agents/` of the environment tree defines one read-only identity for agent sessions that need read-only access: namespace `agents`, ServiceAccount `devops-agent` with no mounted token, and its binding to ClusterRole `view`. It is not the limit of agent access. `k8s/README.md` of dan-petty/homelab (Agent sessions) gives the details.
 
 ## Gitea
 
-Gitea is the internal forge of the homelab (#1081). It holds the iteration branches that the owner and the agents push without GitHub, and its container registry holds the pull-request images (#1082, [Internal Image Registry](#internal-image-registry)). GitHub stays the source of truth for `main`, tags, pull requests, CI and releases. #1090 adds the Gitea remote to each repository under `repos/`.
-
-Argo CD's Application `gitea` installs chart `gitea` 12.7.0 from `https://dl.gitea.com/charts/` with `gitea/values.yaml` (Gitea 1.27.3, rootless image), and Application `gitea-manifests` applies the perimeter `gitea/networkpolicy.yaml`. Without Argo CD, `devops k8s deploy-stack --stack gitea` (or `all`) applies the perimeter and installs the same release. The root kustomization creates namespace `gitea`, with Pod Security `restricted`.
-
-| Client | Address | Path |
-| :--- | :--- | :--- |
-| Pods and Argo CD | `http://gitea-http.gitea.svc.cluster.local:3000` | the chart's Service, over plain HTTP |
-| Workstations | `https://git.<domain>` | the tunnel's wildcard route, Traefik and Ingress `gitea/gitea-ingress` in `ingress/ingress-routes.yaml` |
-
-- TLS ends at Cloudflare. From cloudflared on, a request is plain HTTP on the pod network. Flannel's `vxlan` backend carries traffic between nodes with no encryption, as it does for every host behind the tunnel.
-- No value names a domain (#1290). `ROOT_URL` is the in-cluster address. Gitea builds the URLs of a request from its `Host` header and its `X-Forwarded-Proto` (`PUBLIC_URL_DETECTION = auto`). Cloudflare sets `X-Forwarded-Proto: https`, cloudflared forwards it, and Traefik's `web` entrypoint keeps it (`ingress/traefik-values.yaml`). Thus the clone URLs and the container registry's token realm of a request to `https://git.<domain>` start with `https://git.<domain>/`. Text that Gitea writes outside a request, such as the links that a push prints, uses the in-cluster address.
-- The patch of Application `ingress` in the infra repo sets the host of `gitea-ingress` ([Homelab Values at Deploy Time](#homelab-values-at-deploy-time)).
-- Gitea has no SSH: `DISABLE_SSH` is true and `START_SSH_SERVER` is false. The chart's SSH Service stays, but nothing answers on it, and the perimeter admits only TCP 3000.
-- Registration is off, every page needs a sign-in, a new repository is private, and only the API creates a repository: a push to a mistyped remote fails. Mirrors, migrations, Actions and the update checker are off, so Gitea calls nothing outside its namespace.
-- Cloudflare refuses a request body over the limit of its plan (100 MB on the Free and Pro plans) with `413`. Thus a push of a larger image layer through `https://git.<domain>` fails.
+Gitea is the internal forge and container registry of the cluster (#1081). Its values and manifests are in `gitea/` of the environment tree. `k8s/README.md` of dan-petty/homelab (Gitea) tells what runs, who reaches it and where its data is.
 
 ### Cloudflare
 
@@ -1049,7 +318,7 @@ Without `--domain`, the command updates the apex application. Without the emails
 ### Rollout
 
 1. Store the admin password at a hidden prompt: `uv run devops config set gitea.admin_password`. The admin user is `gitea_admin`.
-2. Merge. Application `base` creates namespace `gitea`, and the Applications `gitea` and `gitea-manifests` sync. The Gitea pod waits in `CreateContainerConfigError` until Secret `gitea-admin` exists.
+2. Merge the environment change. The Applications of Gitea sync. The Gitea pod waits in `CreateContainerConfigError` until Secret `gitea-admin` exists.
 3. Run `uv run devops k8s deploy-stack --stack gitea --context <context>`. It pushes Secret `gitea/gitea-admin` and sets the git host on Application `ingress`. Then the pod starts with no other step.
 4. Set the reclaim policy of the bound volume to `Retain`, because `local-path` deletes the data with a deleted claim:
    ```bash
@@ -1079,20 +348,12 @@ To change the admin password, store the new one with `uv run devops config set g
 
 The password goes only into the Authorization header of the create and the delete. It goes into no argument list, log line or output.
 
-### Data
-
-Gitea keeps its repositories, its packages and its SQLite database (WAL mode) on the `local-path` claim `gitea-shared-storage` on one worker node. `local-path` does not enforce the claim's 10Gi. The pod never runs on the control-plane node, and one pod runs at a time (`Recreate`). The namespace and the claim have `Prune=false,Delete=false`, and the claim has `helm.sh/resource-policy: keep`, so neither Argo CD nor `teardown-stack --stack gitea` deletes them. `teardown-stack --stack all` deletes namespace `gitea` with the root kustomization, and the data with it.
-
-There are no backups yet. A branch that a clone pushed is also in that clone, but an issue or a pull request made in Gitea is lost with the node.
-
-The next major version of the chart (its main branch, with Gitea 28) replaces `gitea.admin` with `secrets.admin`, turns persistence off by default and moves `strategy` under `deployment`. Change those keys in `gitea/values.yaml` in the pull request that changes the pinned version in `argocd/apps/gitea.yaml`.
-
 ### Trials
 
 A trial deploys transient workloads into a fenced cluster namespace from a Gitea branch (#1082).
 
 - **Purpose**: A trial is for new components or test manifests that do not name a managed namespace.
-- **Existing stacks**: Changes to an existing stack still go through a pull request to `main`. Retargeting a managed Application introduces drift against git and breaks GitOps guarantees.
+- **Existing stacks**: Changes to an existing stack still go through a pull request to `main` of dan-petty/homelab, or of this repository for the product base. Retargeting a managed Application introduces drift against git and breaks GitOps guarantees.
 - **Git URLs**: Argo CD reads repositories from Gitea over in-cluster HTTP (`http://gitea-http.gitea.svc.cluster.local:3000/`). Developers and workstations push to `https://git.<domain>`.
 - **Credential setup**: Store a scoped `read:repository` token in the keyring, then push the repository credentials:
   ```bash
@@ -1104,210 +365,15 @@ A trial deploys transient workloads into a fenced cluster namespace from a Gitea
   - Follow: `uv run devops argo cd apps status trial-<name>` monitors synchronization and health.
   - End: `uv run devops argo cd trial end <name>` deletes Application `trial-<name>`, waits for resources to be removed, and deletes Namespace `trial-<name>`.
 - **Network policies**: A trial namespace has no NetworkPolicy by default. A trial must supply its own NetworkPolicy if network isolation is needed.
-- **Mainline safety**: Every Application committed to `main` reads GitHub (`https://github.com/dan-petty/devops-cli.git`), not Gitea. If Gitea degrades or fails, production GitOps continues without interruption.
+- **Mainline safety**: Every Application of the environment reads GitHub, not Gitea. If Gitea degrades or fails, production GitOps continues without interruption.
 
 ## Mattermost
 
-Mattermost Team Edition runs under Argo CD from the Mattermost Operator on CloudNativePG PostgreSQL 17.
-
-### What runs where
-
-- **Operator**: `mattermost-operator` runs in namespace `mattermost-operator`.
-- **Database Operator**: `cloudnative-pg` runs in namespace `cnpg-system`. It also runs the gateway database of stack `llm`, so deploy-stack installs it with stack `infra`. The Barman Cloud plugin runs beside it ([CloudNativePG Backup Plugin](#cloudnativepg-backup-plugin)).
-- **Workload**: `Mattermost` runs in namespace `mattermost`.
-- **Database**: CloudNativePG `Cluster` named `mattermost-db` runs in namespace `mattermost`.
-- **Volume**: PVC `mattermost-files` stores uploaded files on `local-path`.
-
-| Consumer | Address | How it reaches Mattermost |
-| :--- | :--- | :--- |
-| In-cluster pods | `http://mattermost.mattermost.svc.cluster.local:8065` | the service on TCP 8065 |
-| Workstations and browsers | `https://mattermost.<domain>` | Cloudflare Tunnel, Traefik and Ingress `mattermost/mattermost` |
-
-### Rollout
-
-1. Merge the pull request. Argo CD creates the namespaces and objects. The database waits for Secret `mattermost/mattermost-db`. Alert `MattermostDatabaseDown` fires until step 2 completes.
-2. Run `uv run devops k8s deploy-stack --stack chat --context <context>`. Always keep the default `--wait`: CloudNativePG's admission webhook refuses the `Cluster` until its operator is ready. Run `--stack infra` first on a cluster without Argo CD, because that stack installs the operator. The deploy pushes Secret `mattermost/mattermost-db` and sets the host on Application `mattermost`.
-3. The owner signs up first from the bypassed network address. Cloudflare Access admits only the owner, so nobody else can claim the administrator account.
-4. Set both persistent volumes to Retain:
-   ```bash
-   kubectl patch pv "$(kubectl -n mattermost get pvc -l cnpg.io/cluster=mattermost-db -o jsonpath='{.items[0].spec.volumeName}')" -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
-   kubectl patch pv "$(kubectl -n mattermost get pvc mattermost-files -o jsonpath='{.spec.volumeName}')" -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
-   ```
-5. Run `uv run devops k8s bootstrap-mattermost --admin-user <user> --context <context>`. It creates the team (`--team`, default the setting `mattermost.team`, `homelab`), the channels `alerts` and `deploys`, an incoming webhook for each channel that is locked to its channel (#1390), and the slash command `/roadmap`. It saves the tokens in the keyring and pushes the Secrets.
-
-### Operations
-
-- **Backups**: The homelab has no backup mechanism for Mattermost yet (#1081). If a worker node fails, unbacked data on `local-path` is lost.
-- **Upload limits**: The upload limit is 99 MB (`MM_FILESETTINGS_MAXFILESIZE=99000000`). Cloudflare enforces a 100 MB request ceiling, so 99 MB prevents edge 413 errors before Mattermost sees the payload. The mobile app has the same limit.
-- **Upgrades**: Change `version` in `k8s/mattermost/mattermost.yaml`. With `Recreate` deployment strategy, an upgrade causes a brief outage while the old pod terminates and the new pod mounts the volume.
-- **Password reset without email**:
-  ```bash
-  kubectl -n mattermost exec deploy/mattermost -- mmctl --local user change-password <user> --password <new>
-  ```
-- **Teardown**: On a cluster without Argo CD, `teardown-stack --stack chat` deletes the database and the files claim.
-
-## CloudNativePG Backup Plugin
-
-CloudNativePG 1.32.0 removes the in-tree `barmanObjectStore` (CloudNativePG release-1.30 documentation, `docs/src/appendixes/backup_barmanobjectstore.md`). A `Cluster` backs up and archives its WAL through the [Barman Cloud plugin](https://github.com/cloudnative-pg/plugin-barman-cloud) (Apache-2.0). The plugin gets its TLS certificates from [cert-manager](https://github.com/cert-manager/cert-manager) (Apache-2.0). Both run with stack `infra`. No database uses the plugin yet: the backup of a database adds an `ObjectStore` and the `plugins` entry of its `Cluster`.
-
-| Helm release and Argo CD Application | Chart | Namespace | Purpose |
-| :--- | :--- | :--- | :--- |
-| `cert-manager` | `jetstack/cert-manager` v1.21.3 | `cert-manager` | Issues the server and client certificates of the plugin. The plugin chart brings its own self-signed `Issuer`, so there is no `ClusterIssuer` and no ACME account. |
-| `plugin-barman-cloud` | `cloudnative-pg/plugin-barman-cloud` 0.9.0 (plugin v0.16.0) | `cnpg-system` | The plugin. It must run in the namespace of the operator. The operator finds it through Service `barman-cloud`, which has the label `cnpg.io/pluginName: barman-cloud.cloudnative-pg.io`. The chart adds CRD `objectstores.barmancloud.cnpg.io`. |
-
-- **Order.** deploy-stack installs `cloudnative-pg`, then `cert-manager`, then `plugin-barman-cloud`. The start-up check Job of cert-manager holds `--wait` until the webhook answers, so the plugin chart can create its `Issuer` and `Certificate` objects. Argo CD syncs Application `plugin-barman-cloud` in sync wave 1, after `cert-manager`. It skips the dry run of a kind that has no CRD yet (`SkipDryRunOnMissingResource=true`), and it retries a failed sync five times.
-- **CRDs.** The cert-manager chart installs its CRDs with `helm.sh/resource-policy: keep` (`crds.keep`), because a deleted CRD deletes every `Certificate` and `Issuer` in the cluster. Helm keeps them when the release is removed, and Argo CD reads the annotation as `Delete=false`.
-- **Pod Security.** Namespaces `cert-manager` and `cnpg-system` enforce `restricted`. The pods of both charts meet it with the default values. cert-manager keeps its leader election lease in namespace `cert-manager` (`global.leaderElection.namespace`), so the chart writes no Role in `kube-system`.
-- **Network.** `cert-manager/networkpolicy.yaml` admits only the metrics scrape of `monitoring` on 9402, and lets the pods reach only CoreDNS and the API server. The issuers are self-signed, so no pod calls an ACME server. `cert-manager/networkpolicy-webhook.yaml` admits any peer on TCP 10250 to the webhook pods alone: the API server calls the webhook from the host network of the control-plane node, and no selector names that address. `cnpg-system/networkpolicy.yaml` selects the plugin pod alone. Only the operator reaches its gRPC port 9090, and the pod reaches only CoreDNS and the API server. The instance pods need no rule there, because the plugin sidecar runs in the instance pod. The sidecar, not the plugin pod, sends the backups to the object store, so the perimeter of each database namespace gets that egress rule with its backup. The operator in `cnpg-system` has no policy.
-- **Metrics.** Alloy scrapes the three cert-manager pods through their `prometheus.io/*` annotations ([Scrape Ownership](#scrape-ownership)).
-- **Check.**
-  ```bash
-  kubectl get crd | grep -E 'cert-manager.io|barmancloud.cnpg.io'
-  kubectl -n cnpg-system get certificate   # barman-cloud-client and barman-cloud-server are Ready
-  kubectl -n argocd get application cert-manager plugin-barman-cloud
-  ```
-
-## Object Store
-
-The SeaweedFS object store gives the cluster an S3 API that keeps the second copy of each object on another node (#4750, [ADR 0034](../docs/adr/0034-the-object-store-is-seaweedfs-with-its-operator.md)). The SeaweedFS operator makes each workload of the store from the one `Seaweed` CR `seaweedfs` in `object-store/seaweed.yaml`: the StatefulSets, the Deployments, the Services, the ServiceMonitors and Secret `seaweedfs-security-config`.
-
-| Helm release and Argo CD Application | What it applies | Namespace |
-| :--- | :--- | :--- |
-| `seaweedfs-operator` | Chart `seaweedfs-operator` 0.1.48 of `https://seaweedfs.github.io/seaweedfs-operator` (operator 1.0.45) with its CRDs and `object-store/operator-values.yaml`, at sync-wave `-1` | `object-store` |
-| `object-store` (Application only) | `object-store/`: the `Seaweed` CR, the five NetworkPolicies, the PodDisruptionBudgets, the buckets and their lifecycle rules ([Buckets](#buckets)). deploy-stack applies the folder after the charts | `object-store` |
-
-### What runs where
-
-| Component | Pods | Storage | Work |
-| :--- | :--- | :--- | :--- |
-| `master` | 3, StatefulSet `seaweedfs-master` | A 1Gi `fast-nvme` claim each: the Raft state and the topology id | The leader gives each write a file id. Replication `001`, `volumeSizeLimitMB` 1000, volume growth `copy_2 = 2`, `-telemetry=false` |
-| `volume` | 3, one on each node, StatefulSet `seaweedfs-volume` | A 300Gi `fast-nvme` claim each, `mount0-seaweedfs-volume-<n>` | The data. Replication `001` keeps the second copy of each volume on another volume server. `maxVolumeCounts` 300, `minFreeSpacePercent` 10 |
-| `filer` | 2, StatefulSet `seaweedfs-filer` | A 10Gi `fast-nvme` claim each: a leveldb2 store | The metadata: the bucket and object names. Each filer syncs the metadata of the other |
-| `s3` | 2, Deployment `seaweedfs-s3` | None | The S3 API on Service `seaweedfs-s3`, port 8333 |
-| `admin` | 1, StatefulSet `seaweedfs-admin` | None | The admin UI on 23646 and the control plane of the worker on 33646 |
-| `worker` | 1, Deployment `seaweedfs-worker` | None | Vacuum, volume balance, admin scripts and S3 lifecycle; no erasure coding |
-| operator | 1, Deployment `seaweedfs-operator` | None | Reconciles the CR, and serves the admission webhooks on 9443 |
-
-The masters, the volume servers and the filers have claims, so they have the control-plane exclusion of [Local-Path Volume Placement](#local-path-volume-placement). Each component has the restricted security context of user `seaweed` (uid 1000) of the image, a PodDisruptionBudget with `maxUnavailable: 1`, and the metrics port 9327. The requests add up to 900m CPU and 2752Mi of memory, under the 1 CPU and 3Gi of the namespace.
-
-### Versions
-
-The version rule of the owner (2026-11-11) has no minimum release age. Pin the newest SeaweedFS release that fixes the known security and bug issues, that the newest operator release builds against, and that passes the [build test](#build-test). Never pin a release under 4.53, and never 4.48 to 4.51: they break minio-go multipart uploads (`seaweedfs/seaweedfs#12177`), and 4.52 has the fix (`seaweedfs/seaweedfs#12194`).
-
-- `spec.image` of the CR pins `chrislusf/seaweedfs` by tag and digest. No component sets its own `version`, so the one field names the release of every pod. The values of the chart set no operator tag, so the operator is the `appVersion` of the chart.
-- The release notes of each operator release name the SeaweedFS commit that it builds against. Operator 1.0.45 (chart 0.1.48) names `5ef99c1d8dbb`, the commit of tag 4.54.
-- To update, take the newest chart, read the SeaweedFS commit in the release notes of its operator, and pin the tag of that commit with its digest (`skopeo inspect --format '{{.Digest}}' docker://docker.io/chrislusf/seaweedfs:<tag>`). Then take the dashboard of the new tag ([Grafana Dashboards](#grafana-dashboards)) and run the build test. An update of the image or the chart waits for an approval on the Renovate Dependency Dashboard and gets its own branch `seaweedfs`, and Renovate merges it after these steps and all checks pass (`.github/renovate.json`).
-- The `k8s` row refuses a release under 4.53, a release from 4.48 to 4.51, an image with no digest, a component with its own `version`, and a chart under 0.1.47.
-
-### Security
-
-- **Admin.** Secret `object-store/seaweedfs-admin` holds `adminUser` and `adminPassword` ([Cluster Secrets](#cluster-secrets)). The operator binds the admin to all addresses only when the Secret holds `adminPassword`, so the admin UI asks for a login (GHSA-m3m8-mrgq-hf9h). No Ingress serves it. Run `kubectl -n object-store port-forward svc/seaweedfs-admin 23646`, open `http://localhost:23646`, and sign in as `admin` with the keyring value `seaweedfs_admin_password`.
-- **Worker control plane.** The admin gRPC port 33646 has no authentication, and no release fixes it (GHSA-3qr2-qw48-cj6q). `object-store-perimeter-ingress` admits only the worker pods to it, and `object-store-worker` is the only policy of the namespace that lets a pod send to it: it selects only the worker pods. The `k8s` row refuses each policy of `object-store` that admits a pod other than the worker to 33646 of the admin pod, or lets such a pod send to it, also through an egress rule with no `ports`.
-- **S3 identities.** The gateways read the identities file of Secret `object-store/seaweedfs-s3`, which holds no identity, and add the identities that the filer keeps, so they refuse each request that none of these identities allows. With no file and no identity in the filer, SeaweedFS allows every request. The operator keeps identity `anonymous` in the filer for the anonymous read of [Buckets](#buckets). Make an identity for each client in the admin UI (Object Store, Users), with only the buckets and the actions that the client needs.
-- **Optional APIs.** `iam: false` keeps the IAM API, STS and OIDC off, and with the IAM subsystem off, a request that fails its signature gets no S3 Tables access (GHSA-25hp-4mw7-9c75). `-port.iceberg=0` and `-port.lance=0` close the Iceberg catalog and the Lance namespace, which the gateway otherwise serves on 8181 and 9101. SFTP, WebDAV, S3 Vectors and the S3 of the filer stay off.
-- **Signed writes.** The master signs a token for each write to a volume server and to a filer (`securityConfig.jwtSigning`). The operator mints the keys in Secret `object-store/seaweedfs-security-config` and keeps them at each reconcile, so no row of [Cluster Secrets](#cluster-secrets) holds them.
-- **Network.** `object-store-perimeter-ingress` admits the pods of the namespace on the HTTP and gRPC ports of each component, the worker alone on 33646, each namespace with the label `backup-client: "true"` on 8333, and namespace `monitoring` on 9327. The egress of `monitoring-default-perimeter-egress` lets Alloy reach `object-store` on 9327. The egress of `object-store-perimeter-egress` is CoreDNS, and the pods of the namespace on the 9 ports of its in-namespace ingress rule only: 9333, 19333, 8444, 18444, 8888, 18888, 8333, 18333 and 23646. Each policy has one type, so the ingress rules hold for the pods of the namespace (see NetworkPolicy). The egress rules also keep 33646 and 9327 closed between the pods, except the worker to 33646, so the ports stay closed if a policy gets both types again (#6707). The components and the operator use only ports of the list between them. `object-store-operator-ingress` admits the API server to the webhook port 9443, and `object-store-operator-egress` lets the operator reach TCP 6443, the port of the API server, on any address except the metadata address. No SeaweedFS pod has internet egress, and `-telemetry=false` stops the usage report of the masters.
-- **Forbidden command.** No manifest holds `fs.mergeVolumes`: `seaweedfs/seaweedfs#12521` can lose a completed object. The `k8s` row refuses it.
-
-### Buckets
-
-The CRs of `object-store/buckets.yaml` hold the buckets, the quotas, the anonymous read and the lifecycle rules of the store (#4756). The operator makes each of them. If a person changes a quota, a lifecycle rule or a grant that the operator applied, in the admin UI or with `weed shell`, the operator puts back the git value at its next reconcile. The operator removes only the grants that it applied (`internal/controller/bucket_controller.go` of operator 1.0.45). Thus a grant that a person adds, for example `Read` of identity `anonymous` on `cache`, stays until a person removes it. A value that no CR sets, such as the versioning or the owner of a bucket, also stays. No Job or script reconciles the store.
-
-| Bucket | Namespace of the writer | Quota | Anonymous read | Lifecycle rules |
-| :--- | :--- | :--- | :--- | :--- |
-| `reports` | `devops` | 20Gi | GET, no List | Abort an incomplete multipart upload after 1 day |
-| `reports-private` | `devops` | 20Gi | GET, no List | Abort after 1 day; prefix `studies/` expires after 90 days |
-| `cache` | `devops` | 10Gi | None | Abort after 1 day; expire after 7 days |
-| `argo-artifacts` | `argo-workflows` | 10Gi | None | Abort after 1 day; expire after 7 days |
-
-- Each bucket has `reclaimPolicy: Retain`, so its data stays when its CR goes. `local-path` does not enforce the size of a claim, so the quotas are the limits. The S3 lifecycle job of the worker applies the rules.
-- Every CRD of the operator is Namespaced. Each `Bucket` and its `BucketLifecyclePolicy` live in `object-store`, beside the `Seaweed` CR, also when a workload of `devops` or `argo-workflows` writes the bucket. The `Bucket` names `seaweedfs` in `clusterRef` with no namespace, so the operator takes the namespace of the bucket and needs no `ResourceReferenceGrant`. A `BucketLifecyclePolicy` takes the cluster from its bucket.
-- The operator watches only `object-store` (`watchNamespaces` of `object-store/operator-values.yaml`), because it sees a CR only through the cache of a watched namespace, and the chart gives each watched namespace its manager Role, which can read and write every Secret there. Thus the operator has no Role in `devops` or `argo-workflows`, and its one ClusterRole only reads namespaces and storage classes. Check the RBAC of a new chart release or a new value:
-
-  ```bash
-  helm template seaweedfs-operator seaweedfs-operator --repo https://seaweedfs.github.io/seaweedfs-operator \
-    --version 0.1.48 --namespace object-store -f k8s/object-store/operator-values.yaml \
-    | grep -A6 -E '^kind: (Role|RoleBinding)$' | grep -E '^  namespace:' | sort | uniq -c   # 4 namespace: object-store
-  ```
-- The anonymous read is identity `anonymous` in the filer: the operator gives it `Read` on `reports` and `reports-private`, and the S3 gateways add it to their identities file. Thus an unsigned GET of an object of these buckets gets 200, and an unsigned List, ListBuckets or write gets 403.
-- No key can write a bucket yet. The tenant chart of `dan-petty/infra` brings the writer identities and their keys, from an ESO `Password` generator, and the tenant buckets `backups-*`. No row of [Cluster Secrets](#cluster-secrets) holds a key of the store.
-- The `k8s` row checks the buckets and their quotas, one CR for each bucket, the anonymous read, the lifecycle rules, the watch scope and the kinds and namespace of the render, with no `ResourceReferenceGrant` (`tests/gate/k8s_checks/object_store_buckets.py`).
-
-### Clients
-
-A client namespace gets the label `backup-client: "true"` and reaches `http://seaweedfs-s3.object-store.svc.cluster.local:8333`. No rule of the store names a client namespace. Give each client its own identity in the admin UI, and keep its keys in a Secret of the client.
-
-### Rollout
-
-1. Merge. Application `base` creates namespace `object-store`, Application `seaweedfs-operator` installs the operator, and Application `object-store` applies the CRs. The admin and S3 pods wait in `ContainerCreating`, with a `FailedMount` event that names the Secret, until their Secrets exist.
-2. Run `uv run devops k8s push-secrets --only object-store/seaweedfs-admin --only object-store/seaweedfs-s3`. The push makes the admin password and keeps it in the keyring.
-3. Run the same command with `--plan` until each key shows `unchanged`.
-4. Check the store:
-   ```bash
-   kubectl -n object-store get pods -o wide   # 3 master, 3 volume, 2 filer, 2 s3, 1 admin, 1 worker and 1 operator pods Running; the 3 volume pods on 3 nodes
-   kubectl -n object-store get pvc            # each claim Bound with class fast-nvme
-   kubectl -n argocd get applications seaweedfs-operator object-store   # Synced and Healthy
-   kubectl get ingress -A                     # no host for seaweedfs-master, -volume, -filer or -admin
-   kubectl -n object-store get pod seaweedfs-master-0 -o jsonpath='{.spec.containers[0].command}' | grep -c -- -telemetry=false   # 1
-   kubectl get buckets.seaweed.seaweedfs.com,bucketlifecyclepolicies.seaweed.seaweedfs.com -A   # 4 buckets and 4 policies Ready, all in object-store
-   ```
-5. Run the [build test](#build-test).
-
-On a cluster without Argo CD, `devops k8s deploy-stack --stack infra` installs the operator after cert-manager and applies `object-store/` after the charts. The store needs 3 Ready nodes that are not the control-plane node, and StorageClass `fast-nvme`. On a cluster without them, such as minikube, the volume pods stay Pending.
-
-### Build test
-
-The build test proves the store with the clients that it serves. It makes the temporary S3 identity `build-test`, the bucket `build-test` and namespace `object-store-build-test`, and step 6 deletes them. Post the result lines, the delay, the HTTP codes and the exit codes on the pull request or the issue, and never a key.
-
-1. In the admin UI, make the bucket `build-test` (Object Store, Buckets), then make the identity `build-test` with the actions Read, Write, List and Tagging. The identity cannot make the bucket: SeaweedFS authorizes a bucket create as `Admin`. Read its two keys at hidden prompts, then start the two client Jobs from a namespace with the label `backup-client: "true"`:
-   ```bash
-   read -rs AK; read -rs SK
-   kubectl apply -k k8s/object-store/build-test
-   kubectl -n object-store-build-test create secret generic build-test-s3 \
-     --from-file=access-key=<(printf %s "$AK") --from-file=secret-key=<(printf %s "$SK")
-   kubectl -n object-store-build-test wait --for=condition=complete job/boto3 job/minio-go --timeout=20m
-   kubectl -n object-store-build-test logs job/boto3      # 4 lines of 150000000 bytes, SHA-256 equal; "boto3: 4 uploads complete"
-   kubectl -n object-store-build-test logs job/minio-go   # "minio-go: 1 streaming upload complete"
-   ```
-2. Write a key through one gateway pod, and measure the time until `ListObjectsV2` through the other pod lists it. The `curl` of the SeaweedFS image signs the requests:
-   ```bash
-   A=$(kubectl -n object-store get pods -l app.kubernetes.io/component=s3 -o jsonpath='{.items[0].metadata.name}')
-   B=$(kubectl -n object-store get pods -l app.kubernetes.io/component=s3 -o jsonpath='{.items[1].metadata.name}')
-   s3() { pod=$1; shift; kubectl -n object-store exec "$pod" -- curl -sS --aws-sigv4 aws:amz:us-east-1:s3 --user "$AK:$SK" "$@"; }
-   key="cross-$(date +%s)"; s3 "$A" -X PUT --data-binary probe "http://localhost:8333/build-test/$key"; start=$(date +%s%3N)
-   until s3 "$B" "http://localhost:8333/build-test?list-type=2&prefix=$key" | grep -q "<Key>$key</Key>"; do sleep 0.2; done
-   echo "delay: $(( $(date +%s%3N) - start )) ms"   # 10000 ms or less
-   ```
-3. Delete one volume pod, and write and read a key while it is away:
-   ```bash
-   kubectl -n object-store delete pod seaweedfs-volume-2 --wait=false
-   s3 "$A" -X PUT --data-binary during-loss -o /dev/null -w '%{http_code}\n' http://localhost:8333/build-test/during-loss   # 200
-   s3 "$B" http://localhost:8333/build-test/during-loss                                                                   # during-loss
-   kubectl -n object-store rollout status statefulset/seaweedfs-volume
-   ```
-4. Try the admin gRPC port from a filer pod and from the worker pod:
-   ```bash
-   kubectl -n object-store exec seaweedfs-filer-0 -- nc -z -w 3 seaweedfs-admin 33646; echo "filer: exit $?"                 # not 0
-   kubectl -n object-store exec deploy/seaweedfs-worker -c worker -- nc -z -w 3 seaweedfs-admin 33646; echo "worker: exit $?"  # 0
-   ```
-5. Through the port-forward of [Security](#security), `curl -s -o /dev/null -w '%{http_code}\n' http://localhost:23646/` with no credential answers 401, 403 or a redirect to `/login`, and never 200. An unsigned request to a gateway, `kubectl -n object-store exec "$A" -- curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8333/`, answers 403.
-6. Delete the bucket `build-test` and the identity `build-test` in the admin UI, run `kubectl delete namespace object-store-build-test`, and run `unset AK SK`.
-
-The keys go into the argument list of `curl` in the gateway pods for the time of each request, so the identity is temporary and step 6 deletes it.
-
-### Node restore
-
-The store keeps two copies of each volume on two volume servers (replication `001`), and each volume server is on its own node. The masters keep their Raft state and the filers their metadata on claims of the same nodes.
-
-- **A node stops for a time.** The volumes of its volume server have one copy, and `SeaweedFSVolumeServerDown` and `SeaweedFSUnderReplicatedVolumes` fire. Reads and writes go on through the other volume servers, and two of the three masters keep the quorum. When the node comes back, its pods start on their claims, and the alerts stop.
-- **A node is lost with its disk.** `fast-nvme` keeps the PersistentVolume of a deleted claim (`Retain`), but the directory of each volume of that node was on the lost disk.
-  1. Find the claims of the lost node: `kubectl -n object-store get pvc` names each claim and its volume, and `kubectl get pv <volume> -o jsonpath='{.spec.nodeAffinity}'` names the node of the volume.
-  2. Delete each claim of the lost node and then its pod, for example `kubectl -n object-store delete pvc mount0-seaweedfs-volume-2` and `kubectl -n object-store delete pod seaweedfs-volume-2`. The StatefulSet makes a new claim, which binds on the node where the new pod starts. The anti-affinity keeps one volume server on each node, so a volume server needs a Ready node with no volume server; until then, its pod stays Pending.
-  3. Delete each Released PersistentVolume of the lost node: `kubectl delete pv <volume>`.
-  4. A new master takes the Raft log from the leader. A new filer reads the metadata log of the other filer. A new volume server starts with no volume: in the admin UI, run an admin script with `volume.fix.replication -apply`, which copies each volume that has one copy to another volume server, and `SeaweedFSUnderReplicatedVolumes` stops.
-  5. When all three masters lost their state, the volume servers report the old topology id, and the masters freeze volume growth. Check that each volume server is back, then run `volume.growth.resume` in an admin script.
+Mattermost runs under Argo CD from the environment tree, and `k8s/README.md` of dan-petty/homelab (Mattermost) gives its rollout and its operations. After the first sign-up, run `uv run devops k8s bootstrap-mattermost --admin-user <user> --context <context> --k8s-dir <homelab-checkout>/k8s`. It creates the team (`--team`, default the setting `mattermost.team`), the channels `alerts` and `deploys`, an incoming webhook for each channel that is locked to its channel (#1390), and the slash command `/roadmap`. It saves the tokens in the keyring and pushes the Secrets.
 
 ## Teardown
+
+These commands read the environment tree, from `--k8s-dir` or `infra.repos`.
 
 ```bash
 # Teardown infrastructure stack
@@ -1320,26 +386,18 @@ devops k8s teardown-stack --stack llm
 devops k8s teardown-stack --stack all
 ```
 
-Teardown leaves the `prometheus-operator-crds` release's CRDs in the cluster. Deleting a CRD deletes every object of its kind, such as every ServiceMonitor, so remove them by hand only when nothing in the cluster uses them. The `argo-workflows` release's Workflow CRDs stay too (`crds.keep`), for the same reason: deleting them deletes every Workflow and WorkflowTemplate.
+Teardown leaves the `prometheus-operator-crds` release's CRDs in the cluster. Deleting a CRD deletes every object of its kind, such as every ServiceMonitor, so remove them by hand only when nothing in the cluster uses them. The `argo-workflows` release's Workflow CRDs stay too (`crds.keep`), for the same reason: deleting them deletes every Workflow and WorkflowTemplate. `teardown-stack` reads the environment tree, so give it `--k8s-dir` as `deploy-stack`.
 
 ## GitOps
 
-Argo CD maintains the declared state of the homelab cluster from two repositories. Since step 11 of [the switch to the homelab repository](../docs/HOMELAB_REPO_SWITCH.md#step-11-the-switch), it reads the environment from the private repository dan-petty/homelab: the Applications, the AppProjects, the values of the charts and the dashboards. From this repository, it reads only the product base: Application `devops` reads `k8s/devops`, and Application `prometheus` reads its rules value file `k8s/devops/monitoring/prometheus-rules-values.yaml`. A two-level application topology in homelab decouples cluster bootstrap from leaf applications:
+Argo CD maintains the declared state of the homelab cluster from two repositories:
 
-1. **`bootstrap` (`k8s/argocd/bootstrap/bootstrap.yaml` of homelab)**: Tracks `main` of homelab. Syncs the root `cluster` Application.
-2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml` of homelab)**: Tracks `main` of homelab. Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and every leaf Application of `k8s/argocd/apps/`: a raw leaf Application has one source, and a Helm leaf Application has several sources.
+- **dan-petty/homelab** holds the environment, and only it holds the environment. Argo CD reads the Applications, the AppProjects, the values of the charts, the overlays and the dashboards of the cluster from its `main`.
+- **This repository** holds the product base. Application `devops` reads `k8s/devops`, and Application `prometheus` reads the rules values file `k8s/devops/monitoring/prometheus-rules-values.yaml`. The environment takes the product dashboards `k8s/devops/dashboards` as a remote base at a release tag.
 
-The environment files of this folder, each file of `k8s` outside `k8s/devops` and `k8s/overlays/homelab/devops`, stay until step 17 of the switch deletes them, but no Application reads them. So a change to one of them goes to a homelab pull request. The `k8s` row of `devops ci` refuses a branch of this repository that changes one, a new file included, and its message names dan-petty/homelab (`tests/gate/k8s_checks/environment_freeze.py`). The row does not refuse a Markdown file, because a document deploys nothing. Renovate of this repository updates no dependency of these files, and homelab Renovate updates its copy (`.github/renovate.json`).
-
-dan-petty/homelab#23 made the copy of the environment. The AppProjects `homelab` and `homelab-system` admit the homelab repository as a source, and they keep this repository for the product base. Argo CD reads the homelab repository with the repository credential Secret `repo-homelab` in namespace `argocd`. The owner makes that Secret, and it never goes into git, so project `homelab` ignores it as an orphan. [docs/HOMELAB_REPO_SWITCH.md](../docs/HOMELAB_REPO_SWITCH.md) gives the steps of the switch, with the check and the revert of each step.
+A change of an environment file is a pull request of dan-petty/homelab. A change of the product base is a pull request here. `k8s/README.md` of dan-petty/homelab (GitOps) gives the topology of the Applications, the drift rule and the prune approval. [Switch Argo CD to the homelab repository](../docs/HOMELAB_REPO_SWITCH.md) records how the environment moved there.
 
 When the root `cluster` Application is present in the cluster, `devops k8s deploy-stack` delegates manifest and Helm reconciliation to Argo CD, and `devops k8s teardown-stack` refuses execution to prevent configuration drift.
-
-An object in the cluster that git does not hold is drift: remove it, or add it to git. The packaged add-ons of k3s are the exception (below). Back up the data on a PersistentVolume before you delete its claim. Public access goes through the Cloudflare tunnel and Cloudflare Access, and only the owner changes the Cloudflare configuration.
-
-k3s, not git, holds its packaged add-ons, so an add-on and its objects are not drift. Do not remove them. The k3s server applies each packaged manifest as an `Addon` object in `kube-system`, and writes the file again at each start. `kubectl -n kube-system get addon` lists the add-ons. On k3s v1.37 they are `coredns`, `ccm`, `rolebindings`, `runtimes`, `gateway-api-crd` and seven metrics-server add-ons. For example, metrics-server serves the metrics API that `kubectl top` reads, and `runtimes` holds the RuntimeClass `nvidia` that the Ollama pods use. Each object of an add-on has the annotation `objectset.rio.cattle.io/owner-gvk` with the value `k3s.cattle.io/v1, Kind=Addon`. Its annotation `objectset.rio.cattle.io/owner-name` gives the add-on. Only the owner changes the k3s server, and so the add-ons.
-
-CoreDNS is one of these add-ons: the add-on `coredns` applies the packaged manifest `coredns.yaml`. The Deployment `coredns` has 1 replica. It requests 100m CPU and 70Mi of memory, with a 170Mi memory limit and no CPU limit. k3s does not install CoreDNS from a Helm chart, so a HelmChartConfig has no chart to change. A change by hand to the Deployment stays only until k3s applies the manifest again. No alert reads the memory of the CoreDNS container. `kubectl -n kube-system get deployment coredns -o jsonpath='{.spec.replicas} {.spec.template.spec.containers[0].resources}'` shows the live values.
 
 ### Homelab Values at Deploy Time
 
@@ -1351,9 +409,9 @@ This repository is public, so it holds no homelab value. The private infra repo 
 | `service.repos`, `service.github_app.app_id`, `service.github_app.installation_id`, `service.github_app.slug`, `service.poll_interval_seconds` | `config.yaml` | ConfigMap `devops-cli-config`, which no Application owns | `--stack devops` or `all` |
 | `service.github_requests_per_hour`, only when a source sets it | `config.yaml` or `DEVOPS_CLI_SERVICE_GITHUB_REQUESTS_PER_HOUR` | ConfigMap `devops-cli-config`. With no value set, the ConfigMap holds none, and the Service uses its default of 500 | `--stack devops` or `all` |
 | The same settings with every credential-named key removed | `config.yaml`, rendered from the same template | ConfigMap `devops-cli-config-sandbox`, which no Application owns. The planner run Job mounts it at `/config` | `--stack devops` or `all` |
-| Hosts under the configured domain | the infra repo | `spec.source.kustomize.patches` of the Application files (`argocd/apps`). Without Argo CD, `deploy-stack` renders the configured domain | Argo CD at each sync, else `deploy-stack` |
-| Container environment values under the configured domain: each `env[].value` of a container or init container of a Deployment that holds the placeholder domain, such as `HOMEPAGE_VAR_DOMAIN` | the infra repo | `spec.source.kustomize.patches` of the Application files (`argocd/apps`). Without Argo CD, `deploy-stack` renders the configured domain | Argo CD at each sync, else `deploy-stack` |
-| ConfigMap data values under the configured domain: each `data` value of a ConfigMap that holds the placeholder domain, such as `CORS_ALLOW_ORIGIN` of `llm/open-webui-origins` | the infra repo | `spec.source.kustomize.patches` of the Application files (`argocd/apps`). Without Argo CD, `deploy-stack` renders the configured domain | Argo CD at each sync, else `deploy-stack` |
+| Hosts under the configured domain | the infra repo | `spec.source.kustomize.patches` of the Application files (`argocd/apps` of the environment tree). Without Argo CD, `deploy-stack` renders the configured domain | Argo CD at each sync, else `deploy-stack` |
+| Container environment values under the configured domain: each `env[].value` of a container or init container of a Deployment that holds the placeholder domain, such as `HOMEPAGE_VAR_DOMAIN` | the infra repo | `spec.source.kustomize.patches` of the Application files (`argocd/apps` of the environment tree). Without Argo CD, `deploy-stack` renders the configured domain | Argo CD at each sync, else `deploy-stack` |
+| ConfigMap data values under the configured domain: each `data` value of a ConfigMap that holds the placeholder domain, such as `CORS_ALLOW_ORIGIN` of `llm/open-webui-origins` | the infra repo | `spec.source.kustomize.patches` of the Application files (`argocd/apps` of the environment tree). Without Argo CD, `deploy-stack` renders the configured domain | Argo CD at each sync, else `deploy-stack` |
 
 ConfigMap `devops-cli-config-sandbox` is the credential-free copy of that config for the planner run Job ([docs/CLUSTER.md](../docs/CLUSTER.md#roadmap-service)). deploy-stack renders it from the same template and the same active config as `devops-cli-config`, and drops each key of its `devops-cli.yaml` value whose lower-case name holds a word of `CONST_MCP_SECRET_PARAMETER_WORDS`, at any depth of maps and lists. A number or a boolean under such a name stays, because a number or a boolean is no credential: each credential of the settings is text. Thus `token_budget`, `step_token_budget` and `item_token_budget` keep their values. The rendered ConfigMap keeps the name and the one data key `devops-cli.yaml` that the run Job mounts, so this repository holds no value of it either. `devops k8s teardown-stack --stack devops` deletes it with `--ignore-not-found`, as it deletes `devops-cli-config`. The dry run names it and prints no value of it.
 
@@ -1385,13 +443,7 @@ The row Roadmap Service of that dashboard charts the rounds, the budget, the que
 
 The rest of ConfigMap `devops-cli-config` (gateway URL, models, context windows, telemetry) comes from `configmap.example.yaml` of the product base that deploy-stack reads (`--product-dir`, default `k8s/devops` of the current checkout), so run it from a checkout of `main`, the revision the cluster runs.
 
-On a cluster that Argo CD manages, the hosts are `spec.source.kustomize.patches` of the Applications `devops`, `ingress` and `mattermost` in the infra repo. To change a host, change the patch there. Each patch names one object (an Ingress, an IngressRoute, a Mattermost, a Deployment or a ConfigMap) and tests the placeholder host, environment value or data value at each position before it replaces it. So a value that a base reorders or removes within that object fails the manifest generation of the Application instead of routing to another backend. Kustomize skips a patch whose object no longer exists, and nothing covers an object, host, environment value or data value that a base adds: add its patch.
-
-`cluster` ignores only `spec.source.kustomize.images` of `devops` in its diff, where Image Updater writes the digest of the service image. It applies the three Applications server-side, because each has the annotation `argocd.argoproj.io/sync-options: ServerSideApply=true`, so a sync keeps the digest. Do not remove the annotation.
-
-Open WebUI reads `CORS_ALLOW_ORIGIN` from ConfigMap `llm/open-webui-origins` (`ingress/open-webui-origins.yaml`) only at start. It allows only these origins for its API and its Socket.IO connections, and without the variable it allows every origin. The value holds the HTTPS origin of each host of Ingress `llm/open-webui-ingress`, in the same order, and the `k8s` row of `devops ci` fails when the two differ. The Open WebUI pod does not start until the ConfigMap exists. On the homelab, Application `ingress` renders the ConfigMap and its patch sets the domain. Without Argo CD, `--stack llm` applies it under the configured domain before the chart. A changed value does not restart Open WebUI: after it, run `kubectl -n llm rollout restart statefulset/open-webui`.
-
-When a live Ingress routes a host under the placeholder domain for 5 minutes, `IngressServesPlaceholderHost` fires (Alerting). It fires also for a host that a base adds before the infra repo holds its patch.
+On a cluster that Argo CD manages, the hosts are patches of the Applications. `k8s/README.md` of dan-petty/homelab (Homelab Values at Deploy Time) gives the rules of these patches.
 
 #### When a pull request merges into `main`
 
@@ -1400,61 +452,29 @@ When a live Ingress routes a host under the placeholder domain for 5 minutes, `I
 3. The service image changes only with a release. When the release pull request merges, the `Release` workflow's run on `main` builds the service image and pushes it by digest, smoke-tests, scans and attests that digest, then tags it with the release tag and `latest` ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)). Within one poll of `latest` moving, Image Updater puts the `devops` Application on the new digest ([docs/CLUSTER.md](../docs/CLUSTER.md#service-image-updates), Service Image Updates), and roadmap-service rolls with a surge release, so its old pod takes the webhooks until the new pod is ready. Until then both workloads keep the previous release's digest: the merge's own sync changes no image, and nothing is committed. A person who re-runs a failed publish job moves both tags when it passes, and Image Updater rolls the workloads onto the new digest.
 4. Check: `devops argo cd apps status devops` and `devops argo cd apps status ingress` are Synced and Healthy and exit 0. For `devops`, the command also reads the digest that `service:latest` names in GHCR and exits 1 when the Application's `spec.source.kustomize.images` pins another one, so ImageUpdater `devops` stopped updating ([docs/CLUSTER.md](../docs/CLUSTER.md#service-image-updates), Service Image Updates). `kubectl get ingress,ingressroute -A -o yaml | grep example.com` prints nothing, and `kubectl -n devops get configmap devops-cli-config -o yaml` holds the configured repositories and the template values of `main` (gateway URL, models, context windows).
 
-### Internal Image Registry
-
-Gitea's container registry is the internal registry of the cluster ([Gitea](#gitea)). Pull-request images go to it, and the nodes pull them from it (#1082). Release images stay on GHCR. Until #1082, no workload pulls from it, and every workload pulls its image from a public registry.
-
-The cluster has no `registry:2` Deployment (#1630). That registry accepted pushes and deletes over plain HTTP with no authentication, and no workload pulled from it. Application `base` prunes its Deployment and its Service. Namespace `registry` and PersistentVolumeClaim `registry-data` have `Prune=false,Delete=false`, so Argo CD keeps them. `base` shows them OutOfSync, and `ArgoCdApplicationOutOfSync` fires, until a person deletes them:
-
-```bash
-kubectl -n registry delete pvc registry-data   # reclaim policy Delete: local-path removes the data on the node
-kubectl delete namespace registry
-```
-
-The AppProjects `homelab` and `homelab-system` keep `registry` in their destinations until then. Argo CD ignores a live object in a namespace that its project does not permit, so without that destination it does not prune the Deployment.
-
 ### Bootstrap & Adoption
 
-To bootstrap GitOps on a running cluster, use the bootstrap file of a homelab checkout of `main` (`<homelab-checkout>`). The bootstrap file of this repository points Argo CD back to this repository, which is the [revert of the switch](../docs/HOMELAB_REPO_SWITCH.md#revert-of-the-switch).
+To bootstrap GitOps on a running cluster, use the bootstrap file of a checkout of `main` of dan-petty/homelab (`<homelab-checkout>`):
 
 ```bash
-# Bootstrap the two-level root app topology from the bootstrap file of homelab
 git -C <homelab-checkout> pull --ff-only origin main
 devops argo cd apps bootstrap-gitops --root-app <homelab-checkout>/k8s/argocd/bootstrap/bootstrap.yaml
 
 # From a checkout of main of this repository:
-# Once `cluster` has created the Applications devops and ingress, set the homelab hosts and ConfigMap
+# Once the Applications devops and ingress exist, set the homelab hosts and ConfigMap
 kubectl -n argocd get application devops ingress
-devops k8s deploy-stack --stack devops
+devops k8s deploy-stack --stack devops --k8s-dir <homelab-checkout>/k8s
 
 # Once the Applications have synced, retire the Helm release records of the charts they adopted
 devops argo cd apps retire-helm-records            # the plan: it reads only
 devops argo cd apps retire-helm-records --confirm
 ```
 
-A chart that `helm upgrade --install` deployed before Argo CD adopted it keeps its Helm release records: Secrets labelled `owner=helm`, such as `sh.helm.release.v1.prometheus.v48`. Argo CD only renders a chart with `helm template`, so `helm list` still shows the release as `deployed`, and `helm rollback` or `helm uninstall` would act on objects that Argo CD owns. `retire-helm-records` deletes the records of a release when an Application renders it and Argo CD applied each of its top-level objects: the object carries the Application's tracking id, or names the field manager `argocd-controller` (Argo CD writes no tracking id on a CustomResourceDefinition). Every object stays. For a release that does not qualify, the plan names each object that Argo CD did not apply; sync that Application, then run the command again. A record with an owner reference, such as those of the Alloy operator, stays. AppProject `homelab` does not ignore `sh.helm.release.v1.*` Secrets, so Argo CD shows a record that is left over as an orphaned resource.
+A chart that `helm upgrade --install` deployed before Argo CD adopted it keeps its Helm release records: Secrets labelled `owner=helm`, such as `sh.helm.release.v1.prometheus.v48`. Argo CD only renders a chart with `helm template`, so `helm list` still shows the release as `deployed`, and `helm rollback` or `helm uninstall` would act on objects that Argo CD owns. `retire-helm-records` deletes the records of a release when an Application renders it and Argo CD applied each of its top-level objects: the object carries the Application's tracking id, or names the field manager `argocd-controller` (Argo CD writes no tracking id on a CustomResourceDefinition). Every object stays. For a release that does not qualify, the plan names each object that Argo CD did not apply; sync that Application, then run the command again. A record with an owner reference, such as those of the Alloy operator, stays. Argo CD shows a record that is left over as an orphaned resource.
 
 ### Recovery
 
-If Argo CD itself becomes unavailable or needs to be recovered from scratch, take the chart version, the values and the bootstrap file from a homelab checkout of `main` (`<homelab-checkout>`):
-
-```bash
-# 1. Recover Argo CD via Helm with the chart version that Application argocd pins
-#    (targetRevision of the argo-cd chart in <homelab-checkout>/k8s/argocd/apps/argocd.yaml) and its values
-git -C <homelab-checkout> pull --ff-only origin main
-helm upgrade --install argocd argo/argo-cd --version <version> -n argocd -f <homelab-checkout>/k8s/argocd/values.yaml
-
-# 2. Re-apply the bootstrap application of homelab to resume gitops reconciliation
-devops argo cd apps bootstrap-gitops --root-app <homelab-checkout>/k8s/argocd/bootstrap/bootstrap.yaml
-
-# From a checkout of main of this repository:
-# 3. Once `cluster` has recreated the Applications devops and ingress, set the homelab hosts and ConfigMap
-kubectl -n argocd get application devops ingress
-devops k8s deploy-stack --stack devops
-
-# 4. Once Application argocd has synced, retire the release record that step 1 wrote
-devops argo cd apps retire-helm-records --confirm
-```
+When Argo CD is not available, follow `k8s/README.md` of dan-petty/homelab (Recovery): it installs Argo CD with Helm again, with the chart version and the values of the environment. Then do the steps of [Bootstrap & Adoption](#bootstrap--adoption).
 
 ### Drift Detection & Sync Commands
 
@@ -1473,132 +493,13 @@ devops argo cd apps sync <app-name>
 
 ### Pausing an Application
 
-Every Application sets `enabled: true` under `spec.syncPolicy.automated` in git. The value is in the parent's last-applied configuration, so a different value in the cluster is drift. `cluster` is the parent of the Applications in `k8s/argocd/apps/`, and `bootstrap` is the parent of `cluster` and of itself.
+Every Application sets `enabled: true` under `spec.syncPolicy.automated` in git. The value is in the parent's last-applied configuration, so a different value in the cluster is drift. `cluster` is the parent of the Applications in `argocd/apps/` of the environment tree, and `bootstrap` is the parent of `cluster` and of itself.
 
-- Pause an Application in git: set `enabled: false` in its manifest and merge the change. While it is paused, the `ArgoCdAutoSyncDisabled` alert fires after 15 minutes.
+- Pause an Application in git: set `enabled: false` in its manifest in dan-petty/homelab and merge the change. While it is paused, the `ArgoCdAutoSyncDisabled` alert fires after 15 minutes.
 - Do not pause an Application in the Argo CD UI or API. Its parent shows it OutOfSync and turns automated sync on again at its next self-heal.
 - For an emergency stop that cannot wait for a merge, or for a volume move (Local-Path Volume Placement), pause from the top down: `bootstrap`, then `cluster`, then the Application. A paused `bootstrap` does not revert itself. Then commit the pause, or turn `bootstrap` on again: it restores `cluster`, and `cluster` restores the others from git.
 
-### Notifications
-
-Argo CD delivers notifications to Mattermost when the `devops` application deploys successfully and when any application sync fails. It also writes a GitHub deployment for each deploy of an Application that has one GitHub source.
-
-1. **Create an Incoming Webhook in Mattermost**:
-   - In Mattermost, open Main Menu > Integrations > Incoming Webhooks > Add Incoming Webhook.
-   - Enter a title (such as `Argo CD Deploys`), select channel `deploys`, and enable "Lock to this channel".
-   - Copy the generated webhook token (the string after `/hooks/`).
-
-2. **Store the Credential in Keyring**:
-   ```bash
-   devops config set mattermost.deploys_hook
-   ```
-
-3. **Push the Cluster Secret**:
-   ```bash
-   devops k8s push-secrets --only argocd/argocd-notifications-secret
-   ```
-
-The notifications controller reads the derived URL from `argocd/argocd-notifications-secret` and delivers events to Mattermost on TCP port 8065:
-- **Application deploys**: When the `devops` application finishes a sync and reaches Healthy status (`on-deployed`), a notification posts to the deploys channel. Other applications do not trigger deploy posts to prevent notification clutter.
-- **Application sync failures**: When any application sync fails (`on-sync-failed`), a failure notification posts to the deploys channel with the error message.
-- **Persistent OutOfSync or Degraded states**: Not handled by this webhook; issue #551 monitors lasting conditions through Prometheus metrics and Alertmanager alerts.
-- **GitHub deployments**: Each Application under `k8s/argocd/apps/` that has one `spec.source` on github.com carries the annotation `notifications.argoproj.io/subscribe.on-deployed.github: ""`.
-  - When such an Application finishes a sync and reaches Healthy status (`on-deployed`), the notifier `service.github` writes a GitHub deployment for the synced commit. The environment is the Application name, and the status is `success`.
-  - The trigger fires once for each value of `operationState.syncResult.revision`. This is the revision that the notifier reads. The `status.sync.revision` value moves to a new commit before its sync runs, so the trigger does not use it.
-  - The notifier acts as the GitHub App `devops-cli-argocd`. It reads the keys `$github-appID`, `$github-installationID` and `$github-privateKey` of `argocd/argocd-notifications-secret` (see Cluster Secrets). The notifier needs only the repository permission Deployments (read and write). The repository credential `argocd/repo-homelab` uses the same App with the permission Contents (read) on the homelab repository (see GitOps).
-  - The deployment sets `autoMerge: false` and no required check. So GitHub reads no commit status and writes no branch.
-  - A multi-source Application sets neither `spec.source` nor `syncResult.revision`, so it carries no annotation.
-  - The notification posts to `api.github.com` on TCP port 443. The perimeter network policy allows it.
-  - List the deployments with `devops gh api "repos/<owner>/<name>/deployments?environment=<application>"`. A failed sync writes no GitHub deployment.
-  - The engine builds all notifiers together. If one of the three keys is missing or the private key is not valid, no notification posts, including the Mattermost alerts. So the secret push requires the three keys, and it fails when one has no value.
-
-### Replaced Hand Steps
-
-| Previous Manual Step | Replaced By Argo CD GitOps |
-| :--- | :--- |
-| `devops k8s deploy-stack --stack <name>` | Automated reconciliation by Argo CD leaf applications. |
-| `devops k8s apply k8s/...` | Declarative raw leaf Applications (`apps/*.yaml`) with `selfHeal: true`. |
-| Manual Helm release upgrades (`helm upgrade ...`) | Multi-source Helm Applications with pinned chart versions and git value files. |
-| Ad-hoc ingress and domain patching | Host patches in the Application files of the infra repo (see Homelab Values at Deploy Time). |
-| Secret storage in Helm values | External secret synchronization (`devops k8s push-secrets`) decoupled from manifests. |
-| Manual drift reconciliation | Automated self-healing (`automated.enabled: true`, `automated.prune: true`, `automated.selfHeal: true`). |
-
-## Cloudflare Wildcard Tunnel & Ingress Routing
-
-Expose homelab Kubernetes services securely to the internet without public ports, dynamic DNS, or firewall holes using a wildcard Cloudflare Tunnel paired with an in-cluster ingress controller (Traefik or Ingress-Nginx).
-
-### Architecture
-
-```
-                                  Cloudflare Edge
-[Client / Browser] ──── HTTPS ───▶ [DNS: *.<domain>]
-                                         │
-                                  [Access SSO / Zero Trust]
-                                         │
-                                 (Encrypted Tunnel)
-                                         ▼
-                           k8s / Namespace: cloudflared
-                           [cloudflared Pods (Replicas: 2)]
-                                         │
-                             (Internal HTTP Ingress)
-                                         ▼
-                           k8s / Namespace: kube-system
-                           [Traefik Ingress (ClusterIP:80)]
-                                   │           │
-                 ┌─────────────────┘           └─────────────────────────────────┐
-                 ▼                                                               ▼
-     k8s / Namespace: llm                         k8s / Namespaces: monitoring, argocd, gitea, mattermost
-  [chat.<domain>] ──▶ open-webui               [grafana.<domain>]    ──▶ grafana
-  [ai.<domain>]   ──▶ llm-gateway              [argocd.<domain>]     ──▶ argocd
-                                               [git.<domain>]        ──▶ gitea-http
-                                               [mattermost.<domain>] ──▶ mattermost
-```
-
-### 1. Cloudflare Dashboard Tunnel Configuration
-
-1. In **Cloudflare Zero Trust** (`Networks` > `Tunnels`), select your tunnel (e.g. `homelab`).
-2. Add a **Public Hostname**:
-   - **Subdomain**: `*`
-   - **Domain**: `<domain>` (e.g. `example.com`)
-   - **Path**: *(empty)*
-   - **Type**: `HTTP`
-   - **URL**: `traefik.kube-system.svc.cluster.local:80` (or `traefik.ingress.svc.cluster.local:80`)
-   - **Additional Settings** > **HTTP Settings**:
-     - **HTTP Host Header**: *(Leave blank)* — this preserves the client's original host header (e.g. `chat.<domain>`) so Traefik can route it.
-
-### 2. Cloudflare Zero Trust Access Policy
-
-1. In **Access** > **Applications**, add a **Self-Hosted Application**:
-   - **Application Name**: `Homelab Wildcard`
-   - **Application Domain**: `*.<domain>`
-2. Define an **Access Policy** (e.g. Action: `Allow`, Include: `Emails` or `Email Domain`).
-
-### 3. In-Cluster Deployment
-
-1. Create the namespaces, store the tunnel token in the keyring at a hidden prompt, then write it into the cluster (see Cluster Secrets). `push-secrets --only` fails while namespace `cloudflared` is missing; `devops k8s deploy-stack` does all three in one run.
-   ```bash
-   kubectl apply -f k8s/namespaces.yaml
-   devops config set cloudflare.tunnel_token
-   devops k8s push-secrets --only cloudflared/cloudflared-token
-   ```
-2. Apply the declarative tunnel manifests:
-   ```bash
-   kubectl apply -k k8s/cloudflared/
-   ```
-   The two replicas prefer different nodes: a preferred `podAntiAffinity` term on `kubernetes.io/hostname` places them apart when it can, and still starts a replica while only one node can take it. PodDisruptionBudget `cloudflared` (`minAvailable: 1`) keeps one replica up through a drain. A pod that is not ready never blocks a drain (`unhealthyPodEvictionPolicy: AlwaysAllow`).
-3. Ingress Controller (Traefik):
-   Stock k3s ships its own Traefik HelmChart; ensure k3s runs with `--disable traefik` so `devops k8s deploy-stack --stack infra` deploys the pinned Traefik release with `k8s/ingress/traefik-values.yaml` (configured with `service.type: ClusterIP`).
-4. Core Ingress definitions:
-   `devops k8s deploy-stack --stack infra` deploys `k8s/ingress/ingress-routes.yaml` with template substitution automatically (substitutes `k8s.domain` from `config.yaml`). To apply or preview manually:
-   ```bash
-   devops k8s apply k8s/ingress/ingress-routes.yaml --template
-   ```
-   Or preview the rendered manifests before applying:
-   ```bash
-   devops k8s render k8s/ingress/ingress-routes.yaml
-   ```
-
-### 4. The Kubernetes API at `k8s.<domain>`
+## The Kubernetes API at `k8s.<domain>`
 
 Off the home network, `kubectl` reaches the API server through the tunnel as a TCP route. An HTTP hostname cannot carry it: Cloudflare ends TLS at its edge, which drops kubectl's client certificate. `cloudflared access tcp` on the workstation carries the connection to the edge after an Access login, and TLS stays end to end between kubectl and the API server.
 
@@ -1607,7 +508,7 @@ Off the home network, `kubectl` reaches the API server through the tunnel as a T
    devops cloudflare tunnel sync --subdomains k8s --service tcp://kubernetes.default.svc.cluster.local:443 --dry-run
    devops cloudflare tunnel sync --subdomains k8s --service tcp://kubernetes.default.svc.cluster.local:443
    ```
-   `k8s/cloudflared/networkpolicy.yaml` lets cloudflared reach the API server on 6443.
+   `cloudflared/networkpolicy.yaml` of the environment tree lets cloudflared reach the API server on 6443. `k8s/README.md` of dan-petty/homelab (Cloudflare Wildcard Tunnel & Ingress Routing) tells how to set up the tunnel and its Access application.
 2. On the workstation, install `cloudflared` (the devtools image holds it), set the hostname of the route, and start the forward. `devops k8s tunnel start` runs `cloudflared access login` first: it opens a browser for the Access login or prints the login URL, and stores the token without printing it. Then it starts `cloudflared access tcp` in the background on `127.0.0.1:16443` (`--port` sets another port), records it under the data directory and waits until the port accepts connections. When a forward already runs, it reports that forward and starts no other. `--context` adds or updates the kubeconfig cluster and context `<cluster>-tunnel`, with the cluster, the user and the CA data of the home context (`k8s.context`, or `--from-context`), the server `https://127.0.0.1:16443` and the TLS server name `kubernetes.default.svc`.
    ```bash
    devops config set k8s.tunnel_host k8s.<domain>
@@ -1618,153 +519,46 @@ Off the home network, `kubectl` reaches the API server through the tunnel as a T
 
 ## Directory Structure
 
+devops-cli tracks only the product base `k8s/devops` and Markdown documents under `k8s/`. The environment tree is the `k8s/` folder of dan-petty/homelab.
+
 ```
 k8s/
-├── kustomization.yaml        # Root kustomize: applies namespaces, RuntimeClass gvisor, cloudflared, and the perimeters of cert-manager and cnpg-system
-├── namespaces.yaml           # Namespace definitions with Prune=false,Delete=false
-├── runtimeclass-gvisor.yaml  # RuntimeClass gvisor (handler runsc) for the nodes with label node-restriction.kubernetes.io/gvisor=true
-├── catalog.toml              # The decisions of each service: Applications, tier, data class and dependencies (Service levels)
-├── agents/                   # Agent sessions: read-only ServiceAccount and view ClusterRoleBinding under restricted Pod Security
-│   ├── kustomization.yaml
-│   ├── serviceaccount.yaml   # ServiceAccount devops-agent in namespace agents with automount disabled
-│   └── clusterrolebinding.yaml # ClusterRoleBinding devops-agent-view bound to ClusterRole view
-├── argo-workflows/           # Argo Workflows controller and the --version WorkflowTemplate (#1535); not in the root kustomization
-│   ├── kustomization.yaml    # The perimeter and the template, as Application argo-workflows-manifests syncs them
-│   ├── values.yaml           # Helm values for argo/argo-workflows: one namespaced controller, minimal kept CRDs, restricted pods, the executor ServiceAccount
-│   ├── networkpolicy.yaml    # Default-deny perimeter: the metrics scrape in, DNS and the API server out
-│   └── workflowtemplate-version.yaml # WorkflowTemplate devops-cli-version: devops --version in the Service image, with no Secret
-├── cloudflared/
-│   ├── kustomization.yaml    # Kustomize overlay for Cloudflare Tunnel
-│   ├── deployment.yaml       # Multi-replica non-root cloudflared deployment
-│   ├── pdb.yaml              # PodDisruptionBudget: a drain keeps one tunnel replica up
-│   └── networkpolicy.yaml    # Network isolation for tunnel ingress and egress
-├── cert-manager/             # cert-manager, the certificates of the Barman Cloud plugin (#4764)
-│   ├── kustomization.yaml    # The two perimeters, as the root kustomization applies them
-│   ├── values.yaml           # Helm values for jetstack/cert-manager: kept CRDs, leader election in its namespace
-│   ├── networkpolicy.yaml    # Default-deny perimeter: the metrics scrape in, DNS and the API server out
-│   └── networkpolicy-webhook.yaml # The webhook pods: TCP 10250 in from any peer, for the API server
-├── cnpg-system/              # The Barman Cloud plugin of CloudNativePG (#4764)
-│   ├── kustomization.yaml    # The plugin perimeter, as the root kustomization applies it
-│   ├── plugin-barman-cloud-values.yaml # Helm values for cloudnative-pg/plugin-barman-cloud
-│   └── networkpolicy.yaml    # The plugin pod: the operator in on 9090, DNS and the API server out
-├── object-store/             # The SeaweedFS object store (#4750); not in the root kustomization
-│   ├── kustomization.yaml    # The Seaweed CR, the perimeters, the budgets and the buckets, as Application object-store syncs them
-│   ├── seaweed.yaml          # Seaweed CR seaweedfs: 3 masters, 3 volume servers, 2 filers, 2 S3 gateways, the admin and the worker
-│   ├── networkpolicy.yaml    # Default-deny perimeter: the worker alone on 33646, backup-client namespaces on 8333, DNS out; the operator to the API server
-│   ├── poddisruptionbudgets.yaml # One budget for each component and the operator
-│   ├── buckets.yaml          # The 4 platform buckets with their quotas, anonymous read and lifecycle rules
-│   ├── operator-values.yaml  # Helm values for seaweedfs-operator/seaweedfs-operator: one watched namespace, cert-manager webhook certificate
-│   └── build-test/           # The build test of the store: a client namespace with a boto3 Job and a minio-go Job; no Application applies it
-├── gitea/                    # Gitea, the internal forge and container registry (#1081); not in the root kustomization
-│   ├── kustomization.yaml    # The perimeter, as Application gitea-manifests syncs it
-│   ├── values.yaml           # Helm values for gitea-charts/gitea: SQLite in WAL mode, rootless, no SSH, packages on, no domain
-│   └── networkpolicy.yaml    # Default-deny perimeter: HTTP 3000 from Traefik, Argo CD's repo server and the namespace; DNS and the namespace on 3000 out
-├── devops/                   # In-cluster devops-cli runtime; not in the root kustomization
+├── devops/                   # The product base: the in-cluster devops-cli runtime. Application devops and `deploy-stack --product-dir` read it
 │   ├── kustomization.yaml    # Its resources; Image Updater sets the service image's digest on Application devops
 │   ├── serviceaccount.yaml   # devops-cli service account without an API token
 │   ├── configmap.example.yaml # devops-cli config template: deploy-stack renders ConfigMap devops-cli-config from it and config.yaml
 │   ├── cronjob.yaml          # Suspended CronJob devops-cli, the template of every cluster job
 │   ├── cronjob-runner.yaml   # Suspended CronJob devops-cli-runner, the template of the implement job's runner Job
+│   ├── cronjob-stage.yaml    # Suspended CronJob, the template of the stage Job
+│   ├── cronjob-repos-drift.yaml # Nightly drift check of the repository settings
 │   ├── cronworkflow-rag-ingest.yaml # CronWorkflow rag-ingest: runs WorkflowTemplate rag-ingest every 3 minutes
-│   ├── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out; skips the crawl4ai, searxng, renovate, planner run and valkey-roadmap pods
-│   ├── networkpolicy-rag-ingest.yaml # Lets the rag-ingest pods reach Qdrant on TCP 6333
 │   ├── workflowtemplate-rag-ingest.yaml # WorkflowTemplate rag-ingest: keeps the RAG index current
-│   ├── dashboards/           # The product dashboards; Application monitoring applies them, so the kustomization above does not list this folder
+│   ├── cronworkflow-infra-drift.yaml # CronWorkflow infra-drift: runs WorkflowTemplate infra-drift each day
+│   ├── workflowtemplate-infra-drift.yaml # WorkflowTemplate infra-drift
+│   ├── service-probe.yaml    # Suspended CronJob, the template of the service probe pods
+│   ├── volume-move.yaml      # Suspended CronJob, the template of the copy pods of `devops k8s volume move`
+│   ├── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out; skips the crawl4ai, searxng, renovate, planner run and valkey-roadmap pods
+│   ├── networkpolicy-infra.yaml # Lets the infra pods reach the cluster nodes on TCP 22
+│   ├── networkpolicy-rag-ingest.yaml # Lets the rag-ingest pods reach Qdrant on TCP 6333
+│   ├── alerts/
+│   │   └── inbox.yaml        # PrometheusRule of the person causes of the roadmap
+│   ├── dashboards/           # The product dashboards. The environment takes this folder as a remote base, so the kustomization above does not list it
 │   │   ├── kustomization.yaml # configMapGenerator: ConfigMap grafana-devops-cli-dashboards in namespace monitoring
 │   │   ├── devops-cli.json   # devops-cli commands, reviews, RAG, spend and the roadmap Service
+│   │   ├── devops-ai-rag.json # AI and RAG metrics
 │   │   ├── ai-spend.json     # AI spend and LLM usage
-│   │   └── project-metrics.json # Project & engineering velocity, release cadence and CI pass rates
+│   │   ├── project-metrics.json # Project and engineering velocity, release cadence and CI pass rates
+│   │   └── roadmap-service-telemetry.json # Roadmap Service telemetry
 │   ├── monitoring/
-│   │   └── prometheus-rules-values.yaml # Second Helm values file of prometheus-community/prometheus: the product alert and recording rules
+│   │   ├── prometheus-rules-values.yaml # The product alert and recording rules, a Helm values file of prometheus-community/prometheus
+│   │   └── slos/             # One Sloth spec for each SLO of the product
 │   ├── crawl4ai/             # Crawl4AI page-text service: Deployment, Service and the NetworkPolicies of the pod and of its one client
-│   │   ├── kustomization.yaml
-│   │   ├── deployment.yaml
-│   │   ├── networkpolicy-client.yaml
-│   │   ├── networkpolicy.yaml
-│   │   └── service.yaml
 │   ├── mcp-server/           # Role-scoped MCP server: Deployment, Service and NetworkPolicies for the roadmap Service and the Job pods
-│   │   ├── kustomization.yaml
-│   │   ├── deployment.yaml
-│   │   ├── networkpolicy-client.yaml
-│   │   ├── networkpolicy.yaml
-│   │   └── service.yaml
-│   ├── searxng/              # SearXNG search service: settings ConfigMap, Deployment, Service and the NetworkPolicies of the pod and of its one client
-│   │   ├── kustomization.yaml
-│   │   ├── configmap.yaml
-│   │   ├── deployment.yaml
-│   │   ├── networkpolicy-client.yaml
-│   │   ├── networkpolicy.yaml
-│   │   └── service.yaml
-│   ├── renovate/             # Self-hosted Renovate: CronJob every 2 hours, config ConfigMap, cache PVC and the NetworkPolicies of the pod
-│   │   ├── kustomization.yaml
-│   │   ├── configmap.yaml
-│   │   ├── cronjob.yaml
-│   │   ├── networkpolicy.yaml
-│   │   └── pvc.yaml
+│   ├── searxng/              # SearXNG search service: settings ConfigMap, Deployment, Service, ServiceMonitor and NetworkPolicies
 │   ├── valkey-roadmap/       # valkey-roadmap, the store of the shared state of the roadmap jobs: the Valkey base of dan-petty/infra at a release tag
 │   │   ├── kustomization.yaml # The base, its three components, the name suffix and the patches of this store
 │   │   └── valkey.conf       # The settings: an append-only file, and no eviction
-│   └── roadmap-service/      # Continuous roadmap service Deployment, Service, Ingress, rate-limit Middleware, NetworkPolicies, PVC, ServiceAccount, Role, and the suspended planner run CronJob
-│       ├── kustomization.yaml
-│       ├── admissionpolicy.yaml
-│       ├── cronjob-planner-run.yaml
-│       ├── deployment.yaml
-│       ├── ingress.yaml
-│       ├── middleware.yaml
-│       ├── networkpolicy-egress.yaml
-│       ├── networkpolicy-planner-run.yaml
-│       ├── networkpolicy.yaml
-│       ├── pvc.yaml
-│       ├── role.yaml
-│       ├── service.yaml
-│       └── serviceaccount.yaml
-├── ingress/
-│   ├── kustomization.yaml    # Kustomize overlay for cluster ingress routes
-│   ├── traefik-values.yaml   # Traefik Helm values with ClusterIP service type
-│   ├── ingress-routes.yaml   # Ingress rules for chat, ai, grafana, argocd, git, prometheus, qdrant
-│   └── open-webui-origins.yaml # The CORS origins of Open WebUI: the HTTPS origins of its Ingress hosts
-├── argocd/
-│   ├── kustomization.yaml    # Kustomize overlay for Argo CD
-│   ├── values.yaml           # Helm values for argo/argo-cd
-│   ├── image-updater-values.yaml # Helm values for argo/argocd-image-updater: the ImageUpdater for Application devops
-│   ├── bootstrap/            # Two-level bootstrap applications
-│   │   ├── bootstrap.yaml    # Root app tracking main, reconciles cluster app
-│   │   └── cluster.yaml      # Cluster app tracking main, reconciles projects & leaf apps
-│   └── apps/                 # AppProjects and the leaf Applications (raw and Helm)
-│       └── projects.yaml     # AppProjects: homelab and homelab-system
-├── overlays/
-│   └── homelab/              # Homelab overlays the Applications devops and ingress render; hosts stay under example.com
-│       ├── ingress/          # Application ingress: k8s/ingress
-│       └── devops/           # Application devops: k8s/devops
-├── monitoring/
-│   ├── kustomization.yaml    # Kustomize overlay for monitoring: NetworkPolicy and dashboards
-│   ├── networkpolicy.yaml    # Default perimeter for the monitoring namespace
-│   ├── dcgm-exporter-values.yaml # Helm values for nvidia/dcgm-exporter (GPU metrics)
-│   ├── grafana-values.yaml   # Helm values for grafana-community/grafana (datasources, dashboard sidecar)
-│   ├── k8s-monitoring-values.yaml # Helm values for grafana/k8s-monitoring (Alloy, kube-state-metrics, node-exporter, node journals, annotation autodiscovery, CoreDNS, profiling, and the Alloy, Grafana, Loki, Tempo and DCGM integrations)
-│   ├── prometheus-operator-crds-values.yaml # Helm values for prometheus-community/prometheus-operator-crds (ServiceMonitor and other monitoring.coreos.com CRDs)
-│   ├── prometheus-values.yaml # Helm values for prometheus-community/prometheus (server, Alertmanager, the environment alert rules and rule_files)
-│   └── dashboards/
-│       ├── kustomization.yaml # configMapGenerator: sidecar-labelled ConfigMaps for the environment dashboard groups; lists ../../devops/dashboards
-│       ├── k8s-views-global.json, k8s-views-pods.json # ConfigMap grafana-k8s-global-dashboards
-│       ├── k8s-views-nodes.json, k8s-views-namespaces.json # ConfigMap grafana-k8s-node-dashboards
-│       ├── coredns.json      # CoreDNS traffic, latency, forwarders and cache; provisioned in grafana-stack-dashboards
-│       ├── llm-stack.json    # LiteLLM gateway, GPUs and Qdrant; provisioned in grafana-stack-dashboards
-│       ├── otel-collector.json # The collector's own telemetry; provisioned in grafana-stack-dashboards
-│       └── prometheus-server.json # The Prometheus server; provisioned in grafana-stack-dashboards
-├── otel/
-│   ├── kustomization.yaml    # Kustomize overlay for OpenTelemetry
-│   ├── networkpolicy.yaml    # Perimeter NetworkPolicy for otel namespace
-│   ├── tempo-values.yaml     # Helm values for grafana-community/tempo
-│   └── values.yaml           # Helm values for opentelemetry-collector
-├── llm/
-│   ├── kustomization.yaml    # Kustomize overlay for LLM stack base
-│   ├── profiles/             # Ollama per-VRAM-tier DaemonSets and ollama-<n>gib Services (applied by deploy-stack)
-│   ├── valkey.yaml           # Cache Valkey: Deployment, Service, NetworkPolicy
-│   ├── valkey-runs.yaml      # Run index Valkey: PVC, Deployment, NodePort Service, NetworkPolicy
-│   ├── values-open-webui.yaml# Helm values for open-webui/open-webui
-│   ├── values-qdrant.yaml    # Helm values for qdrant/qdrant
-│   └── gateway/              # LiteLLM gateway: Deployment, NodePort Service, NetworkPolicy, ServiceMonitor, and config.yaml, from which kustomization.yaml generates the routing ConfigMap
+│   └── roadmap-service/      # Continuous roadmap service Deployment, Service, Ingress, rate-limit Middleware, NetworkPolicies, PVC, ServiceAccount, Role, admission policy and the suspended planner run CronJob
 └── README.md                 # This file
 ```
 

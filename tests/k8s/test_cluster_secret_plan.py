@@ -53,6 +53,10 @@ from tests.support.cluster_secret_fakes import (
 )
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.paths import FIXTURES
+
+# The Secret table and the push command read the environment tree.
+pytestmark = pytest.mark.usefixtures("environment_repo")
 
 _push_app = typer.Typer()
 _push_app.command()(push_secrets)
@@ -77,7 +81,7 @@ FULL_KEYRING = {
     "service_github_app_private_key": APP_KEY,
     "searxng_metrics_password": SEARXNG_METRICS_PASSWORD,
 }
-TABLE_REFS = {secret.ref for secret in load_cluster_secrets_table()}
+TABLE_REFS = {secret.ref for secret in load_cluster_secrets_table(k8s_dir=FIXTURES)}
 
 NOTIFIER = "argocd/argocd-notifications-secret"
 NOTIFIER_KEYRING = "argocd_github_app_private_key"

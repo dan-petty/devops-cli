@@ -82,7 +82,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_diff_helm`](#k8s_diff_helm) | `true` | Preview Kubernetes manifest diffs before executing a Helm upgrade. |
 | [`k8s_doctor`](#k8s_doctor) | `false` | Diagnose Kubernetes cluster deployment health, correlate failures, and recommend remediations. |
 | [`k8s_enable_tls`](#k8s_enable_tls) | `false` | Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces. |
-| [`k8s_lint`](#k8s_lint) | `true` | Lint Kubernetes manifests with kube-linter. With no TARGET, build each path source of the Argo CD Applications of the environment tree as Argo CD builds it, and lint the builds in one run with the .kube-linter.yaml of the repository that holds the tree. A git source of another public repository is fetched at its revision. Exits 1 on a finding, and when kube-linter did not run. The k8s row of devops ci runs it. |
+| [`k8s_lint`](#k8s_lint) | `true` | Lint Kubernetes manifests with kube-linter. With no TARGET, build each path source of the Argo CD Applications of the environment tree as Argo CD builds it, and lint the builds in one run with the .kube-linter.yaml of the repository that holds the tree. A git source of another public repository is fetched at its revision. With TARGET, lint it with the .kube-linter.yaml of the repository that holds it. Exits 1 on a finding, when kube-linter did not run, and when it found no Kubernetes object. The kube-linter row of devops ci lints k8s/devops. |
 | [`k8s_logs`](#k8s_logs) | `true` | Stream pod logs or execute LogQL queries across cluster log streams. |
 | [`k8s_pods`](#k8s_pods) | `true` | List running pods with health status, restart counts, and age. |
 | [`k8s_security_stream`](#k8s_security_stream) | `true` | Stream runtime security anomaly events from Kubernetes Falco eBPF probes. |
@@ -690,8 +690,8 @@ Run tests, linting, formatting, and type-checks. A run that selects test, securi
 | `check` | `boolean` | No | `False` | Run in check-only mode without automatically applying formatting or lint fixes. |
 | `cache` | `boolean` | No | `True` | Reuse a cached verdict when the codebase is unchanged. Results are recorded either way. |
 | `force` | `boolean` | No | `False` | Bypass CI execution cache and force re-execution of all quality gates. |
-| `only` | `array[string]` | No | - | Run only the specified check names (test, lint, format, typecheck, audit, security, actionlint, zizmor, docs, uv-check, lockfile, build, outdated, deps, constructs, devcontainer, hadolint, openspec, git, test-settings, bwrap, kube-linter, k8s, charts, test-tree, startup-imports, swallowed-failures, domain, roadmap-eval-commits). Comma-separated or repeated. |
-| `skip` | `array[string]` | No | - | Skip the specified check names (test, lint, format, typecheck, audit, security, actionlint, zizmor, docs, uv-check, lockfile, build, outdated, deps, constructs, devcontainer, hadolint, openspec, git, test-settings, bwrap, kube-linter, k8s, charts, test-tree, startup-imports, swallowed-failures, domain, roadmap-eval-commits). Comma-separated or repeated. |
+| `only` | `array[string]` | No | - | Run only the specified check names (test, lint, format, typecheck, audit, security, actionlint, zizmor, docs, uv-check, lockfile, build, outdated, deps, constructs, devcontainer, hadolint, openspec, git, test-settings, bwrap, kube-linter, k8s, test-tree, startup-imports, swallowed-failures, domain, roadmap-eval-commits). Comma-separated or repeated. |
+| `skip` | `array[string]` | No | - | Skip the specified check names (test, lint, format, typecheck, audit, security, actionlint, zizmor, docs, uv-check, lockfile, build, outdated, deps, constructs, devcontainer, hadolint, openspec, git, test-settings, bwrap, kube-linter, k8s, test-tree, startup-imports, swallowed-failures, domain, roadmap-eval-commits). Comma-separated or repeated. |
 | `shard` | `integer` | No | `1` | Number of the part of the test suite this run covers, from 1 to --shards. CI runs each part on its own runner. |
 | `shards` | `integer` | No | `1` | Number of parts the test suite splits into. Above 1, the run covers one part, checks no coverage floor and leaves no cached verdict. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
@@ -1341,8 +1341,9 @@ Generate Homelab certificates and apply TLS secrets across Kubernetes cluster na
 Lint Kubernetes manifests with kube-linter. With no TARGET, build each path source of the
 Argo CD Applications of the environment tree as Argo CD builds it, and lint the builds in one
 run with the .kube-linter.yaml of the repository that holds the tree. A git source of another
-public repository is fetched at its revision. Exits 1 on a finding, and when kube-linter did not
-run. The k8s row of devops ci runs it.
+public repository is fetched at its revision. With TARGET, lint it with the .kube-linter.yaml
+of the repository that holds it. Exits 1 on a finding, when kube-linter did not run, and when
+it found no Kubernetes object. The kube-linter row of devops ci lints k8s/devops.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1350,7 +1351,7 @@ run. The k8s row of devops ci runs it.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `target` | `string` | No | - | A K8s manifest file or directory to lint as it is (default: the build of each path source of the Argo CD Applications of the environment tree). |
+| `target` | `string` | No | - | A K8s manifest file or directory to lint, with the .kube-linter.yaml of its repository (default: the build of each path source of the Argo CD Applications of the environment tree). |
 | `k8s_dir` | `string` | No | - | The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 

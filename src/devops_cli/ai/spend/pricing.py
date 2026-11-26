@@ -44,9 +44,9 @@ _GENAI_PRICES_UNPRICED_ERRORS: tuple[type[Exception], ...] = (LookupError, Value
 
 _HOSTED_GROUP_PRICE_SOURCE = "builtin:hosted_group_prices"
 # DeepSeek V4.1 Flash 1017 through OpenRouter with fp8 weights and `data_collection: deny`
-# (k8s/llm/gateway/config.yaml). The rates below were measured on the route `:floor`, which the
-# gateway used until 2026-11-16 (#5978); the key of that route stays, so the spend records of that
-# time keep their price. genai-prices 0.1.13 does not know the
+# (llm/gateway/config.yaml of the environment tree). The rates below were measured on the route
+# `:floor`, which the gateway used until 2026-11-16 (#5978); the key of that route stays, so the
+# spend records of that time keep their price. genai-prices 0.1.13 does not know the
 # snapshot, and 0.2.3 gives the list price of DeepSeek (0.30 and 1.20 USD), not the price of the
 # route. These are the rates of the endpoint deepinfra/fp8/flex in the OpenRouter API
 # /api/v1/models/deepseek/deepseek-v4.1-flash-1017/endpoints on 2026-11-11. The cost that
@@ -58,7 +58,7 @@ _DEEPSEEK_V4_1_FLASH_1017_PRICE = ModelPricing(
     completion_usd_per_million=0.2352,
     source=_HOSTED_GROUP_PRICE_SOURCE,
 )
-# The Jev price of k8s/README.md, read on 2026-11-15: 0.042 USD per million input tokens and no
+# The Jev price of k8s/README.md of dan-petty/homelab, read on 2026-11-15: 0.042 USD per million input tokens and no
 # charge for the output (#4296). Jev is no gateway group, and genai-prices does not know it.
 _JEV_PRICE = ModelPricing(
     prompt_usd_per_million=0.042,
@@ -78,7 +78,7 @@ _DEEPSEEK_V4_1_FLASH_PRICE = ModelPricing(
 # and under the deployment model of each deployment of the group. Both chat calls and gateway
 # agent runs read the deployment model from the gateway's served-model response header, falling back
 # to the reply-body route name when the response carries no header (#6002). The model_info of each
-# deployment in k8s/llm/gateway/config.yaml holds the same rates.
+# deployment of the gateway config of the environment tree holds the same rates.
 # The group deepseek-v4.1-flash-1017 has two deployments (#5990). A price in `ai.price_overrides` or
 # in the file of `set-price` wins over this one.
 _HOSTED_GROUP_PRICES: Mapping[str, ModelPricing] = MappingProxyType(

@@ -44,3 +44,7 @@ Chosen option: "SeaweedFS with the SeaweedFS operator", because it is the one pe
 - Bad, because the store has its own release rule: a Renovate update of the image or the operator chart waits for an approval on the Dependency Dashboard, and a person pins the release that the operator builds against.
 - Bad, because the store needs 3 Ready nodes that are not the control-plane node, so a cluster with fewer nodes, such as minikube, cannot run it.
 - Neutral, because the general settings of the operator, a platform stack that any service can use, move to dan-petty/infra in a later item ([ADR 0032](0032-infrastructure-templates-live-in-four-homes.md)).
+
+## Status History
+
+- 2026-11-26: Fact out of date: the store manifests, their `k8s` row checks and the build test moved to dan-petty/homelab (#7290).

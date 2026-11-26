@@ -1,7 +1,7 @@
 # project-brain/shared-cache Specification
 
 ## Purpose
-The shared tier of the project brain in the cache Valkey `valkey-devops` (ADR 0023 section 2): the listing snapshot of each public repository and the tool facts that the alternatives check reads, over the in-process tier, with a fallback to the local tier or the source when Valkey is slow or down, and the memory bound of the cache Valkey that holds them.
+The shared tier of the project brain in the cache Valkey `valkey-devops` (ADR 0023 section 2): the listing snapshot of each public repository and the tool facts that the alternatives check reads, over the in-process tier, with a fallback to the local tier or the source when Valkey is slow or down.
 
 ## Requirements
 
@@ -215,17 +215,6 @@ The counters `devops_cli_brain_reads_total`, `devops_cli_brain_writes_total`, `d
 #### Scenario: The labels of a round
 - **WHEN** a test runs a listing round and two fact reads on the OTLP fake, one with the shared tier up and one with it down
 - **THEN** each exported data point of the four counters has only the labels `store`, `result`, `op` or `error`, each value is one of the fixed values, and no value names the repository or the package
-
-### Requirement: The cache Valkey keeps its data bound below its limit
-The valkey container of the Deployment `valkey-devops` SHALL start valkey-server with `--maxmemory 256mb` under a container memory limit of `384Mi`, so its data bound is two thirds of its limit. The live check after the Argo CD sync is the proof of the bound. The `k8s` row of `devops ci` proves only that the manifests render: it does not compare `--maxmemory` with the limit.
-
-#### Scenario: The manifests render
-- **WHEN** a person runs `uv run devops ci --check --only k8s` on the pull request
-- **THEN** the `k8s` row renders `k8s/llm` with no error
-
-#### Scenario: Live memory bound
-- **WHEN** a person runs `kubectl -n llm get deployment valkey-devops -o jsonpath='{.spec.template.spec.containers[0].command}{.spec.template.spec.containers[0].resources.limits.memory}'` after the Argo CD sync, and reads `redis_config_maxmemory{job="valkey-devops"}` in Prometheus
-- **THEN** the command holds `--maxmemory 256mb` and the limit is `384Mi`, and the metric is 268435456
 
 ### Requirement: A visibility answer is kept for its lifetime
 A process SHALL keep a public or a private answer of the visibility check for `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (30 min), and an unknown answer for `DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS` (60 s), before it reads the visibility again. Thus the shared copy of a repository that became private SHALL go at most 1 hour after the change, at the first run after that time.

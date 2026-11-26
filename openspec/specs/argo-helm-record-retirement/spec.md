@@ -1,7 +1,7 @@
 # argo-helm-record-retirement Specification
 
 ## Purpose
-Which Helm release records `devops argo cd apps retire-helm-records` deletes after Argo CD adopts a chart, which records it keeps, what it reads, and that the AppProject reports a left-over record.
+Which Helm release records `devops argo cd apps retire-helm-records` deletes after Argo CD adopts a chart, which records it keeps, and what it reads.
 
 ## Requirements
 
@@ -54,17 +54,3 @@ With `--dry-run` the command SHALL make no request and SHALL list the requests a
 #### Scenario: Dry run
 - **WHEN** a person runs `devops argo cd apps retire-helm-records --dry-run`
 - **THEN** no process starts, and the output lists the Application read, the record read, the kind read, the object read and the delete that runs only with `--confirm`
-
-### Requirement: The homelab AppProject reports a left-over record
-AppProject `homelab` SHALL NOT ignore Secrets named `sh.helm.release.v1.*` as orphans.
-
-#### Scenario: The AppProject
-- **WHEN** `k8s/argocd/apps/projects.yaml` is read
-- **THEN** no `orphanedResources.ignore` entry of AppProject `homelab` names `sh.helm.release.v1.*`
-
-### Requirement: The knowledge base runs no Helm command against an adopted release
-No knowledge base page SHALL run `helm rollback`, `helm uninstall` or `helm upgrade` against a release that an Application in `k8s/argocd/apps/` renders.
-
-#### Scenario: A Helm example
-- **WHEN** a page under `src/devops_cli/ai/knowledge_base/` has the line `helm rollback prometheus 1 -n monitoring`, and Application `prometheus` renders release `prometheus`
-- **THEN** the knowledge base check fails and names the page and the release

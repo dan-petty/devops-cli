@@ -35,15 +35,15 @@ CronJob `devops-cli-runner` in namespace `devops` SHALL be suspended and SHALL n
 - **THEN** no expression refuses it
 
 ### Requirement: The runner Job knows it is a runner and holds a home volume
-Each container of CronJob `devops-cli-runner` SHALL set `DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER` to `true`, mount ConfigMap `devops-cli-config` read-only and an `emptyDir` of its own as its home and as `/tmp`, and use no `envFrom`. Only `prepare` and `publish` SHALL take `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` and `DEVOPS_CLI_VALKEY_PASSWORD`, and only `agent` `DEVOPS_CLI_AI_API_KEY`. The `ephemeral-storage` limit of `agent` SHALL cover every volume.
+Each container of CronJob `devops-cli-runner` SHALL set `DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER` to `true`, mount ConfigMap `devops-cli-config` read-only and an `emptyDir` of its own as its home and as `/tmp`, and use no `envFrom`. Only `prepare` and `publish` SHALL take `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY`, and only `agent` `DEVOPS_CLI_AI_API_KEY`. The `ephemeral-storage` limit of `agent` SHALL cover every volume.
 
 #### Scenario: The variable
 - **WHEN** a test reads the rendered `k8s/devops` kustomization
 - **THEN** each volume has a `sizeLimit`, each runner container sets `DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER`, and the pod of `roadmap-service` does not
 
 #### Scenario: The keys of the Secret
-- **WHEN** `kubectl kustomize k8s/overlays/homelab/devops` renders CronJob `devops-cli-runner`, and `uv run devops ci --check --only k8s` builds the implement Job and the fix-checks Job of the Service from it
-- **THEN** no container has `envFrom`, `prepare` and `publish` take only `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` and `DEVOPS_CLI_VALKEY_PASSWORD`, and `agent` takes only `DEVOPS_CLI_AI_API_KEY`
+- **WHEN** `kubectl kustomize k8s/devops` renders CronJob `devops-cli-runner`, and `uv run devops ci --check --only k8s` builds the implement Job and the fix-checks Job of the Service from it
+- **THEN** no container has `envFrom`, `prepare` and `publish` take only `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY`, and `agent` takes only `DEVOPS_CLI_AI_API_KEY`
 
 ### Requirement: run-job creates a Job from the runner template
 `devops k8s run-job --template runner --repo owner/name -- ARGS` SHALL create a Job from CronJob `devops-cli-runner`, changing only the args of each container, with its `--phase` and `--work` (#3700), the name, the labels and the variable `DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY`, which `--repo` sets. `--template default` SHALL be the default and use CronJob `devops-cli`. The name SHALL start with the name of its CronJob. `--dry-run` SHALL make no request and name the CronJob.
@@ -95,13 +95,6 @@ The public HTTPS rule of `devops-default-perimeter-egress` SHALL exclude the pri
 #### Scenario: The policy is read
 - **WHEN** `uv run devops ci --check --only k8s` renders Application `devops`, and a person reads NetworkPolicy `devops-default-perimeter-egress` of the render
 - **THEN** the `except` list of the port 443 rule holds exactly those ranges
-
-### Requirement: Image Updater keeps the runner image on its latest digest
-ImageUpdater `devops` SHALL name `ghcr.io/dan-petty/devops-cli/runner:latest` with the `digest` strategy and `forceUpdate: true`, as it names the Service image.
-
-#### Scenario: The values are read
-- **WHEN** a test reads `k8s/argocd/image-updater-values.yaml`
-- **THEN** the ImageUpdater lists the images `service` and `runner`, and both use `updateStrategy: digest` and `forceUpdate: true`
 
 ### Requirement: An admission policy covers only the Jobs of the Service
 A ValidatingAdmissionPolicy and a binding SHALL apply to `CREATE` and `UPDATE` of `batch/v1` `jobs` in namespace `devops`, with `failurePolicy: Fail` and the actions `Deny` and `Audit`. A match condition SHALL limit the policy to the user `system:serviceaccount:devops:roadmap-service`, which is the subject of the RoleBinding `roadmap-service-jobs`. The expressions SHALL use only standard CEL.

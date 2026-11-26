@@ -23,14 +23,9 @@ from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
 
-_REPO_DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
 # The product dashboards of devops-cli (#5292).
 _PRODUCT_DASHBOARDS = REPO_ROOT / "k8s" / "devops" / "dashboards"
-_REPO_DASHBOARD_FILES = sorted(
-    path
-    for directory in (_REPO_DASHBOARDS, _PRODUCT_DASHBOARDS)
-    for path in directory.glob("*.json")
-)
+_REPO_DASHBOARD_FILES = sorted(_PRODUCT_DASHBOARDS.glob("*.json"))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -253,28 +248,38 @@ def test_non_object_dashboard_reports_an_error(tmp_path: Path) -> None:
     assert lint_dashboard_file(listed).passed is False
 
 
-def test_cli_lints_the_repository_dashboards() -> None:
-    """The lint command reports a clean run over the shipped dashboards of both folders."""
-    result = runner.invoke(
-        grafana_app, ["dashboards", "lint", str(_REPO_DASHBOARDS), str(_PRODUCT_DASHBOARDS)]
-    )
-    assert result.exit_code == 0
-    assert "0 error(s)" in result.output
+def test_cli_lints_each_dashboard_of_each_folder_given(tmp_path: Path) -> None:
+    """The lint command reports a clean run over the dashboards of both folders."""
+    first, second = tmp_path / "first", tmp_path / "second"
+    for folder, name in ((first, "a"), (second, "b")):
+        folder.mkdir()
+        _write_dashboards(folder, {f"{name}.json": name})
+
+    result = runner.invoke(grafana_app, ["dashboards", "lint", str(first), str(second)])
+
+    assert (result.exit_code, "0 error(s)" in result.output) == (0, True)
 
 
 def test_cli_with_no_path_lints_the_environment_and_the_product_dashboards(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With no path, the lint command reads `monitoring/dashboards` of the environment tree and
     `dashboards` of the product base `k8s/devops` of the current repository, so a uid that two
     folders share is an error too (#5292, #5131)."""
-    monkeypatch.chdir(REPO_ROOT)
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".devops").mkdir()
+    (tmp_path / ".devops" / "project.toml").write_text('[kubernetes]\ndir = "k8s"\n', "utf-8")
+    for folder, name in (("k8s/monitoring/dashboards", "a"), ("k8s/devops/dashboards", "b")):
+        (tmp_path / folder).mkdir(parents=True)
+        _write_dashboards(tmp_path / folder, {f"{name}.json": name})
+    monkeypatch.chdir(tmp_path)
+
     result = runner.invoke(grafana_app, ["dashboards", "lint", "--json"])
 
     assert (
         result.exit_code,
         sorted(report["source_file"] for report in json.loads(result.output)),
-    ) == (0, sorted(path.name for path in _REPO_DASHBOARD_FILES))
+    ) == (0, ["a.json", "b.json"])
 
 
 def test_cli_exits_non_zero_on_errors(tmp_path: Path) -> None:
@@ -312,13 +317,15 @@ def test_cli_reports_a_missing_path(tmp_path: Path) -> None:
     assert "not found" in result.output
 
 
-def test_cli_json_output_is_machine_readable() -> None:
+def test_cli_json_output_is_machine_readable(tmp_path: Path) -> None:
     """Reports serialise for downstream tooling."""
-    result = runner.invoke(grafana_app, ["dashboards", "lint", str(_REPO_DASHBOARDS), "--json"])
+    _write_dashboards(tmp_path, {"a.json": "a", "b.json": "b"})
+
+    result = runner.invoke(grafana_app, ["dashboards", "lint", str(tmp_path), "--json"])
     payload = json.loads(result.output)
 
     assert result.exit_code == 0
-    assert len(payload) == len(list(_REPO_DASHBOARDS.glob("*.json")))
+    assert len(payload) == 2
 
 
 def _write_dashboards(directory: Path, uids: dict[str, str]) -> list[Path]:
@@ -380,11 +387,13 @@ def test_cli_json_output_exits_non_zero_on_errors(tmp_path: Path) -> None:
     assert (result.exit_code, json.loads(result.output)[0]["source_file"]) == (1, "bad.json")
 
 
-def test_cli_supports_dry_run() -> None:
+def test_cli_supports_dry_run(tmp_path: Path) -> None:
     """Linting runs normally under dry run as a no-external-request command."""
+    _write_dashboards(tmp_path, {"a.json": "a"})
+
     result = runner.invoke(
         grafana_app,
-        ["dashboards", "lint", str(_REPO_DASHBOARDS)],
+        ["dashboards", "lint", str(tmp_path)],
         env={"DEVOPS_CLI_DRY_RUN": "true"},
     )
     assert result.exit_code == 0

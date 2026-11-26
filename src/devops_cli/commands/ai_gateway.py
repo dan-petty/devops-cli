@@ -248,7 +248,7 @@ def connect_cmd(
         port=4000,
         port_name="http",
         port_label="HTTP",
-        manifest="k8s/llm/gateway/service.yaml",
+        manifest="llm/gateway/service.yaml of the environment tree",
     )
     try:
         host, port = node_port_address(context, namespace, service, spec)
@@ -773,7 +773,7 @@ def load_cmd(
     if not load.backends and not load.gpus:
         print_warning(
             f"No LLM pool or GPU metrics in Prometheus over the last {window}; check that the "
-            "gateway and DCGM exporter monitors are applied (k8s/monitoring)."
+            "gateway and DCGM exporter monitors of the environment tree are applied."
         )
         return
     _render_pool_load(load)
@@ -832,11 +832,11 @@ def render_cmd(
         target_thresholds, target_templates = thresholds_path, tier_templates_path
     else:
         env = resolve_environment(k8s_dir)
-        target_config = config_path or env.gateway_config
-        target_prof = profiles_path or env.ollama_profiles
-        target_svc = services_path or env.llm_services
-        target_thresholds = thresholds_path or env.gpu_thresholds
-        target_templates = tier_templates_path or env.tier_templates
+        target_config = config_path or env.require(env.gateway_config)
+        target_prof = profiles_path or env.require(env.ollama_profiles)
+        target_svc = services_path or env.require(env.llm_services)
+        target_thresholds = thresholds_path or env.require(env.gpu_thresholds)
+        target_templates = tier_templates_path or env.require(env.tier_templates)
 
     if not target_config.is_file():
         print_error(f"Gateway config file not found: {target_config}", prefix=False)
