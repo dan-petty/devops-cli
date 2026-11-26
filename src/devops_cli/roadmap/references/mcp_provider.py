@@ -32,8 +32,7 @@ from urllib.parse import unquote, urlsplit
 import anyio
 import httpx2
 from anyio.from_thread import BlockingPortal, start_blocking_portal
-from fastmcp.exceptions import FastMCPError
-from mcp.shared.exceptions import MCPError
+from fastmcp.exceptions import FastMCPError, McpError
 from pydantic_ai.exceptions import AgentRunError, ModelRetry, ToolFailedError, UserError
 
 from devops_cli.exceptions.roadmap import RoadmapMcpUnavailableError
@@ -57,16 +56,18 @@ _GITHUB_HOST: Final[str] = "github.com"
 _BLOB: Final[str] = "blob"
 # The named errors of the MCP client, of its HTTP transport and of its streams that the provider
 # gives as an unavailable server. The first five are the ones that `RoadmapMcpToolset.call_tool`
-# turns into a tool error. `MCPError` is an error answer of the server, such as one of
-# `tools/list`, and `FastMCPError` an error of the client. The anyio errors are a stream that is
-# lost or closed. `httpx2.StreamError` is a `RuntimeError` and a failed TLS handshake an `OSError`.
+# turns into a tool error. `McpError` is an error answer of the server, such as one of
+# `tools/list`: it is the name that fastmcp gives for the `MCPError` of the MCP SDK under it, so
+# a catch of it holds the error that the SDK raises. `FastMCPError` is an error of the client.
+# The anyio errors are a stream that is lost or closed. `httpx2.StreamError` is a `RuntimeError`
+# and a failed TLS handshake an `OSError`.
 _LIBRARY_ERRORS: Final = (
     ModelRetry,
     ToolFailedError,
     UserError,
     AgentRunError,
     ExceptionGroup,
-    MCPError,
+    McpError,
     FastMCPError,
     httpx2.HTTPError,
     httpx2.InvalidURL,
