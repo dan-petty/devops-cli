@@ -119,6 +119,39 @@ def test_an_issue_that_does_not_exist_raises_the_not_found_error(
         _client().get_issue(_REPO, 7)
 
 
+ANOTHER_ISSUE = [
+    pytest.param({"number": 12}, id="another-number"),
+    pytest.param(
+        {"number": 7, "repository_url": "https://api.github.com/repos/example/other"},
+        id="another-repository",
+    ),
+    pytest.param(
+        {"number": 7, "html_url": "https://github.com/example/other/issues/7"},
+        id="another-repository-in-the-page-url",
+    ),
+]
+
+
+@pytest.mark.parametrize("named", ANOTHER_ISSUE)
+def test_an_answer_that_names_another_issue_raises_the_error_of_no_issue(
+    github_api: GitHubApiFake, named: dict[str, object]
+) -> None:
+    """The session follows the redirect of a transferred issue, so the answer is the issue at its
+    new place (#7337). The client gives no such answer as the issue that it was asked for."""
+    github_api.route(
+        "GET", _ISSUE, github_json({"title": "moved", "state": "closed", "body": "Other.", **named})
+    )
+
+    with pytest.raises(GitHubNotFoundError) as refused:
+        _client().get_issue(_REPO, 7)
+
+    assert (type(refused.value).__name__, refused.value.error_code, str(refused.value)) == (
+        "GitHubNotAnIssueError",
+        "GITHUB_NOT_AN_ISSUE",
+        f"#7 is not an issue of {_REPO}.",
+    )
+
+
 def test_the_last_comments_come_from_the_last_page(github_api: GitHubApiFake) -> None:
     github_api.route("GET", _comments_path(3), _comments(range(201, 251)))
 

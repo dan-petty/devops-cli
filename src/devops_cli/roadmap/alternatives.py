@@ -130,7 +130,11 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.dry_run.requests import PlannedRequest
-from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
+from devops_cli.exceptions.git import (
+    GitHubNotAnIssueError,
+    GitHubOperationError,
+    GitHubRateLimitError,
+)
 from devops_cli.exceptions.roadmap import RoadmapAlternativesError
 from devops_cli.github.repo_ref import is_name_segment, is_repository_name
 from devops_cli.http.egress import EgressLevel
@@ -1657,6 +1661,25 @@ def _verdict_check(
         )
 
 
+def _settled(
+    store: RoadmapStore, item: Item, writer: AlternativesWriter | None, **reads: Any
+) -> Check | CheckFailure | None:
+    """The result of the check of `item`, which `writer` wrote when the run has one, or None for
+    an item that is no issue of the repository now. A read or a write of the round then raised
+    `GitHubNotAnIssueError` for its number, and the store dropped its record and logged it. The
+    round leaves that item out: it has no check and no failure, and the next round does not
+    select it (#7337)."""
+    try:
+        outcome = _check_one(store, item, **reads)
+        if writer is not None:
+            writer.settle(outcome)
+    except GitHubNotAnIssueError as gone:
+        if gone.number != item.number:
+            raise
+        return None
+    return outcome
+
+
 # ── Entry points ──────────────────────────────────────────────────────────────
 
 
@@ -1674,7 +1697,9 @@ def plan_alternatives(
 ) -> AlternativesPlan:
     """Plans the checks of the selected items. It writes nothing unless the caller gives a
     `writer`: the writer then gets the result of each item as soon as that item is checked, so a
-    kill of the worker loses at most the check in progress (#4034). `limit` replaces both
+    kill of the worker loses at most the check in progress (#4034). An item that is no issue of
+    the repository now is left out, and the round goes on with the next item (#7337). `limit`
+    replaces both
     `roadmap.alternatives.limit` and `roadmap.alternatives.first_pass_limit`.
     `investigator` is the pydantic-ai model of the runs,
     the `alternatives` task's by default. `source` is a clone of the repository at HEAD, whose
@@ -1724,9 +1749,10 @@ def plan_alternatives(
             )
         )
         for item in selection.selected:
-            outcome = _check_one(
+            outcome = _settled(
                 store,
                 item,
+                writer,
                 model=model,
                 adrs=adrs,
                 inventory=inventory,
@@ -1735,11 +1761,9 @@ def plan_alternatives(
                 repo=repo,
                 references=references,
             )
-            if writer is not None:
-                writer.settle(outcome)
             if isinstance(outcome, CheckFailure):
                 failures.append(outcome)
-            else:
+            elif outcome is not None:
                 checks.append(outcome)
     return AlternativesPlan(
         repo=repo,

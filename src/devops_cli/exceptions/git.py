@@ -137,6 +137,22 @@ class GitHubNotFoundError(GitHubOperationError):
         super().__init__(message, operation=operation, details=details)
 
 
+class GitHubNotAnIssueError(GitHubNotFoundError):
+    """Raised when a number is no issue of the repository that was asked for it: GitHub holds no
+    issue with that number there, redirects its read, or answers with another issue (#7337).
+    `number` is that number, so a caller that works on many items can leave the one item out."""
+
+    error_code = "GITHUB_NOT_AN_ISSUE"
+
+    def __init__(self, repo: str, number: int, *, operation: str = "github_request") -> None:
+        self.number = number
+        super().__init__(
+            f"#{number} is not an issue of {repo}.",
+            operation=operation,
+            details={"repo": repo[:256], "number": number},
+        )
+
+
 class GitHubFileNotFoundError(GitHubNotFoundError):
     """Raised when a repository file GitHub was asked for does not exist on that ref."""
 

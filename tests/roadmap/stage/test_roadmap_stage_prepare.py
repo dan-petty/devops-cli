@@ -37,10 +37,13 @@ from devops_cli.roadmap.stage.stage_job_phases import (
     StageState,
     prepare_stage_job,
 )
+from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.stores.store import GitHubState, ItemField, RefineRecordKey
 from tests.support.builders import make_stage_proposal
-from tests.support.fakes.github import github_json
+from tests.support.fakes.github import RunnerSession, github_json
+from tests.support.fakes.github_repository import GitHubFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.roadmap_implement import merge_plan
 from tests.support.roadmap_stage import STAGE_NAME, STAGE_REPO, StageRepo, seed_stageable
 
 if TYPE_CHECKING:
@@ -312,3 +315,45 @@ def test_a_blocker_of_an_open_plan_returns_the_item_in_prepare(
     assert item.status == "New"
     assert item.job_record.get(RefineRecordKey.BLOCKED_BY) == str(blocker)
     assert not (folders.work / CONST_ROADMAP_PHASE_INPUT_FILE).exists()
+
+
+LEFT_FOLDER_ANSWERS = [
+    pytest.param(False, id="status-301"),
+    pytest.param(True, id="the-issue-at-its-new-place"),
+]
+
+
+@pytest.mark.parametrize("followed", LEFT_FOLDER_ANSWERS)
+def test_prepare_goes_on_when_the_issue_of_an_active_change_folder_left_the_repository(
+    stage_repo: StageRepo, folders: RunFolders, followed: bool
+) -> None:
+    """The default branch holds the active change folder of #5, and #5 was transferred to another
+    repository (#7337). `prepare` reads the issue of each active change folder for the blockers of
+    the item and for the issue listing of the agent. The read of #5 answers 301 when `gh` does not
+    follow the redirect, else it answers with the issue at its new place. Both are no issue of the
+    repository: the folder of #5 names no open plan and gives no record in the listing, and
+    `prepare` goes on with item #6 and with the folder of the open item #4."""
+    labels = ("type/bug", "priority/p1-high")
+    github = GitHubFake(STAGE_REPO)
+    github.seed_issue(4, "fix(roadmap): the open item", labels=(*labels, "status/planned"))
+    github.seed_issue(5, "fix(roadmap): the item that left", labels=(*labels, "status/planned"))
+    github.seed_issue(
+        6,
+        "fix(roadmap): the job drops a comment",
+        labels=(*labels, "status/ready"),
+        body="The job drops the last comment of a thread.",
+        author_association="OWNER",
+    )
+    merge_plan(stage_repo, 4, slug="the-open-item")
+    merge_plan(stage_repo, 5, slug="the-item-that-left")
+    github.move_issue(5, to="example/other", as_number=9, followed=followed)
+    store = GitHubRoadmapStore(STAGE_REPO, runner=github, session=RunnerSession(github))
+
+    run = prepare_stage_job(
+        store, folders, repo=STAGE_REPO, item=6, source=stage_repo.clone, now=NOW
+    )
+
+    listing = json.loads((folders.work / CONST_ROADMAP_STAGE_ISSUES_FILE).read_text("utf-8"))
+    assert run is None
+    assert (_state(folders).item, _state(folders).ended) == (6, False)
+    assert [record["number"] for record in listing] == [6, 4]

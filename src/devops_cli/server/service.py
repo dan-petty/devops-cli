@@ -68,6 +68,7 @@ from devops_cli.github.rate_limiter import set_request_gate
 from devops_cli.github.request_scope import request_scope
 from devops_cli.k8s.lease import LeaseHolder
 from devops_cli.lang import MESSAGES
+from devops_cli.models.webhooks import issue_left
 from devops_cli.roadmap.service_stop import begin_service_stop
 from devops_cli.server.counter_series import prime_service_counters
 from devops_cli.server.routes.webhooks import (
@@ -87,7 +88,9 @@ logger = logging.getLogger(__name__)
 
 class TriggerBatch(BaseModel):
     """Immutable batch of coalesced repository trigger events, with the subjects that the
-    triggers name: the numbers of the issues that their events are about (#5553)."""
+    triggers name: the numbers of the issues that their events are about (#5553). `left` holds
+    the subjects of the deliveries that say that their issue left the repository (`issue_left`),
+    so the round of the lane drops the records of those numbers (#7337)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -96,6 +99,7 @@ class TriggerBatch(BaseModel):
     first_at: datetime
     last_at: datetime
     subjects: frozenset[int] = frozenset()
+    left: frozenset[int] = frozenset()
 
 
 class WorkerRound(BaseModel):
@@ -530,6 +534,7 @@ class RepoWorker:
         self._is_active = False
         self._pending_counts: dict[tuple[str, str, str], int] = {}
         self._pending_subjects: set[int] = set()
+        self._pending_left: set[int] = set()
         self._pending_scoped: deque[Callable[[], None]] = deque()
         self._first_at: datetime | None = None
         self._last_at: datetime | None = None
@@ -565,7 +570,9 @@ class RepoWorker:
 
     def enqueue(self, source: str, event: str, action: str, subject: int | None = None) -> None:
         """Enqueue an incoming trigger event, coalescing into the pending batch. A `subject`, the
-        number of the issue that the event is about, joins the subjects of the batch (#5553)."""
+        number of the issue that the event is about, joins the subjects of the batch (#5553). The
+        subject of an event that says that its issue left the repository also joins the numbers
+        that the batch names as left (#7337)."""
         key = (source, event, action)
         now = self.clock()
         with self._cond:
@@ -575,6 +582,8 @@ class RepoWorker:
             self._pending_counts[key] = self._pending_counts.get(key, 0) + 1
             if subject is not None:
                 self._pending_subjects.add(subject)
+                if issue_left(event, action):
+                    self._pending_left.add(subject)
             GLOBAL_METRICS.set_gauge(CONST_SERVICE_METRIC_QUEUE_DEPTH, 1.0, labels=self._labels)
             self._cond.notify()
 
@@ -626,7 +635,7 @@ class RepoWorker:
     def _wait_for_next_batch(
         self,
     ) -> (
-        tuple[dict[tuple[str, str, str], int], datetime, datetime, frozenset[int]]
+        tuple[dict[tuple[str, str, str], int], datetime, datetime, frozenset[int], frozenset[int]]
         | Callable[[], None]
         | None
     ):
@@ -648,10 +657,12 @@ class RepoWorker:
                 return scoped
             counts = dict(self._pending_counts)
             subjects = frozenset(self._pending_subjects)
+            left = frozenset(self._pending_left)
             first_at = self._first_at or self.clock()
             last_at = self._last_at or self.clock()
             self._pending_counts.clear()
             self._pending_subjects.clear()
+            self._pending_left.clear()
             self._first_at = None
             self._last_at = None
             self._is_active = True
@@ -659,7 +670,7 @@ class RepoWorker:
             GLOBAL_METRICS.set_gauge(
                 CONST_SERVICE_METRIC_QUEUE_DEPTH, 1.0 if remaining else 0.0, labels=self._labels
             )
-            return counts, first_at, last_at, subjects
+            return counts, first_at, last_at, subjects, left
 
     def _end_in_stop(self) -> str:
         """Log the end of a round that the stop of the Service ends, and give its result. Such a
@@ -800,13 +811,14 @@ class RepoWorker:
                 if callable(work):
                     self._execute_scoped(work)
                     continue
-                counts, first_at, last_at, subjects = work
+                counts, first_at, last_at, subjects, left = work
                 batch = TriggerBatch(
                     repo=self.repo,
                     counts=counts,
                     first_at=first_at,
                     last_at=last_at,
                     subjects=subjects,
+                    left=left,
                 )
                 self._execute_batch(batch)
         except Exception as exc:

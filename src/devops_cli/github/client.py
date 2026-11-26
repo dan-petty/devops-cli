@@ -36,7 +36,13 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_REST_PER_PAGE,
     DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS,
 )
-from devops_cli.exceptions.git import GitHubNotFoundError, GitHubOperationError, GitHubUnreadError
+from devops_cli.exceptions.git import (
+    GitHubNotAnIssueError,
+    GitHubNotFoundError,
+    GitHubOperationError,
+    GitHubUnreadError,
+)
+from devops_cli.github.issue_answer import answered_repository, answers_request
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.workflow_triggers import PullRequestChange, starts_on_pull_request
 
@@ -292,11 +298,22 @@ class IssueView(BaseModel):
     pull_request: dict[str, Any] | None = None
     author_association: str | None = None
     author_login: str | None = Field(default=None, validation_alias=AliasPath("user", "login"))
+    repository_url: str | None = None
+    url: str | None = None
+    html_url: str | None = None
 
     @property
     def label_names(self) -> list[str]:
         """The names of the labels."""
         return [label.name for label in self.labels]
+
+    def answers(self, repo: str, number: int) -> bool:
+        """Whether this is the answer for number `number` of `repo`, and not the issue at another
+        place that GitHub gives for a transferred issue (`issue_answer`, #7337)."""
+        named = answered_repository(
+            repository_url=self.repository_url, url=self.url, html_url=self.html_url
+        )
+        return answers_request(repo, number, answered=self.number, named=named)
 
     @property
     def is_pull_request(self) -> bool:
@@ -887,9 +904,14 @@ class GitHubClient:
     # ── Issue reads of the stage planner (#3238) ──────────────────────────────
 
     def get_issue(self, repo: str, number: int) -> IssueView:
-        """The issue or pull request `number`, raising `GitHubNotFoundError` when `repo` has none."""
+        """The issue or pull request `number`, raising `GitHubNotFoundError` when `repo` has none.
+        The session follows the redirect of a transferred issue, so an answer can name the issue
+        at its new place: that answer raises `GitHubNotAnIssueError`, a `GitHubNotFoundError`."""
         path = _repo_path(repo, f"issues/{number}")
-        return _read_as(IssueView, self._session.rest("GET", path), path=path)
+        found = _read_as(IssueView, self._session.rest("GET", path), path=path)
+        if not found.answers(repo, number):
+            raise GitHubNotAnIssueError(repo, number, operation="github_issue_read")
+        return found
 
     def list_open_issues(self, repo: str, *, limit: int) -> list[IssueView]:
         """At most `limit` open issues of `repo` from the issues listing, skipping pull requests."""

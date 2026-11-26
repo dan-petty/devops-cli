@@ -142,6 +142,7 @@ from devops_cli.core import clock
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import (
     DevOpsCLIError,
+    GitHubNotAnIssueError,
     GitHubOperationError,
     GitHubRateLimitError,
     GitHubUnauthenticatedError,
@@ -4294,13 +4295,18 @@ def write_each(
 ) -> None:
     """Run each write. A write that fails adds a `StageFailure` and the next write still runs.
     Rejected GitHub credentials and the stop of the Service stop the run (#2753), and so does
-    each class in `also_stop`. The row `stage_ready` runs its pull requests the same way (#2865)."""
+    each class in `also_stop`. The row `stage_ready` runs its pull requests the same way (#2865).
+    An item that is no issue of the repository now is left out: its write is neither done nor
+    failed, and the store dropped its record and logged it (#7337)."""
     stop = (*_STOP_THE_RUN, *also_stop)
     for item, write in writes:
         try:
             write()
         except stop:
             raise
+        except GitHubNotAnIssueError as gone:
+            if gone.number != item.number:
+                failed.append(_write_failure(item, gone))
         except DevOpsCLIError as exc:
             failed.append(_write_failure(item, exc))
         else:

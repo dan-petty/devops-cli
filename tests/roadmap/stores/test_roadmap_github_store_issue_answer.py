@@ -8,6 +8,11 @@ answer with the request. An answer that names another issue is no issue of the r
 gives what a missing issue gives, a write is refused before any request, and the listing of the
 store, the snapshot of the listing and the brain hold no record of that number.
 
+A read can also say that the number left with no issue payload (#7337): GitHub answers 301 for a
+transferred issue when `gh` does not follow the redirect, and 410 for a deleted one. A listing
+below the number of an issue that left answers 404. The store reads the issue then, and a number
+that is no issue of the repository raises the error of no issue and leaves the listing.
+
 GitHub is `RecordedGh` for one answer of a given shape, and `GitHubFake` for a repository that an
 issue leaves.
 """
@@ -23,11 +28,19 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.config.constants import CONST_ROADMAP_REFINE_COMMENT_MARKER
+from devops_cli.exceptions.git import GitHubNotFoundError, GitHubOperationError
 from devops_cli.roadmap.stores.brain_issues import CachedIssue, cached_issue, remember_issue
 from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.stores.listing_snapshot import FileSnapshotStore, IncrementalListing
-from devops_cli.roadmap.stores.store import CloseReason, IssueRecord, Item, ItemField
+from devops_cli.roadmap.stores.store import (
+    CloseReason,
+    Evidence,
+    EvidenceKind,
+    IssueRecord,
+    Item,
+    ItemField,
+)
 from tests.support.fakes.github import RunnerSession
 from tests.support.fakes.github_repository import GitHubFake
 from tests.support.roadmap_github_store import RecordedGh
@@ -44,6 +57,11 @@ TWELVE = f"repos/{REPO}/issues/12"
 PUBLIC = {"isPrivate": {"data": {"repository": {"isPrivate": False}}}}
 ITEM_LABELS = ("priority/p2-medium", "status/ready")
 STORE_LOG = "devops_cli.roadmap.stores.github_store"
+BELOW = f"{ISSUE}/"
+"""Each request below the number of issue #7: its comments, its events and its blockers."""
+NOT_FOUND = (1, "gh: Not Found (HTTP 404)")
+NO_ISSUE = ("GitHubNotAnIssueError", "GITHUB_NOT_AN_ISSUE", f"#7 is not an issue of {REPO}.")
+"""The class, the code and the message of the error of a number that is no issue."""
 
 
 def _answer(number: int, repo: str = REPO, *, without: tuple[str, ...] = (), **changes: Any) -> Any:
@@ -72,6 +90,11 @@ def _item(store: GitHubRoadmapStore) -> Item:
     found = store.item(7)
     assert found is not None
     return found
+
+
+def _raised(error: GitHubOperationError) -> tuple[str, str, str]:
+    """The class, the code and the message of `error`."""
+    return type(error).__name__, error.error_code, str(error)
 
 
 ANOTHER_ISSUE = [
@@ -136,9 +159,8 @@ def test_the_body_read_refuses_an_answer_that_names_another_issue() -> None:
     with pytest.raises(GitHubOperationError) as refused:
         store.read_issue_body(7)
 
-    assert (str(refused.value), refused.value.error_code, refused.value.details) == (
-        f"#7 is not an issue of {REPO}.",
-        "GITHUB_OPERATION_FAILED",
+    assert (_raised(refused.value), refused.value.details) == (
+        NO_ISSUE,
         {"operation": "roadmap.issue.read_body", "repo": REPO, "number": 7},
     )
 
@@ -152,22 +174,155 @@ def test_the_title_read_of_a_pull_request_takes_no_answer_that_names_another_one
     assert (moved.pull_title(7), kept.pull_title(7)) == (None, f"Issue 7 of {REPO}")
 
 
-def test_the_refusal_logs_a_warning_that_names_the_requested_number_only(
+def _logged(caplog: pytest.LogCaptureFixture) -> list[tuple[str, str]]:
+    """The level and the text of each line that the store logged."""
+    return [(log.levelname, log.getMessage()) for log in caplog.records if log.name == STORE_LOG]
+
+
+def test_the_refusal_logs_one_line_with_the_place_that_the_answer_names(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    store, _ = _store({ISSUE: _answer(12, OTHER)})
+    """The store reads the number three times. It logs the number one time, with the repository
+    and the number of the answer and no other field of it."""
+    store, _ = _store({ISSUE: _answer(12, OTHER, title="A title that is no part of a log line")})
 
     with caplog.at_level(logging.WARNING, logger=STORE_LOG):
         store.issue(7)
+        store.item(7, fresh=True)
+        store.pull_title(7)
 
-    logged = [(log.levelname, log.getMessage()) for log in caplog.records if log.name == STORE_LOG]
-    assert logged == [
+    assert _logged(caplog) == [
         (
             "WARNING",
-            f"GitHub answered the request of issue #7 of {REPO} with another issue, so #7 is no "
-            "issue of the repository.",
+            f"#7 is no issue of {REPO} now: GitHub answers with {OTHER}#12. The store leaves "
+            "it out.",
         )
     ]
+
+
+# ── A read that says only that the number left ────────────────────────────────
+
+LEFT = [
+    pytest.param("gh: HTTP 301", id="redirect-not-followed"),
+    pytest.param("gh: This issue was deleted (HTTP 410)", id="deleted"),
+    pytest.param("gh: Not Found (HTTP 404)", id="missing"),
+]
+
+
+@pytest.mark.parametrize("said", LEFT)
+def test_a_plain_read_that_says_that_the_number_left_reads_as_no_issue(said: str) -> None:
+    store, runner = _store({ISSUE: (1, said)})
+
+    with pytest.raises(GitHubOperationError) as refused:
+        store.read_issue_body(7)
+
+    assert (store.issue(7), store.item(7), store.pull_title(7), _raised(refused.value)) == (
+        None,
+        None,
+        None,
+        NO_ISSUE,
+    )
+    assert {tuple(args) for args, _ in runner.calls} == {("api", ISSUE)}
+
+
+@pytest.mark.parametrize("said", LEFT)
+def test_a_conditional_read_that_says_that_the_number_left_gives_no_issue_and_drops_the_entry(
+    shared_valkey: ValkeyCacheTier, said: str
+) -> None:
+    """The entry of #7 is older than one hour, so the store sends a conditional read."""
+    remember_issue(
+        REPO, _entry(7, at=datetime(2026, 1, 1, tzinfo=UTC), etag="etag-7"), private=False
+    )
+    store, runner = _store({**PUBLIC, ISSUE: (1, said)})
+
+    found = store.issue(7)
+
+    sent = [args for args, _ in runner.calls if ISSUE in args]
+    assert (found, sent, cached_issue(REPO, 7, private=False)) == (
+        None,
+        [["api", ISSUE, "--include", "-H", "If-None-Match: etag-7"]],
+        None,
+    )
+
+
+def test_a_conditional_read_whose_headers_hold_the_status_301_gives_no_issue(
+    shared_valkey: ValkeyCacheTier,
+) -> None:
+    """`gh api --include` can also end with exit status 0 and the status line of the redirect."""
+    remember_issue(
+        REPO, _entry(7, at=datetime(2026, 1, 1, tzinfo=UTC), etag="etag-7"), private=False
+    )
+    answer = "HTTP/2 301 Moved Permanently\r\nLocation: https://example.com/\r\n\r\n"
+    store, _ = _store({**PUBLIC, ISSUE: (0, answer)})
+
+    assert (store.issue(7), cached_issue(REPO, 7, private=False)) == (None, None)
+
+
+def test_a_redirect_of_a_route_that_is_no_issue_number_stays_an_error() -> None:
+    """Only a read of one issue by its number takes 301 as no issue. The listing of the issues
+    and the read of a commit raise for it."""
+    store, _ = _store({"/issues?": (1, "gh: HTTP 301"), "/commits/": (1, "gh: HTTP 301")})
+
+    with pytest.raises(GitHubOperationError) as listing:
+        store.items()
+    with pytest.raises(GitHubOperationError) as commit:
+        store.evidence_holds(Evidence(kind=EvidenceKind.REGRESSION_COMMIT, value="0" * 40))
+
+    assert ("HTTP 301" in str(listing.value), "HTTP 301" in str(commit.value)) == (True, True)
+
+
+# ── The listings below a number ───────────────────────────────────────────────
+
+LISTINGS: list[Any] = [
+    pytest.param(lambda store: store.comments_on(7), id="comments_on"),
+    pytest.param(lambda store: store.label_changes(7), id="label_changes"),
+    pytest.param(lambda store: store.blocked_by(7), id="blocked_by"),
+]
+NO_ISSUE_ANSWERS: list[Any] = [
+    pytest.param(_answer(12, OTHER), id="another-issue"),
+    pytest.param((1, "gh: HTTP 301"), id="redirect-not-followed"),
+    pytest.param(NOT_FOUND, id="missing"),
+]
+
+
+@pytest.mark.parametrize("read", LISTINGS)
+@pytest.mark.parametrize("answer", NO_ISSUE_ANSWERS)
+def test_a_404_below_the_number_of_no_issue_raises_the_error_of_no_issue(
+    read: Callable[[GitHubRoadmapStore], Any], answer: Any
+) -> None:
+    """A 404 of a listing below a number does not say why. The store reads the issue, and the
+    answer says that the number is no issue of the repository."""
+    store, _ = _store({BELOW: NOT_FOUND, ISSUE: answer})
+
+    with pytest.raises(GitHubOperationError) as refused:
+        read(store)
+
+    assert _raised(refused.value) == NO_ISSUE
+
+
+@pytest.mark.parametrize("read", LISTINGS)
+def test_a_404_below_the_number_of_an_issue_of_the_repository_stays_the_error_of_the_listing(
+    read: Callable[[GitHubRoadmapStore], Any],
+) -> None:
+    store, _ = _store({BELOW: NOT_FOUND, ISSUE: _answer(7)})
+
+    with pytest.raises(GitHubNotFoundError) as missing:
+        read(store)
+
+    assert (type(missing.value).__name__, missing.value.error_code) == (
+        "GitHubNotFoundError",
+        "GITHUB_NOT_FOUND",
+    )
+
+
+def test_a_job_comment_on_no_issue_is_refused_before_the_write() -> None:
+    """The store reads the comments of the number before it posts a comment with a job marker."""
+    store, runner = _store({BELOW: NOT_FOUND, ISSUE: _answer(12, OTHER)})
+
+    with pytest.raises(GitHubOperationError) as refused:
+        store.comment(7, f"{CONST_ROADMAP_REFINE_COMMENT_MARKER}\n\nA comment of a job.")
+
+    assert (_raised(refused.value), runner.writes) == (NO_ISSUE, [])
 
 
 # ── Writes ────────────────────────────────────────────────────────────────────
@@ -383,3 +538,70 @@ def test_a_missing_issue_that_the_listing_holds_leaves_the_listing(tmp_path: Pat
         [8],
         [8],
     )
+
+
+@pytest.mark.parametrize("read", LISTINGS[:2])
+def test_a_404_below_the_number_of_an_issue_that_left_drops_its_record(
+    read: Callable[[GitHubRoadmapStore], Any], tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The first read of a round for #7 is a listing below its number, which answers 404. The
+    record leaves the listing of the round, no later round of the lane lists it, and the store
+    logs the number one time with its new place."""
+    github = _repository()
+    listing = IncrementalListing(FileSnapshotStore(tmp_path))
+    _numbers(_round(github, listing))
+    github.move_issue(7, to=OTHER, as_number=12)
+
+    second = _round(github, listing)
+    listed_before = _numbers(second)
+    with caplog.at_level(logging.WARNING, logger=STORE_LOG):
+        with pytest.raises(GitHubOperationError) as refused:
+            read(second)
+        with pytest.raises(GitHubOperationError) as again:
+            read(second)
+
+    assert (
+        listed_before,
+        _raised(refused.value),
+        _raised(again.value),
+        _numbers(second),
+        _numbers(_round(github, listing)),
+        _logged(caplog),
+    ) == (
+        [7, 8],
+        NO_ISSUE,
+        NO_ISSUE,
+        [8],
+        [8],
+        [
+            (
+                "WARNING",
+                f"#7 is no issue of {REPO} now: GitHub answers with {OTHER}#12. The store "
+                "leaves it out.",
+            )
+        ],
+    )
+
+
+def test_a_redirect_that_gh_does_not_follow_drops_the_record_and_logs_it(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    github = _repository()
+    listing = IncrementalListing(FileSnapshotStore(tmp_path))
+    _numbers(_round(github, listing))
+    github.move_issue(7, to=OTHER, as_number=12, followed=False)
+
+    second = _round(github, listing)
+    listed_before = _numbers(second)
+    with caplog.at_level(logging.WARNING, logger=STORE_LOG):
+        read = second.item(7, fresh=True)
+
+    assert (listed_before, read, _numbers(second), _numbers(_round(github, listing))) == (
+        [7, 8],
+        None,
+        [8],
+        [8],
+    )
+    assert _logged(caplog) == [
+        ("WARNING", f"#7 is no issue of {REPO} now. The store leaves it out.")
+    ]

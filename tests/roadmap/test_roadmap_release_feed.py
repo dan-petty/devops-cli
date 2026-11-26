@@ -127,6 +127,22 @@ def test_an_issue_that_answers_404_is_left_out() -> None:
     assert feed.closed_issues(release) == (105,)
 
 
+@pytest.mark.parametrize("followed", [True, False], ids=["issue-at-its-new-place", "status-301"])
+def test_a_closed_issue_that_left_the_repository_is_left_out(followed: bool) -> None:
+    """The pull request of a release closed #104 and #105. A person then transferred #104 to
+    another repository (#7337). GitHub answers the read of #104 with the closed issue at its new
+    place, or with the status 301 when `gh` does not follow the redirect. Neither is a closed
+    issue of the repository, so the release names #105 only."""
+    github, feed = _feed()
+    github.seed_issue(1, "pull", state="closed", body="Closes #104\nCloses #105", pull_request=True)
+    github.seed_issue(104, "moved", state="closed")
+    github.seed_issue(105, "done", state="closed")
+    github.move_issue(104, to="example/other", as_number=9, followed=followed)
+    release = ReleaseInfo("v1.0.0", "u", PUBLISHED, False, False, "([#1](https://e.com/1))")
+
+    assert feed.closed_issues(release) == (105,)
+
+
 def test_any_other_error_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     github, feed = _feed()
     github.seed_issue(1, "pull", state="closed", body="Closes #105", pull_request=True)

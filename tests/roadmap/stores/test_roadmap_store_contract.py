@@ -775,14 +775,16 @@ def test_a_mark_write_below_a_block_that_a_person_opens_keeps_the_record(
 def test_a_write_to_a_pull_request_or_an_issue_that_does_not_exist_raises(world: World) -> None:
     pull = world.seed("a pull request", labels=("priority/p1-high",), pull_request=True)
     probe = make_item(number=pull, title="a pull request")
+    raised: list[str] = []
     for number in (pull, 99):
-        with pytest.raises(GitHubOperationError, match="is not an issue"):
+        with pytest.raises(GitHubOperationError, match="is not an issue") as field:
             world.store.set_field(
                 probe.model_copy(update={"number": number}), ItemField.STATUS, "New"
             )
-        with pytest.raises(GitHubOperationError, match="is not an issue"):
+        with pytest.raises(GitHubOperationError, match="is not an issue") as body:
             world.store.write_issue_body(number, "no")
-    assert world.writes() == 0
+        raised += [field.value.error_code, body.value.error_code]
+    assert (world.writes(), raised) == (0, ["GITHUB_NOT_AN_ISSUE"] * 4)
 
 
 # ── A write that fails part-way through a run (#3744) ─────────────────────────
