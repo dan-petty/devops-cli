@@ -159,6 +159,15 @@ class AIKeySpendLimitError(AICredentialsError):
 # exceeded` of OpenRouter, which the LiteLLM gateway passes on in the `message` of its error.
 _SPEND_LIMIT_TEXT: Final[re.Pattern[str]] = re.compile(r"\bkey limit exceeded\b", re.IGNORECASE)
 
+# HTTP 402 Payment Required: the provider key or its account has too few credits for the request
+# (#7261). The status names the cause, so no text of the body is read.
+PAYMENT_REQUIRED: Final[int] = 402
+
+# The HTTP statuses of a model reply that stop the whole run, because the next call fails the same
+# way until a person acts: a refused key (401, 403) and a key that cannot pay (402). Each site
+# that maps such a reply to a credentials error reads this one set.
+KEY_STOP_STATUSES: Final[frozenset[int]] = frozenset({401, PAYMENT_REQUIRED, 403})
+
 
 def provider_error_text(body: object) -> str:
     """The error text in the `body` of a model's error reply: the body when it is a string, else
@@ -185,16 +194,25 @@ def _parsed_body(body: object) -> object:
         return body
 
 
-def spend_limit_error(status: int, body: object) -> AIKeySpendLimitError | None:
-    """The error of a reply that refused the key with HTTP `status` (401 or 403), when the error
-    text of its `body` says that the key reached its spend limit, else None (#6821). Each site that
-    maps a 401 or 403 to a credentials error asks this one rule first. The error holds no text of
-    the body, so it holds no key, URL or amount of the reply."""
-    if _SPEND_LIMIT_TEXT.search(provider_error_text(_parsed_body(body))) is None:
-        return None
+def spent_key_error(status: int = PAYMENT_REQUIRED) -> AIKeySpendLimitError:
+    """The error of a provider key that reached its spend limit, for a reply with HTTP `status`.
+    A reply with no status, such as an error event inside a stream, gets the 402 that names the
+    cause. The error holds no text of a reply, so it holds no key, URL or amount."""
     return AIKeySpendLimitError(
         ERRORS.ai.provider_key_spend_limit.format(status=status), status=status
     )
+
+
+def spend_limit_error(status: int, body: object) -> AIKeySpendLimitError | None:
+    """The error of a reply with HTTP `status` that says the key reached its spend limit, else
+    None: a 402, whatever its `body` says (#7261), or a 401 or 403 whose error text says that the
+    key limit is exceeded (#6821). Each site that maps a status of `KEY_STOP_STATUSES` to a
+    credentials error asks this one rule first."""
+    if status == PAYMENT_REQUIRED:
+        return spent_key_error(status)
+    if _SPEND_LIMIT_TEXT.search(provider_error_text(_parsed_body(body))) is None:
+        return None
+    return spent_key_error(status)
 
 
 def credentials_error(subject: str, *, has_key: bool, status: int) -> AICredentialsError:

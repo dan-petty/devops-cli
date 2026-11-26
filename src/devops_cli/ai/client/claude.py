@@ -288,7 +288,9 @@ def _map_anthropic_errors(self_obj: Any, failure: str) -> Iterator[None]:
         error.timed_out = isinstance(exc, anthropic.APITimeoutError)
         raise error from exc
     except anthropic.APIStatusError as exc:
-        if exc.status_code in (401, 403):
+        from devops_cli.ai.client.models import KEY_STOP_STATUSES
+
+        if exc.status_code in KEY_STOP_STATUSES:
             from devops_cli.ai.client.models import credentials_error, spend_limit_error
 
             raise spend_limit_error(exc.status_code, exc.body) or credentials_error(

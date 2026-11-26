@@ -29,7 +29,7 @@ from pydantic_ai.messages import ModelResponse, TextPart, ToolReturnPart
 from pydantic_ai.usage import UsageLimits
 from pydantic_ai_harness.shell import Shell
 
-from devops_cli.ai.client.models import AICredentialsError
+from devops_cli.ai.client.models import AICredentialsError, AIKeySpendLimitError
 from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.config import constants
 from devops_cli.config.constants import (
@@ -1630,8 +1630,8 @@ def test_a_model_call_that_fails_gives_the_status_of_the_reply_and_the_model_in_
     assert outcome.reason == "ModelHTTPError: HTTP 503, model example-model"
 
 
-# The HTTP errors that pydantic-ai 2.71 names by a category that 2.59 did not have, and the two
-# categories that 2.59 had already: a stop with one of those two stays where it was (#5098).
+# The HTTP errors that pydantic-ai 2.71 names by a category that 2.59 did not have, and the
+# context window category that 2.59 had already: a stop with it stays where it was (#5098).
 STATUS_CATEGORIES = [
     *(
         pytest.param(status, http_status_category(status), FailureClass.PROVIDER, id=str(status))
@@ -1640,7 +1640,6 @@ STATUS_CATEGORIES = [
     pytest.param(
         400, ModelContextWindowExceededError, FailureClass.CI_INFRA, id="400-context-window"
     ),
-    pytest.param(402, http_status_category(402), FailureClass.CI_INFRA, id="402-quota"),
 ]
 
 
@@ -1656,7 +1655,7 @@ def test_a_status_that_pydantic_ai_names_by_its_category_keeps_the_class_of_its_
     """pydantic-ai 2.71 names the class of an HTTP error by the category of its status, as its
     adapters build it: `ModelRequestRejectedError`, `ModelNotFoundError` or `ModelTimeoutError`
     (#5098). Such a stop stays a failure of the provider, as a `ModelHTTPError` was. A context
-    window error and a spent quota had their names in 2.59 already, and keep their class."""
+    window error had its name in 2.59 already, and keeps its class."""
     failure = ModelHTTPError.for_category(category, status_code=status, model_name="example-model")
 
     outcome = _step(store, checkout, ModelScript(failure))
@@ -1665,6 +1664,25 @@ def test_a_status_that_pydantic_ai_names_by_its_category_keeps_the_class_of_its_
         f"{type(failure).__name__}: HTTP {status}, model example-model",
         klass,
     )
+
+
+def test_a_spent_quota_raises_the_spend_limit_error_after_the_checkout_is_reset(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """A 402 is no stop of the step: a new step fails the same way until a person raises the
+    spend limit, so the run stops as for a refused key (#7261)."""
+    head = git(checkout, "rev-parse", "HEAD")
+    quota = ModelHTTPError.for_category(
+        http_status_category(402), status_code=402, model_name="example-model"
+    )
+    script = ModelScript(
+        tool_call("write_file", path="tests/test_sample.py", content=TEST_BODY), quota
+    )
+
+    with pytest.raises(AIKeySpendLimitError, match=r"reached its spend limit \(HTTP 402\)"):
+        _step(store, checkout, script)
+
+    assert is_clean_at(checkout, head)
 
 
 def test_a_model_call_that_fails_without_a_status_gives_the_model_in_the_reason(

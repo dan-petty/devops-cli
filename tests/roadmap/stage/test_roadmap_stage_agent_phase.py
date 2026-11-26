@@ -240,3 +240,17 @@ def test_a_spend_limit_error_ends_in_spend_limit(
 
     assert outcome is not None
     assert (outcome.end, outcome.requests) == (StageEnd.SPEND_LIMIT, 1)
+
+
+def test_an_http_402_of_the_model_ends_in_spend_limit(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, tmp_path: Path
+) -> None:
+    """A 402 says that the key has too few credits, whatever its body says (#7261)."""
+    folders = _prepared(store, stage_repo, tmp_path, now=datetime.now(UTC))
+    body = {"error": {"message": "This request requires more credits, or fewer max_tokens."}}
+    script = ModelScript(ModelHTTPError(402, "test-model", body=json.dumps(body)))
+
+    outcome = _agent(folders, script)
+
+    assert outcome is not None
+    assert (outcome.end, outcome.requests) == (StageEnd.SPEND_LIMIT, 1)
