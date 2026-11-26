@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.223.0](https://github.com/dan-petty/devops-cli/compare/v0.222.0...v0.223.0) (2026-11-26)
+
+
+### Features
+
+* **roadmap:** keep alternatives results in a brain index ([#7320](https://github.com/dan-petty/devops-cli/issues/7320)) ([ef01e07](https://github.com/dan-petty/devops-cli/commit/ef01e07eb467d2ddfe26d1f0521476a246b751fb))
+* **roadmap:** link reference implementations in each checked item ([#7306](https://github.com/dan-petty/devops-cli/issues/7306)) ([15bc4af](https://github.com/dan-petty/devops-cli/commit/15bc4af0953727d322581d2b6386648f75eef7e6))
+
+
+### Code Refactoring
+
+* **k8s:** delete the environment files from devops-cli ([#7317](https://github.com/dan-petty/devops-cli/issues/7317)) ([66cb933](https://github.com/dan-petty/devops-cli/commit/66cb933eecdef0744d96b60730804a944f267071)), closes [#7290](https://github.com/dan-petty/devops-cli/issues/7290)
+
 ## [0.222.0](https://github.com/dan-petty/devops-cli/compare/v0.221.15...v0.222.0) (2026-11-26)
 
 
