@@ -11,6 +11,13 @@ and sends the rule queries only.
 
 A query is plain words. A colon and a quote leave it, so no text of an item names a search
 qualifier such as `repo:` of another repository.
+
+Each query passes the guard of the web search (`devops_cli.ai.web_search`) before it reaches a
+provider or the decision point: the guard refuses a secret, an e-mail address, a private address
+and an internal host name. The guard reads the text of the item and also the plain words, because
+the words are what leaves the process, and a host of a URL is a word of its own only there. A
+refused query is dropped, and it adds 1 to `devops_cli_brain_references_total` with the provider
+`step` and the result `refused`.
 """
 
 from __future__ import annotations
@@ -19,10 +26,13 @@ import ast
 from collections.abc import Iterable, Iterator, Sequence
 from itertools import chain, zip_longest
 
+from devops_cli.ai.web_search import _guard
 from devops_cli.config.constants import CONST_ROADMAP_ALTERNATIVES_REFERENCE_QUERY_CHARS
+from devops_cli.exceptions.ai import SearchQueryRefused
 from devops_cli.roadmap.inventory import tool_names
 from devops_cli.roadmap.markdown import commonmark_parser
 from devops_cli.roadmap.page_fetch import named_urls
+from devops_cli.roadmap.references.providers import STEP, Result, count
 
 # The token types of CommonMark that hold code: a block gives its lines, and a span its text.
 _CODE_BLOCKS = frozenset({"fence", "code_block"})
@@ -59,16 +69,31 @@ def _code_texts(body: str) -> tuple[list[str], list[str]]:
     return lines, spans
 
 
+def _refused(text: str) -> bool:
+    """Whether the guard of the web search refuses `text` as a query."""
+    try:
+        _guard(text)
+    except SearchQueryRefused:
+        return True
+    return False
+
+
 def _usable(queries: Iterable[str]) -> Iterator[str]:
     """Each of `queries` once, as plain words, in order. A query with no letter or digit, a query
-    shorter than 3 characters and a query over the length cap are left out."""
+    shorter than 3 characters and a query over the length cap are left out. So is a query that
+    the guard of the web search refuses, as its text or as its plain words, and it is counted."""
     seen: set[str] = set()
-    for query in map(_plain, queries):
+    for text in queries:
+        query = _plain(text)
         key = query.casefold()
         fits = _MIN_QUERY_CHARS <= len(query) <= CONST_ROADMAP_ALTERNATIVES_REFERENCE_QUERY_CHARS
-        if fits and key not in seen and any(char.isalnum() for char in query):
-            seen.add(key)
-            yield query
+        if not fits or key in seen or not any(char.isalnum() for char in query):
+            continue
+        seen.add(key)
+        if _refused(text) or _refused(query):
+            count(STEP, Result.REFUSED)
+            continue
+        yield query
 
 
 def rule_queries(body: str) -> list[str]:

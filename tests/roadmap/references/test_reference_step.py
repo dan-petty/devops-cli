@@ -42,7 +42,6 @@ from devops_cli.roadmap.stores.store import CodeSearchHit, ReferenceFacts
 from devops_cli.telemetry.instruments import BRAIN_REFERENCES_TOTAL, DECISION_POINT_TOTAL
 from tests.support.fakes.reference_provider import FakeReferenceProvider
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 if TYPE_CHECKING:
     from devops_cli.config.defaults import RowMode
@@ -287,6 +286,48 @@ def test_a_hit_of_this_repository_a_linked_repository_or_a_prose_file_costs_no_r
     found = _step(store).run(store, _request(text))
 
     assert (found, store.repository_searches, store.reference_reads) == (References(), [], [])
+
+
+@pytest.mark.parametrize(
+    "path", ["src/agent.c", "include/agent.h", "bin/run.pl", "run.bat", "run.ksh", "Makefile"]
+)
+def test_a_source_file_that_a_media_type_table_reads_as_plain_text_is_a_code_hit(
+    store: InMemoryRoadmapStore, web: WebFake, path: str
+) -> None:
+    store.seed_code_search(QUERY, _candidate(store, "example/agent", path))
+
+    found = _step(store).run(store, _request())
+
+    assert found.permalinks == (_link("example/agent", path=path),)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "README.md",
+        "docs/agent.rst",
+        "NOTES.TXT",
+        "docs/agent.html",
+        "src//agent.py",
+        "./agent.py",
+        "src/../agent.py",
+        "/agent.py",
+        "src/",
+    ],
+)
+def test_a_prose_file_and_a_path_with_an_empty_or_a_dot_segment_cost_no_read(
+    store: InMemoryRoadmapStore, path: str
+) -> None:
+    store.seed_code_search(QUERY, _candidate(store, "example/agent", path))
+
+    found = _step(store).run(store, _request())
+
+    assert (found, store.repository_searches, store.reference_reads, store.other_file_reads) == (
+        References(),
+        [],
+        [],
+        [],
+    )
 
 
 def test_a_repository_gives_one_link_for_its_first_file(
@@ -595,6 +636,8 @@ def test_the_decision_point_asks_nothing_for_a_private_repository(
 def test_a_provider_that_does_not_answer_stops_the_step_at_its_bound(
     store: InMemoryRoadmapStore, otlp: FakeCollector, caplog: pytest.LogCaptureFixture
 ) -> None:
+    """The provider holds each search until the test ends, so the work of the step cannot end
+    before the bound, whenever its thread reaches the provider."""
     provider = FakeReferenceProvider("fake-code", SearchKind.CODE)
     provider.hold()
     step = ReferenceStep("on", (provider, GitHubRepositorySearch(store)), seconds=0.05)
@@ -602,24 +645,24 @@ def test_a_provider_that_does_not_answer_stops_the_step_at_its_bound(
     try:
         with caplog.at_level(logging.WARNING, logger=STEP_LOGGER):
             found = step.run(store, _request("Use `alpha one` and `beta two`."))
-        held = provider.holding.wait(THREAD_HANDOFF_BOUND_SECONDS)
-        # The thread of the step must not hold the interpreter at its exit.
-        daemons = [
-            thread.daemon
-            for thread in threading.enumerate()
-            if thread.name == "devops-roadmap-references"
-        ]
     finally:
         provider.release()
 
-    assert (found, held, daemons, provider.queries, _points(otlp)) == (
-        References(complete=False),
-        True,
-        [True],
-        ["alpha one"],
-        {("step", "timeout"): 1.0},
-    )
+    assert (found, _points(otlp)) == (References(complete=False), {("step", "timeout"): 1.0})
     assert "passed its bound" in caplog.text
+
+
+def test_the_work_of_the_step_runs_in_a_daemon_thread_that_cannot_hold_the_interpreter(
+    store: InMemoryRoadmapStore,
+) -> None:
+    provider = FakeReferenceProvider("fake-code", SearchKind.CODE)
+
+    found = ReferenceStep("on", (provider,)).run(store, _request())
+
+    assert (found, [(thread.name, thread.daemon) for thread in provider.threads]) == (
+        References(),
+        [("devops-roadmap-references", True)],
+    )
 
 
 def test_an_error_of_the_work_that_is_no_project_error_gives_no_link_and_no_error(

@@ -4,7 +4,7 @@
 repository, not linked already in the item, public, not archived, not a fork, pushed within
 `CONST_ROADMAP_ALTERNATIVES_MAINTAINED_DAYS` days and under a license that the OSI approved. A code
 hit names a file that is no prose: a Markdown or a text file is documentation of a repository, and
-no implementation. GitHub's search token can read private repositories, so the gate `private` keeps
+no implementation. Its path holds no empty segment, no `.` and no `..`. GitHub's search token can read private repositories, so the gate `private` keeps
 a path of one out of an issue.
 
 **Rank.** The score of a candidate is the sum of four facts: the base-10 logarithm of its stars,
@@ -16,11 +16,11 @@ hits breaks a tie, so the rank is the same for the same facts.
 from __future__ import annotations
 
 import math
-import mimetypes
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Final
 
 from devops_cli.config.constants import CONST_ROADMAP_ALTERNATIVES_MAINTAINED_DAYS
@@ -75,12 +75,15 @@ _OSI_LICENSES: Final[frozenset[str]] = frozenset(
 _OSI_KEYS: Final[frozenset[str]] = frozenset(name.casefold() for name in _OSI_LICENSES)
 # The suffixes of an SPDX identifier of a GNU license that GitHub leaves out.
 _GNU_SUFFIXES: Final[tuple[str, ...]] = ("-only", "-or-later")
-# The media types of a prose file, which is no code.
-_PROSE_TYPES: Final[frozenset[str]] = frozenset(
-    {"text/html", "text/markdown", "text/plain", "text/x-rst"}
+# The suffixes of a prose file, which is no code, in lower case. The table of media types of the
+# standard library is no test for prose: it reads `.c`, `.h`, `.pl`, `.bat` and `.ksh` as
+# `text/plain`.
+_PROSE_SUFFIXES: Final[frozenset[str]] = frozenset(
+    {".adoc", ".htm", ".html", ".markdown", ".md", ".mdx", ".rst", ".txt"}
 )
-# The media types of the standard library alone, so each host reads the same table.
-_MEDIA_TYPES: Final[mimetypes.MimeTypes] = mimetypes.MimeTypes()
+# The segments that a path of a file in a repository does not hold: an empty one, and the two
+# that name a directory and its parent.
+_NO_SEGMENTS: Final[frozenset[str]] = frozenset({"", ".", ".."})
 
 
 class Gate(StrEnum):
@@ -106,10 +109,13 @@ def is_osi_license(spdx: str | None) -> bool:
 
 def _is_code(hit: Hit) -> bool:
     """Whether `hit` names a file of a repository that is no prose. A repository whose name is
-    not `owner/name` is no repository."""
-    if hit.kind is not HitKind.CODE or not is_repository_name(hit.repository) or not hit.path:
+    not `owner/name` is no repository, and a path with an empty segment, `.` or `..` is no path
+    of a file: each provider can give one, and no contents read and no link takes it."""
+    if hit.kind is not HitKind.CODE or not is_repository_name(hit.repository):
         return False
-    return _MEDIA_TYPES.guess_type(hit.path)[0] not in _PROSE_TYPES
+    path = PurePosixPath(hit.path)
+    whole = bool(hit.path) and not _NO_SEGMENTS.intersection(hit.path.split("/"))
+    return whole and path.suffix.lower() not in _PROSE_SUFFIXES
 
 
 def hit_gate(hit: Hit, *, own: str, linked: Collection[str]) -> Gate | None:

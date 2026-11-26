@@ -40,7 +40,6 @@ from tests.support.fakes.reference_provider import FakeReferenceProvider
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_alternatives import apply_alternatives
 from tests.support.scripted_model import Script, call
-from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 if TYPE_CHECKING:
     from tests.support.fakes.http import WebFake
@@ -454,6 +453,8 @@ def test_an_optional_provider_that_is_down_at_the_start_does_not_stop_the_check(
 def test_a_provider_that_holds_a_request_past_the_bound_leaves_the_verdict_of_the_check(
     store: InMemoryRoadmapStore,
 ) -> None:
+    """The provider holds each search until the test ends, so the step of the item cannot end
+    before its bound."""
     number = _item(store)
     held = FakeReferenceProvider("mcp-code", SearchKind.CODE)
     held.hold()
@@ -462,17 +463,14 @@ def test_a_provider_that_holds_a_request_past_the_bound_leaves_the_verdict_of_th
         plan = _plan(
             store, Script(SEARCH, NONE), reference_step=ReferenceStep("on", (held,), seconds=0.05)
         )
-        reached = held.holding.wait(THREAD_HANDOFF_BOUND_SECONDS)
         written = apply_alternatives(store, plan)
     finally:
         held.release()
 
     (check,) = plan.checks
     assert (
-        reached,
-        held.queries,
         check.references,
         written,
         plan.failures,
         _record(store, number).get(AlternativesRecordKey.VERDICT),
-    ) == (True, [IMPORT], References(complete=False), 1, [], "none")
+    ) == (References(complete=False), 1, [], "none")

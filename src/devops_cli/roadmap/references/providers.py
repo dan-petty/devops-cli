@@ -68,8 +68,9 @@ class SearchKind(StrEnum):
 class Result(StrEnum):
     """The result label of `devops_cli_brain_references_total`. A search gives `hit`, `empty` or
     `failed`. A verified link gives `verified` in mode `plan` and `linked` when mode `on` writes
-    it. `unavailable` is an optional provider that was down at the start, and `timeout` is a step
-    that passed its time bound."""
+    it. `unavailable` is an optional provider that was down at the start. Under the provider
+    `step`, `refused` is a query that the guard of the web search refused, `timeout` is a step
+    that passed its time bound, and `failed` is a step whose work ended with an error."""
 
     HIT = "hit"
     EMPTY = "empty"
@@ -78,6 +79,7 @@ class Result(StrEnum):
     LINKED = "linked"
     UNAVAILABLE = "unavailable"
     TIMEOUT = "timeout"
+    REFUSED = "refused"
 
 
 @dataclass(frozen=True)

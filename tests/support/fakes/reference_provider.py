@@ -1,7 +1,7 @@
 """A search provider of the reference step, faked at the provider seam (#4672, ADR 0007).
 
 `FakeReferenceProvider` answers a query with the hits that a test gave for it, and records each
-query that it received. It can fail each search with an error, hold a search open until the test
+query that it received and the thread that sent it. It can fail each search with an error, hold a search open until the test
 releases it, and refuse its connection as a provider whose server is down. A test gives it the
 name and the search kind of the provider, and builds the hits, so this module imports no name of
 the reference step.
@@ -31,6 +31,8 @@ class FakeReferenceProvider:
         self.name = name
         self.kind = kind
         self.queries: list[str] = []
+        # The thread that sent each search.
+        self.threads: list[threading.Thread] = []
         self.connected = False
         self.closed = False
         self.released = False
@@ -60,6 +62,7 @@ class FakeReferenceProvider:
 
     def search(self, query: str) -> list[Any]:
         self.queries.append(query)
+        self.threads.append(threading.current_thread())
         if self._gate is not None:
             self.holding.set()
             self._gate.wait(_HOLD_BOUND_SECONDS)

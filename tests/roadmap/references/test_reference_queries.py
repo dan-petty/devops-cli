@@ -4,7 +4,16 @@ their merge with the queries of the model reply.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from devops_cli.roadmap.references.queries import merged_queries, rule_queries
+from devops_cli.telemetry.instruments import BRAIN_REFERENCES_TOTAL
+
+if TYPE_CHECKING:
+    from tests.support.fakes.otlp import FakeCollector
+
+# A key in the form of a provider key, built here so that no test source holds a literal key.
+KEY = "sk-proj-" + "a1B2c3D4e5F6g7H8" * 3
 
 BODY = """The job needs an agent.
 
@@ -70,4 +79,26 @@ def test_the_merge_leaves_out_a_model_query_that_repeats_a_rule_query() -> None:
     assert merged_queries(["pydantic-ai"], ["Pydantic-AI", "repo:x/y agent"], limit=3) == (
         "pydantic-ai",
         "repo x/y agent",
+    )
+
+
+def test_a_query_that_the_guard_of_the_web_search_refuses_reaches_no_provider(
+    otlp: FakeCollector,
+) -> None:
+    """The guard of the web search refuses a secret, an e-mail address, a private address and an
+    internal host name. A query of the reference step passes the same guard, as the text of the
+    item and as the plain words that leave the process."""
+    body = (
+        "Run `ssh admin@192.168.1.5`, `curl http://nas.lan:8080/api` and "
+        f"`OPENAI_API_KEY={KEY}`. Use `pydantic-ai`."
+    )
+    model = ["agent on 10.0.0.7", "typed agent", "mail ops@example.com", f"token {KEY}"]
+
+    rules = rule_queries(body)
+    merged = merged_queries(rules, model, limit=3)
+
+    assert (rules, merged, otlp.points(BRAIN_REFERENCES_TOTAL.name)) == (
+        ["pydantic-ai"],
+        ("pydantic-ai", "typed agent"),
+        [({"provider": "step", "result": "refused"}, 6.0)],
     )

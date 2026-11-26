@@ -19,7 +19,13 @@ import pytest
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap.stores.store import CodeSearchHit, ReferenceFacts
-from tests.support.fakes.github import API, GitHubApiFake, github_json, quota_headers
+from tests.support.fakes.github import (
+    API,
+    GitHubApiFake,
+    github_json,
+    next_page,
+    quota_headers,
+)
 from tests.support.roadmap_github_store import over_github, recorded_store
 
 PUSHED = "2026-11-20T10:00:00Z"
@@ -135,6 +141,64 @@ def test_the_two_searches_send_one_request_each_and_leave_out_a_private_file(
         [f"GET {API}{code}", f"GET {API}{repositories}"],
         [],
     )
+
+
+def test_one_search_is_one_request_when_a_short_page_links_a_next_page(
+    search_quota: GitHubApiFake,
+) -> None:
+    """GitHub can answer a code search with a page that holds fewer files than it asked for and
+    that links a next page. The step counts one search, so the store reads one page."""
+    code = f"/search/code?{urlencode({'q': 'pydantic_ai', 'per_page': 5})}"
+    repositories = f"/search/repositories?{urlencode({'q': 'pydantic-ai', 'per_page': 5})}"
+    more = {"total_count": 9, "incomplete_results": False}
+    search_quota.route(
+        "GET",
+        code,
+        github_json(
+            {**more, "items": [{"path": "src/agent.py", "repository": _named("example/agent")}]},
+            headers={
+                **quota_headers(9, resource="code_search", limit=10),
+                **next_page(f"{code}&page=2"),
+            },
+        ),
+    )
+    search_quota.route(
+        "GET",
+        repositories,
+        github_json(
+            {**more, "items": []},
+            headers={
+                **quota_headers(29, resource="search", limit=30),
+                **next_page(f"{repositories}&page=2"),
+            },
+        ),
+    )
+    store, _ = over_github()
+
+    found = (
+        store.search_code("pydantic_ai", limit=5),
+        store.search_repositories("pydantic-ai", limit=5),
+    )
+
+    assert (found, search_quota.requested) == (
+        ([CodeSearchHit(repository="example/agent", path="src/agent.py")], []),
+        [f"GET {API}{code}", f"GET {API}{repositories}"],
+    )
+
+
+def test_a_search_answer_that_holds_no_list_of_results_raises_the_read_error(
+    search_quota: GitHubApiFake,
+) -> None:
+    code = f"/search/code?{urlencode({'q': 'pydantic_ai', 'per_page': 5})}"
+    search_quota.route(
+        "GET",
+        code,
+        github_json({"message": "ok"}, headers=quota_headers(9, resource="code_search")),
+    )
+    store, _ = over_github()
+
+    with pytest.raises(GitHubOperationError, match="code search"):
+        store.search_code("pydantic_ai", limit=5)
 
 
 def test_a_search_with_no_limit_sends_no_request(search_quota: GitHubApiFake) -> None:

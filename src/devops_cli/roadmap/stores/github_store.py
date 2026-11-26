@@ -41,7 +41,7 @@ from email.parser import HeaderParser
 from http import HTTPStatus
 from itertools import islice
 from pathlib import PurePosixPath
-from typing import Any, Final, Protocol
+from typing import Any, Final, Protocol, runtime_checkable
 from urllib.parse import quote, urlencode, urlsplit
 
 from pydantic import AliasPath, BaseModel, Field, TypeAdapter
@@ -148,6 +148,14 @@ class ListingSession(Protocol):
     """Reads a REST listing page by page, as `GitHubSession.paginate` does (#983)."""
 
     def paginate(self, path: str, *, iterable_key: str | None = ...) -> Iterator[Any]: ...
+
+
+@runtime_checkable
+class SearchSession(Protocol):
+    """Sends one REST request and gives its answer, as `GitHubSession.rest` does. A search of
+    the reference step is one request of one page (#4672)."""
+
+    def rest(self, method: str, path: str, *, accept: str | None = ..., body: Any = ...) -> Any: ...
 
 
 # ── Payloads gh returns ───────────────────────────────────────────────────────
@@ -1581,16 +1589,27 @@ class GitHubRoadmapStore(RoadmapStore):
     def _search[EntryT](
         self, path: str, adapter: TypeAdapter[EntryT], what: str, limit: int
     ) -> list[EntryT]:
-        """The first `limit` results of the search at `path`. The read stops there, so the
-        session requests one page."""
-        found: list[EntryT] = []
+        """The first `limit` results of the search at `path`: one request of one page. GitHub can
+        answer with fewer results than the page asks for and still link a next page, and the read
+        does not follow that link, so one search is one request. An answer that holds no list of
+        results raises."""
         if limit < 1:
-            return found
-        for entry in self._listing_session().paginate(path, iterable_key=_SEARCH_ITEMS):
-            found.append(self._validate_entry(entry, adapter, what))
-            if len(found) >= limit:
-                break
-        return found
+            return []
+        answer = self._search_session().rest("GET", path)
+        results = answer.get(_SEARCH_ITEMS) if isinstance(answer, Mapping) else None
+        if not isinstance(results, list):
+            raise GitHubOperationError(
+                f"GitHub returned malformed {what} for {self._repo}.",
+                operation="roadmap.read",
+                details={"repo": self._repo[:256], "path": path[:256]},
+            )
+        return [self._validate_entry(entry, adapter, what) for entry in results[:limit]]
+
+    def _search_session(self) -> SearchSession:
+        """The session that sends a search: the store's when it can send one request, else the
+        process's."""
+        session = self._session
+        return session if isinstance(session, SearchSession) else get_github_session()
 
     def reference_facts(self, full_name: str) -> ReferenceFacts | None:
         """The facts of the repository `full_name` for the reference step, in one GraphQL read:
