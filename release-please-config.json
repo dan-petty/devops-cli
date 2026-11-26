@@ -5,6 +5,8 @@
   "include-component-in-tag": false,
   "bump-minor-pre-major": true,
   "always-update": true,
+  "draft": true,
+  "force-tag-creation": true,
   "changelog-sections": [
     { "type": "feat", "section": "Features" },
     { "type": "fix", "section": "Bug Fixes" },

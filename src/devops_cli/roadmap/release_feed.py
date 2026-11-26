@@ -43,16 +43,17 @@ class ReleaseInfo:
 class _ReleasePayload(BaseModel):
     tag_name: str
     html_url: str
-    published_at: datetime
+    # Null for a draft: a release is one until its files are attached (#7328).
+    published_at: datetime | None
     draft: bool = False
     prerelease: bool = False
     body: str | None = None
 
-    def release(self) -> ReleaseInfo:
+    def release(self, published_at: datetime) -> ReleaseInfo:
         return ReleaseInfo(
             self.tag_name,
             self.html_url,
-            self.published_at,
+            published_at,
             self.draft,
             self.prerelease,
             self.body or "",
@@ -92,9 +93,14 @@ class GitHubReleaseFeed:
         self._runner = runner
 
     def releases(self, limit: int) -> tuple[ReleaseInfo, ...]:
-        """The `limit` newest releases, newest first. Raises GitHubOperationError."""
+        """The published releases among the `limit` newest ones, newest first. A release with no
+        publication time is not out yet, so it is left out. Raises GitHubOperationError."""
         text = self._read(f"repos/{self._repo}/releases?per_page={limit}", "the releases")
-        return tuple(payload.release() for payload in self._validate(_RELEASES, text, "releases"))
+        return tuple(
+            payload.release(payload.published_at)
+            for payload in self._validate(_RELEASES, text, "releases")
+            if payload.published_at is not None
+        )
 
     def closed_issues(self, release: ReleaseInfo) -> tuple[int, ...]:
         """The closed issues that the pull requests of `release` close, once each, in ascending

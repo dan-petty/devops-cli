@@ -41,3 +41,4 @@ On 2026-10-23 the owner decided to keep agents as far from the release workflow 
 
 ADR 0013 supersedes [ADR 0012](0012-releases-are-derived-by-release-please-from-trunk-and-milestones-are-planning-buckets.md).
 2026-11-25: Amended by ADR 0040, section Decision Outcome.
+2026-11-26: Fact out of date: section Decision, a release is a draft until `Upload Release Assets` attaches its files and publishes it (#7328).

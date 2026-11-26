@@ -222,19 +222,20 @@ class GitHubFake:
         self,
         tag: str,
         body: str,
-        published_at: datetime,
+        published_at: datetime | None,
         *,
         draft: bool = False,
         prerelease: bool = False,
     ) -> None:
-        """Release `tag` with the changelog `body`, published at `published_at`. The listing of
-        `releases` gives the seeded ones newest first, as GitHub does."""
+        """Release `tag` with the changelog `body`, published at `published_at`, which GitHub
+        gives as null for a draft. The listing of `releases` gives each release with no
+        publication time first, then the others newest first."""
         self.releases.append(
             {
                 "tag_name": tag,
                 "html_url": f"https://github.com/{self.repo}/releases/tag/{tag}",
                 "body": body,
-                "published_at": _wire(published_at),
+                "published_at": None if published_at is None else _wire(published_at),
                 "draft": draft,
                 "prerelease": prerelease,
             }
@@ -586,7 +587,11 @@ class GitHubFake:
         """A page of the pull request listing, the open ones by default, of the labels, or of the
         releases, newest first."""
         if kind == "releases":
-            listed = sorted(self.releases, key=lambda r: r["published_at"], reverse=True)
+            listed = sorted(
+                self.releases,
+                key=lambda r: (r["published_at"] is None, r["published_at"] or ""),
+                reverse=True,
+            )
         else:
             listed = (
                 list(self.label_catalog)
