@@ -343,6 +343,8 @@ PRODUCT_MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         Path("searxng", "networkpolicy-client.yaml"),
         Path("searxng", "networkpolicy.yaml"),
         Path("searxng", "service.yaml"),
+        # A kustomization: the shared Valkey base of dan-petty/infra at a release tag (#7294).
+        Path("valkey-roadmap"),
         Path("roadmap-service", "serviceaccount.yaml"),
         Path("roadmap-service", "role.yaml"),
         Path("roadmap-service", "admissionpolicy.yaml"),

@@ -64,6 +64,10 @@ def test_keyring_sources_are_managed_keys_or_declared_keyring_only() -> None:
                 GRAFANA_SECURITY_KEY,
                 # The admin password of the object store (#4750), by its name: the key is new.
                 "seaweedfs_admin_password",
+                # The passwords of the users of valkey-roadmap (#7294), by their names.
+                "valkey_roadmap_brain",
+                "valkey_roadmap_agent",
+                "valkey_roadmap_metrics",
             }
         ),
     )

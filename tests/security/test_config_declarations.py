@@ -382,6 +382,9 @@ _VARIABLES_OF_LATER_SETTINGS = frozenset(
         "DEVOPS_CLI_TF_GITHUB_READER_APP_ID",  # #5320
         "DEVOPS_CLI_TF_GITHUB_READER_INSTALLATION_ID",  # #5320
         "DEVOPS_CLI_TF_GITHUB_READER_PRIVATE_KEY",  # #5320
+        "DEVOPS_CLI_ROADMAP_STATE_URL",  # #7294
+        "DEVOPS_CLI_ROADMAP_STATE_USER",  # #7294
+        "DEVOPS_CLI_ROADMAP_STATE_PASSWORD",  # #7294
     }
 )
 
@@ -426,6 +429,7 @@ _KEYRING_OF_LATER_CREDENTIALS = {
     "store.access_key_id": "store_access_key_id",  # #4761
     "store.secret_access_key": "store_secret_access_key",  # #4761
     "tf.github_reader.private_key": "tf_github_reader_private_key",  # #5320
+    "roadmap.state.password": "roadmap_state_password",  # #7294
 }
 
 
@@ -520,6 +524,36 @@ def test_valkey_username_is_declared_with_its_variable(
         load_settings().valkey.username,
         Settings().valkey.username,
     ) == ("DEVOPS_CLI_VALKEY_USER", "sweep", None)
+
+
+def test_the_roadmap_state_settings_are_declared_with_their_variables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`roadmap.state.url` names the Valkey of the roadmap state, `roadmap.state.username` its ACL
+    user and `roadmap.state.password` the credential of that user. With no value, the process
+    names no instance and no user (#7294)."""
+    from devops_cli.config.settings import load_settings
+
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STATE_URL", "valkey://example.com:6379/0")
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STATE_USER", "brain")
+    variables, loaded, default = (
+        env.option_env_vars(),
+        load_settings().roadmap.state,
+        Settings().roadmap.state,
+    )
+    assert (
+        [variables.get(f"roadmap.state.{name}") for name in ("url", "username", "password")],
+        (loaded.url, loaded.username),
+        (default.url, default.username),
+    ) == (
+        [
+            "DEVOPS_CLI_ROADMAP_STATE_URL",
+            "DEVOPS_CLI_ROADMAP_STATE_USER",
+            "DEVOPS_CLI_ROADMAP_STATE_PASSWORD",
+        ],
+        ("valkey://example.com:6379/0", "brain"),
+        (None, None),
+    )
 
 
 def test_the_options_module_is_gone() -> None:

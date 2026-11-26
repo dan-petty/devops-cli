@@ -24,8 +24,10 @@ import yaml
 
 from tests.support.paths import REPO_ROOT
 
-# `kubectl kustomize` reads local files only and renders the repository's largest kustomization
-# in well under a second; the bound stops a hung binary, not a slow render.
+# `kubectl kustomize` renders the repository's largest kustomization of local files in well under
+# a second. A folder that builds a base of another repository, such as
+# `k8s/devops/valkey-roadmap` (#7294), fetches it from GitHub, which takes about 6 seconds. The
+# bound stops a hung binary or a hung fetch, not a slow render.
 KUSTOMIZE_TIMEOUT_SECONDS = 30
 
 COMMITTED_KUSTOMIZATIONS = REPO_ROOT / "k8s"

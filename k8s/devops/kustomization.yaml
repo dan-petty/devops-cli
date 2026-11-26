@@ -18,4 +18,5 @@ resources:
 - crawl4ai
 - mcp-server
 - searxng
+- valkey-roadmap
 - roadmap-service

@@ -172,6 +172,7 @@ def test_deploy_stack_pushes_devops_only_where_its_namespace_exists(
             0,
             [
                 "cloudflared/cloudflared-token",
+                "devops/valkey-roadmap-auth",
                 "devops/crawl4ai",
                 "devops/searxng",
                 "devops/searxng-metrics-auth",

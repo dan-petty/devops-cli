@@ -181,7 +181,7 @@ def test_load_cluster_secrets_table_resolves_fixture_when_installed_in_site_pack
     )
 
     table = cs.load_cluster_secrets_table()
-    assert len(table) == 23
+    assert len(table) == 24
     assert any(s.ref == "object-store/seaweedfs-admin" for s in table)
     assert any(s.ref == "argocd/argocd-notifications-secret" for s in table)
 
@@ -215,7 +215,7 @@ def test_load_cluster_secrets_table_resolves_fixture_when_env_lacks_secrets() ->
     import devops_cli.k8s.cluster_secrets as cs
 
     table = cs.load_cluster_secrets_table(object())
-    assert len(table) == 23
+    assert len(table) == 24
     assert any(s.ref == "object-store/seaweedfs-admin" for s in table)
 
 
@@ -228,5 +228,5 @@ def test_load_cluster_secrets_table_resolves_fixture_when_k8s_dir_lacks_secrets(
     empty_k8s = tmp_path / "k8s"
     empty_k8s.mkdir()
     table = cs.load_cluster_secrets_table(k8s_dir=empty_k8s)
-    assert len(table) == 23
+    assert len(table) == 24
     assert any(s.ref == "object-store/seaweedfs-admin" for s in table)

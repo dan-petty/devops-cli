@@ -93,6 +93,15 @@ def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when
     assert copy_container[2].startswith("debian:")
     assert "@sha256:" in copy_container[2]
     containers.discard(copy_container)
+    # Deployment `valkey-roadmap` runs the two images of the shared Valkey base of dan-petty/infra,
+    # which pins each by tag and digest (#7294). A new release tag of the base updates the pins.
+    valkey = {c for c in containers if c[1] in ("valkey", "exporter")}
+    containers -= valkey
+    assert (
+        {c[0] for c in valkey},
+        sorted(c[1] for c in valkey),
+        [c[1] for c in valkey if "@sha256:" not in c[2]],
+    ) == ({"Deployment"}, ["exporter", "valkey"], [])
     # Each container of the runner image gets the digest, the init containers of the runner
     # template too (#3700).
     runners = {c for c in containers if c[2].startswith(runner)}

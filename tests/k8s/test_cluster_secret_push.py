@@ -68,6 +68,8 @@ CRAWL4AI_TOKEN = "crawl4ai-keyring-value-0001"
 SEARXNG_SECRET = "searxng-keyring-value-0001"
 SEARXNG_METRICS_PASSWORD = "searxng-metrics-keyring-value-0001"
 MCP_TOKEN = "mcp-keyring-value-0001"
+# The keyring entries of the users of valkey-roadmap, whose passwords a push generates (#7294).
+VALKEY_ROADMAP_KEYS = ("valkey_roadmap_brain", "valkey_roadmap_agent", "valkey_roadmap_metrics")
 FULL_KEYRING = {
     LLM_GATEWAY_MASTER_KEY: GATEWAY_KEY,
     "qdrant_api_key": QDRANT_KEY,
@@ -261,6 +263,7 @@ def test_apply_is_one_server_side_apply_of_a_list_on_stdin(
                 "users.acl",
             ],
             "cloudflared/cloudflared-token": ["token"],
+            "devops/valkey-roadmap-auth": ["agent", "brain", "metrics", "users.acl"],
             "devops/crawl4ai": ["CRAWL4AI_API_TOKEN"],
             "devops/searxng": ["SEARXNG_SECRET"],
             "devops/searxng-metrics-auth": ["password", "username"],
@@ -424,6 +427,8 @@ def test_the_devops_api_key_is_adopted_from_the_gateway_secret_never_generated(
             LLM_GATEWAY_MASTER_KEY: "sk-live-gateway-0001",
             DEVOPS_CACHE_VALKEY_AUTH_KEY: "live-devops-cache-0001",
             "qdrant_read_only_api_key": backend.writes["qdrant_read_only_api_key"],
+            # The push generates the passwords of the users of valkey-roadmap (#7294).
+            **{key: backend.writes[key] for key in VALKEY_ROADMAP_KEYS},
         },
         {
             APP_KEY_ENTRY: APP_KEY,
@@ -616,6 +621,7 @@ def test_stack_devops_reads_the_app_key_gateway_key_and_webhook_secrets_and_runs
             "renovate_github_app_private_key",
             "qdrant_api_key",
             "qdrant_read_only_api_key",
+            *VALKEY_ROADMAP_KEYS,
         },
         [],
         APP_KEY,

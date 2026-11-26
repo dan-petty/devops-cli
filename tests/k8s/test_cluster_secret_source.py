@@ -20,7 +20,8 @@ def test_no_moved_stack_rows_remain() -> None:
 
 
 def test_only_product_valkey_rows_remain() -> None:
-    """The only llm rows left in cluster_secrets.py are valkey-devops-auth and valkey-runs-auth."""
+    """The only Valkey rows in cluster_secrets.py are the rows of the product: valkey-devops-auth
+    and valkey-runs-auth of namespace llm, and valkey-roadmap-auth of the product base (#7294)."""
     res = subprocess.run(
         ["git", "grep", "-n", 'name="valkey-', "src/devops_cli/k8s/cluster_secrets.py"],
         cwd=REPO_ROOT,
@@ -29,6 +30,7 @@ def test_only_product_valkey_rows_remain() -> None:
     )
     assert res.returncode == 0
     lines = [line.strip() for line in res.stdout.strip().splitlines() if line.strip()]
-    assert len(lines) == 2, f"Expected 2 valkey rows, got:\n{res.stdout}"
+    assert len(lines) == 3, f"Expected 3 valkey rows, got:\n{res.stdout}"
     assert any('name="valkey-devops-auth"' in line for line in lines)
     assert any('name="valkey-runs-auth"' in line for line in lines)
+    assert any('name="valkey-roadmap-auth"' in line for line in lines)

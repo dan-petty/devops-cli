@@ -1072,8 +1072,9 @@ def get_check_specs() -> list[CheckSpec]:
         ),
         # The chart sources of the Argo CD Applications render with `helm template`, which fetches
         # each chart from its repository, and a check can start the image of a chart with
-        # `docker` (#6730). So the row needs the network and a container engine, and the `k8s`
-        # row needs only `kubectl` and the files of the checkout.
+        # `docker` (#6730). So the row needs the network and a container engine. The `k8s` row
+        # needs `kubectl` and the files of the checkout and, for a folder that builds a base of
+        # another repository, such as `k8s/devops/valkey-roadmap` (#7294), git and github.com.
         CheckSpec(
             name="charts",
             display_title=MESSAGES.ci.chart_renders,

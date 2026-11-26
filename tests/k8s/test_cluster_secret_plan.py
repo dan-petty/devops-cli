@@ -428,6 +428,42 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             ("deployment/valkey-devops",),
         ),
         (
+            "devops/valkey-roadmap-auth",
+            "brain",
+            "devops",
+            True,
+            SecretGenerator(encoding="hex", nbytes=32, prefix=""),
+            None,
+            ("deployment/valkey-roadmap",),
+        ),
+        (
+            "devops/valkey-roadmap-auth",
+            "agent",
+            "devops",
+            True,
+            SecretGenerator(encoding="hex", nbytes=32, prefix=""),
+            None,
+            ("deployment/valkey-roadmap",),
+        ),
+        (
+            "devops/valkey-roadmap-auth",
+            "metrics",
+            "devops",
+            True,
+            SecretGenerator(encoding="hex", nbytes=32, prefix=""),
+            None,
+            ("deployment/valkey-roadmap",),
+        ),
+        (
+            "devops/valkey-roadmap-auth",
+            "users.acl",
+            "devops",
+            True,
+            None,
+            None,
+            ("deployment/valkey-roadmap",),
+        ),
+        (
             "devops/crawl4ai",
             "CRAWL4AI_API_TOKEN",
             "devops",
@@ -659,6 +695,56 @@ def test_valkey_role_passwords_and_derived_aclfile(
         }
     )
     cluster.add_secret("llm", "valkey-devops-auth", values)
+    again = plan_push([row], PushOptions(context="test-ctx"))
+    assert (
+        [(entry.entry.key, entry.state) for entry in again.secrets[0].entries],
+        again.secrets[0].data().get("users.acl"),
+    ) == ([(key, EntryState.UNCHANGED) for key in values], values["users.acl"])
+
+
+def test_valkey_roadmap_user_passwords_and_derived_aclfile(
+    cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch, keyring_store: FakeKeyring
+) -> None:
+    """The plan generates one hex password for each user of `valkey-roadmap` and builds the
+    aclfile of Secret devops/valkey-roadmap-auth from them. The aclfile turns the user `default`
+    off: `brain` reads and writes the brain keys, `agent` only reads them, and `metrics` holds
+    the commands of an exporter scrape and no key. A second plan changes nothing (#7294)."""
+    backend = _install(monkeypatch, cluster, keyring_store, values={})
+    (row,) = [s for s in load_cluster_secrets_table() if s.ref == "devops/valkey-roadmap-auth"]
+    plan = plan_push([row], PushOptions(context="test-ctx"))
+    values = {entry.entry.key: entry.value or "" for entry in plan.secrets[0].entries}
+    users = ("brain", "agent", "metrics")
+    passwords = [values.get(key, "") for key in users]
+    assert (
+        list(values),
+        [len(password) for password in passwords],
+        [password for password in passwords if not set(password) <= set("0123456789abcdef")],
+        len(set(passwords)),
+        values.get("users.acl", "").splitlines(),
+    ) == (
+        [*users, "users.acl"],
+        [64, 64, 64],
+        [],
+        3,
+        [
+            "user default off",
+            f"user brain on >{values.get('brain')} ~roadmap:v1:brain-* +@all -@dangerous",
+            f"user agent on >{values.get('agent')} %R~roadmap:v1:brain-* "
+            "+@read +@connection -@dangerous",
+            f"user metrics on >{values.get('metrics')} +info +config|get +latency|latest "
+            "+latency|histogram +slowlog|len +slowlog|get +commandlog|len +command|info "
+            "+client|setname",
+        ],
+    )
+
+    backend.values.update(
+        {
+            entry.entry.source.key: entry.value or ""
+            for entry in plan.secrets[0].entries
+            if isinstance(entry.entry.source, KeyringSource)
+        }
+    )
+    cluster.add_secret("devops", "valkey-roadmap-auth", values)
     again = plan_push([row], PushOptions(context="test-ctx"))
     assert (
         [(entry.entry.key, entry.state) for entry in again.secrets[0].entries],
