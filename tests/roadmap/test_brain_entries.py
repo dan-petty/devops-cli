@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 
@@ -97,9 +98,9 @@ def _record(**changes: str | None) -> dict[str, str | None]:
     return record | {f"alternatives.{name}": value for name, value in changes.items()}
 
 
-def _entry(**changes: object) -> BrainEntry:
+def _entry(**changes: Any) -> BrainEntry:
     """The entry of the check with a tool, with `changes` in place of its values."""
-    fields: dict[str, object] = {
+    fields: dict[str, Any] = {
         "number": 7,
         "state": GitHubState.OPEN,
         "verdict": Verdict.COVERS,
@@ -112,7 +113,7 @@ def _entry(**changes: object) -> BrainEntry:
         "refs": (),
         "uses": (),
     }
-    return BrainEntry(**(fields | changes))  # type: ignore[arg-type]
+    return BrainEntry(**(fields | changes))
 
 
 def test_an_issue_with_a_block_and_a_recorded_check_gives_its_entry() -> None:
@@ -197,6 +198,14 @@ def test_a_check_that_recorded_no_tool_id_takes_the_canonical_id_of_its_tool_url
     assert checked_entry(7, GitHubState.OPEN, block, record) == _entry(
         tool_id="pkg:pypi/widget-kit", tool_url="https://pypi.org/project/Widget_Kit"
     )
+
+
+def test_a_recorded_time_with_no_zone_is_a_time_in_utc() -> None:
+    """A record that a person wrote can hold a time with no zone. The entry reads it as UTC, so
+    it compares with the time of each other check."""
+    record = _record(checked_at="2026-11-26T05:10:18.933054")
+
+    assert checked_entry(7, GitHubState.OPEN, CHECK_BLOCK, record) == _entry()
 
 
 def test_the_entry_names_at_most_ten_used_entries() -> None:

@@ -43,6 +43,7 @@ from devops_cli.roadmap.stores.store import (
     GitHubState,
     IssueRecord,
     Verdict,
+    as_utc,
 )
 
 # The keys of the record that a later version of the record declares: the links of the reference
@@ -96,8 +97,9 @@ def _verdict(recorded: str | None) -> Verdict | None:
 
 
 def _time(recorded: str | None) -> datetime | None:
+    """The time that `recorded` gives, a time with no zone as UTC; None when it gives none."""
     try:
-        return datetime.fromisoformat(recorded) if recorded else None
+        return as_utc(datetime.fromisoformat(recorded)) if recorded else None
     except ValueError:
         return None
 

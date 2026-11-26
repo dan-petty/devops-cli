@@ -44,6 +44,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_BRAIN_INDEX_TTL_SECONDS,
 )
 from devops_cli.roadmap.brain_entries import BrainEntry, reference_key_id, tool_key_id
+from devops_cli.roadmap.stores.store import as_utc
 
 if TYPE_CHECKING:
     from devops_cli.github.repo_ref import RepoRef
@@ -100,8 +101,9 @@ def _numbers(numbers: Sequence[int]) -> str:
 
 
 def _time(text: str | None) -> datetime | None:
+    """The time that `text` gives, a time with no zone as UTC; None when it gives none."""
     try:
-        return datetime.fromisoformat(text) if text else None
+        return as_utc(datetime.fromisoformat(text)) if text else None
     except ValueError:
         return None
 
