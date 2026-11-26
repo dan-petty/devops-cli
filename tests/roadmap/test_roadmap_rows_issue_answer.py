@@ -29,6 +29,7 @@ from devops_cli.roadmap.alternatives import (
 from devops_cli.roadmap.implement.implement import reset_retry_reads
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.run import service_job
+from devops_cli.roadmap.stage.stage import StageFailure, write_each
 from devops_cli.roadmap.status_sync import (
     ClosedCleared,
     StatusSynced,
@@ -46,6 +47,7 @@ from devops_cli.roadmap.stores.store import (
     with_record,
 )
 from devops_cli.server.service import TriggerBatch
+from tests.support.builders import make_item
 from tests.support.fakes.github import RunnerSession
 from tests.support.fakes.github_repository import GitHubFake
 from tests.support.scripted_model import Script
@@ -308,3 +310,21 @@ def test_a_round_drops_the_record_of_an_issue_that_a_delivery_says_left(
         f"#7 is no issue of {REPO} now: a delivery says that it left. The lane status leaves "
         "it out."
     ]
+
+
+def test_a_write_that_fails_for_another_number_is_a_failure_of_its_item(
+    github: GitHubFake, lane: IncrementalListing
+) -> None:
+    """Only the error of no issue for the number of the item leaves the item out. The write of
+    item #8 reads #7, which left the repository: the write of #8 failed, and the pass records it."""
+    store = _round(github, lane)
+    eight = make_item(number=8, title="fix(roadmap): repair 8")
+    done: list[int] = []
+    failed: list[StageFailure] = []
+
+    write_each([(eight, lambda: store.read_issue_body(7))], done, failed)
+
+    assert (done, [(failure.number, failure.error, failure.reason) for failure in failed]) == (
+        [],
+        [(8, "GitHubNotAnIssueError", f"#7 is not an issue of {REPO}.")],
+    )
