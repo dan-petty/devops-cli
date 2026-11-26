@@ -2954,12 +2954,26 @@ CONST_VALKEY_BRAIN_PREFIX: Final[str] = "valkey:brain:v1"
 CONST_VALKEY_ROADMAP_PREFIX: Final[str] = "valkey:roadmap:v1"
 
 
+# The brain index of the alternatives results in `valkey-roadmap` (#4676, ADR 0023 section 3).
+# Each item, tool and reference entry and the audit stream expire 45 days after their last write.
+# One sync copies at most 500 changed issues, and the stream keeps about 10,000 entries. An item
+# entry holds at most 3 references, 5 near items and 10 used entries.
+CONST_ROADMAP_BRAIN_INDEX_TTL_SECONDS: Final[int] = 3_888_000
+CONST_ROADMAP_BRAIN_SYNC_MAX_ISSUES: Final[int] = 500
+CONST_ROADMAP_BRAIN_EVENTS_MAX_ENTRIES: Final[int] = 10_000
+CONST_ROADMAP_BRAIN_ITEM_MAX_REFS: Final[int] = 3
+CONST_ROADMAP_BRAIN_ITEM_MAX_NEAR: Final[int] = 5
+CONST_ROADMAP_BRAIN_ITEM_MAX_USES: Final[int] = 10
+
+
 class BrainStore(StrEnum):
-    """The `store` label of the counters of the project brain (#4668)."""
+    """The `store` label of the counters of the project brain (#4668). `BRAIN_INDEX` is the index
+    of the alternatives results in `valkey-roadmap` (#4676)."""
 
     SNAPSHOT = "snapshot"
     FACT = "fact"
     ISSUE = "issue"
+    BRAIN_INDEX = "brain_index"
 
 
 class BrainRead(StrEnum):

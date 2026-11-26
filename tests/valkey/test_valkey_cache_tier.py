@@ -474,6 +474,26 @@ def test_a_writer_whose_watched_key_changed_writes_nothing(
     ) == (False, b"other", False, True, b"mine", [b"first", b"other"])
 
 
+def test_the_cache_tier_scans_the_keys_of_one_pattern_and_fails_soft(
+    valkey_server: FakeServer, valkey_client: ValkeyClient, otlp: FakeCollector
+) -> None:
+    """One step of `SCAN` gives the keys that match its pattern, as the brain index counts the
+    entries of one repository (#4676). While the server is gone, the step gives None and counts
+    `scan`, as each other command of the tier does."""
+    tier = _tier(valkey_client)
+    FakeValkey(server=valkey_server).mset({"index:acme/a:1": "x", "index:acme/ab:1": "x"})
+
+    scanned = tier.scan(0, "index:acme/a:*", 500)
+    valkey_server.connected = False
+    failed = tier.scan(0, "index:acme/a:*", 500)
+
+    assert (scanned, failed, _errors(otlp)) == (
+        (0, ["index:acme/a:1"]),
+        None,
+        {("scan", "connection"): 1.0},
+    )
+
+
 @pytest.mark.parametrize(
     "last_command",
     [

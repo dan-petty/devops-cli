@@ -460,6 +460,22 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "other",
         "the policy that says a tool is maintained",
     ),
+    # ── The brain index of the alternatives results (#4676) ───────────────────────────────
+    "CONST_ROADMAP_BRAIN_INDEX_TTL_SECONDS": (
+        "other",
+        "45 days; an entry with no write expires, and the next sync writes it again",
+    ),
+    "CONST_ROADMAP_BRAIN_SYNC_MAX_ISSUES": (
+        "kept",
+        "issues that one sync copies; the watermark keeps the rest for the next round",
+    ),
+    "CONST_ROADMAP_BRAIN_EVENTS_MAX_ENTRIES": (
+        "kept",
+        "entries of the audit stream of one repository, which bounds the memory of the store",
+    ),
+    "CONST_ROADMAP_BRAIN_ITEM_MAX_REFS": ("kept", "references of one item entry (ADR 0023)"),
+    "CONST_ROADMAP_BRAIN_ITEM_MAX_NEAR": ("kept", "near items of one item entry (ADR 0023)"),
+    "CONST_ROADMAP_BRAIN_ITEM_MAX_USES": ("kept", "used entries that one item entry names"),
     "DEFAULT_ROADMAP_RETITLE_LIMIT": ("setting", "items that one retitle run examines"),
     "DEFAULT_ROADMAP_ALTERNATIVES_LIMIT": ("kept", "items of one round"),
     "DEFAULT_ROADMAP_ALTERNATIVES_FIRST_PASS_LIMIT": (

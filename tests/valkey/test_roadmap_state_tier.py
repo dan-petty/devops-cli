@@ -13,11 +13,14 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from tests.support.fakes.valkey import bulk_reply, serving_valkey
+
+if TYPE_CHECKING:
+    from devops_cli.valkey.cache import ValkeyCacheTier
 
 _TIER_LOGGER = "devops_cli.valkey.cache"
 # A key of the brain index, in the form of ADR 0022 section 5.
@@ -128,4 +131,19 @@ def test_a_roadmap_state_url_that_is_not_valid_gives_no_tier_and_one_warning(
         (None, None),
         1,
         True,
+    )
+
+
+def test_an_installed_tier_is_the_roadmap_state_tier_of_the_process(
+    roadmap_state_valkey: ValkeyCacheTier,
+) -> None:
+    """A test installs a tier over the in-memory Valkey through the seam of the tier (#4676):
+    `roadmap_state_tier()` gives it, and a write through it comes back, with no setting."""
+    tier = _state_tier()
+    written = tier.hset(_KEY, {"verdict": "none"})
+
+    assert (tier is roadmap_state_valkey, written, tier.hget(_KEY, "verdict")) == (
+        True,
+        1,
+        b"none",
     )
