@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.223.3](https://github.com/dan-petty/devops-cli/compare/v0.223.2...v0.223.3) (2026-11-26)
+
+
+### Bug Fixes
+
+* **deps:** lock file maintenance ([#7346](https://github.com/dan-petty/devops-cli/issues/7346)) ([916ecaf](https://github.com/dan-petty/devops-cli/commit/916ecafb244ced0f137a5deaa073f8232dbeb0c4))
+* **deps:** update dan-petty/devtools Docker tag to v1.3.1 ([#7282](https://github.com/dan-petty/devops-cli/issues/7282)) ([31ba3ff](https://github.com/dan-petty/devops-cli/commit/31ba3ff6b22f7ef7be7838b4a42265484fdf7e00))
+
 ## [0.223.2](https://github.com/dan-petty/devops-cli/compare/v0.223.1...v0.223.2) (2026-11-26)
 
 
