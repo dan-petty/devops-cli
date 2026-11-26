@@ -131,6 +131,10 @@ class _ReviewListing:
         )
         return listed
 
+    def drop(self, repo: str, number: int) -> None:
+        """Nothing: the review reads no issue by its number, so its store names no number that
+        left the repository (#7331)."""
+
     def _gap(self, held: ListingSnapshot, *, own: bool) -> datetime:
         """Where the changes are read from: the later of the watermark of `held` and `start`, or
         `start` when it is before the first window that the review's own snapshot covers, which

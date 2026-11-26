@@ -26,6 +26,13 @@ edit between the two requests is lost; within one process, `_JOB_RECORD_LOCK` ho
 from its read to its `PATCH`, so the Service's lanes, which open a store each, never write
 back a record that another lane changed since it was read (#1532). The only GraphQL reads are an
 issue's closes and reopens and the repository's visibility; no request reaches a project board.
+
+A read of an issue by its number can answer with another issue: GitHub redirects the read of an
+issue that was transferred to another repository, and the answer then holds the number and the
+repository of the issue at its new place. So the store compares the number and the repository of
+each such answer with the request (`_answered`, #7331). An answer that names another issue is no
+issue of this repository, as a missing one: a read gives None, a write raises before any request,
+and the listing of the store, its snapshot and the brain drop the record of the number.
 """
 
 from __future__ import annotations
@@ -63,15 +70,17 @@ from devops_cli.exceptions.git import (
 from devops_cli.exceptions.roadmap import (
     RoadmapRecordMarkLostError,
 )
+from devops_cli.exceptions.validation import ValidationError as RepositoryNameError
 from devops_cli.github.check_verdict import read_check_runs
 from devops_cli.github.error_classifier import classify_gh_failure, gh_http_status
 from devops_cli.github.rate_limiter import run_gh
-from devops_cli.github.repo_ref import is_repository_name
+from devops_cli.github.repo_ref import RepoRef, is_repository_name
 from devops_cli.github.request_scope import request_labels
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.stores.brain_issues import (
     CachedIssue,
     cached_issue,
+    forget_issue,
     remember_issue,
 )
 from devops_cli.roadmap.stores.comment_repeat import refused_repeat
@@ -188,10 +197,52 @@ class _MilestonePayload(BaseModel):
         )
 
 
+# The path segment of a REST URL that the owner and the name of a repository follow.
+_REPOS_SEGMENT: Final = "repos"
+# The path segment that follows the repository in the page URL of an issue or a pull request.
+_PAGE_KINDS: Final = frozenset({"issues", "pull"})
+# The count of the path parts of such a page URL: the root, the owner, the name, the kind and
+# the number.
+_PAGE_PARTS: Final = 5
+# The count of the path parts that name a repository: its owner and its name.
+_NAME_PARTS: Final = 2
+
+
+def _repository_named(parts: Sequence[str]) -> RepoRef | None:
+    """The repository that `parts` name as its owner and its name, or None when they are no
+    `owner/name` of GitHub."""
+    if len(parts) != _NAME_PARTS:
+        return None
+    try:
+        return RepoRef("/".join(parts))
+    except RepositoryNameError:
+        return None
+
+
+def _rest_repository(url: str) -> RepoRef | None:
+    """The repository of a REST URL, `.../repos/<owner>/<name>` with or without a path after
+    the name, or None when the URL names none."""
+    parts = PurePosixPath(urlsplit(url).path).parts
+    if _REPOS_SEGMENT not in parts:
+        return None
+    start = parts.index(_REPOS_SEGMENT) + 1
+    return _repository_named(parts[start : start + _NAME_PARTS])
+
+
+def _page_repository(url: str) -> RepoRef | None:
+    """The repository of the page of an issue or a pull request, `/<owner>/<name>/issues/<number>`
+    or `/<owner>/<name>/pull/<number>`, or None when the URL is no such page."""
+    parts = PurePosixPath(urlsplit(url).path).parts
+    if len(parts) != _PAGE_PARTS or parts[3] not in _PAGE_KINDS:
+        return None
+    return _repository_named(parts[1:3])
+
+
 class _IssuePayload(BaseModel):
     id: int = 0
     number: int
     title: str
+    url: str | None = None
     html_url: str
     body: str | None = None
     state: GitHubState
@@ -221,6 +272,15 @@ class _IssuePayload(BaseModel):
             return None
         number = self.parent_issue_url.removeprefix(f"{self.repository_url}/issues/")
         return int(number) if number.isdecimal() else None
+
+    @property
+    def repository(self) -> RepoRef | None:
+        """The repository that the answer names: the one of `repository_url`, else the one of
+        `url`, else the one of the page `html_url`. None when no field names a repository."""
+        for url in (self.repository_url, self.url):
+            if url and (named := _rest_repository(url)) is not None:
+                return named
+        return _page_repository(self.html_url)
 
     @property
     def label_names(self) -> tuple[str, ...]:
@@ -1008,7 +1068,7 @@ class GitHubRoadmapStore(RoadmapStore):
         if cached is not None:
             return self._revalidate_issue(number, cached)
 
-        found = self._read_or_none(issue_args(self._repo, number), _ISSUE, f"issue #{number}")
+        found = self._read_issue(number, f"issue #{number}")
         if found is None or found.pull_request is not None:
             return None
         record = found.record()
@@ -1020,8 +1080,27 @@ class GitHubRoadmapStore(RoadmapStore):
     def _cached_issue(self, number: int) -> CachedIssue | None:
         """The brain entry of issue `number`. The shared tier holds the entries of a private
         repository only for the `sweep` ACL user, so the cache takes the visibility from the read
-        of this store when the process holds no answer (#7292)."""
-        return cached_issue(self._repo, number, is_private=self.repository_is_private)
+        of this store when the process holds no answer (#7292). An entry whose record names
+        another number or another repository is not the issue: the store removes it and gives
+        None, so the caller reads GitHub (#7331)."""
+        entry = cached_issue(self._repo, number, is_private=self.repository_is_private)
+        if entry is None:
+            return None
+        record = entry.record
+        if self._is_requested(number, record.number, _page_repository(record.url)):
+            return entry
+        logger.warning(
+            "The brain entry of issue #%d of %s names another issue, so the store removes it.",
+            number,
+            self._repo,
+        )
+        self._forget_issue(number)
+        return None
+
+    def _forget_issue(self, number: int) -> None:
+        """Remove the brain entry of issue `number`, with the visibility read of this store as
+        `_cached_issue` has it."""
+        forget_issue(self._repo, number, is_private=self.repository_is_private)
 
     def _remember_issue(self, entry: CachedIssue) -> None:
         """Write `entry` to the brain, with the visibility read of this store as `_cached_issue`
@@ -1043,13 +1122,16 @@ class GitHubRoadmapStore(RoadmapStore):
             return new_entry.record
 
         if status == HTTPStatus.NOT_FOUND:
+            self._gone(number)
             return None
 
         if proc.returncode != 0 and status != HTTPStatus.OK:
             raise self._failure(proc, args, f"revalidate issue #{number}", "roadmap.read")
 
-        payload = self._validate(body or proc.stdout or "", _ISSUE, f"issue #{number}")
-        if payload.pull_request is not None:
+        payload = self._answered(
+            number, self._validate(body or proc.stdout or "", _ISSUE, f"issue #{number}")
+        )
+        if payload is None or payload.pull_request is not None:
             return None
         record = payload.record()
         new_entry = CachedIssue(record=record, etag=etag, checked_at=now)
@@ -1410,9 +1492,7 @@ class GitHubRoadmapStore(RoadmapStore):
     def pull_title(self, number: int) -> str | None:
         """The title of pull request `number` in any state: the issues endpoint reads a pull
         request as an issue, and its `pull_request` key tells it from an issue."""
-        found = self._read_or_none(
-            issue_args(self._repo, number), _ISSUE, f"pull request #{number}"
-        )
+        found = self._read_issue(number, f"pull request #{number}")
         return found.title if found is not None and found.pull_request is not None else None
 
     def last_renamed_at(self, number: int) -> datetime | None:
@@ -1643,14 +1723,17 @@ class GitHubRoadmapStore(RoadmapStore):
     def _require_issue(self, number: int, operation: str) -> _IssuePayload:
         """Issue `number` as GitHub holds it now, raising when it is a pull request or no issue
         of this repository."""
-        found = self._read_or_none(issue_args(self._repo, number), _ISSUE, f"issue #{number}")
+        found = self._read_issue(number, f"issue #{number}")
         if found is None or found.pull_request is not None:
-            raise GitHubOperationError(
-                f"#{number} is not an issue of {self._repo}.",
-                operation=operation,
-                details={"repo": self._repo[:256], "number": number},
-            )
+            raise self._not_an_issue(number, operation)
         return found
+
+    def _not_an_issue(self, number: int, operation: str) -> GitHubOperationError:
+        return GitHubOperationError(
+            f"#{number} is not an issue of {self._repo}.",
+            operation=operation,
+            details={"repo": self._repo[:256], "number": number},
+        )
 
     def _edit_issue(
         self,
@@ -1732,11 +1815,15 @@ class GitHubRoadmapStore(RoadmapStore):
             current_held = back_held
 
     def _send_edit(self, number: int, stdin: str) -> None:
-        """Send one `PATCH` of issue `number`, keeping the issue GitHub returns."""
+        """Send one `PATCH` of issue `number`, keeping the issue GitHub returns. An answer that
+        names another issue is not kept, and fails the write (`_answered`)."""
         written = self._write(
             issue_edit_args(self._repo, number), f"write issue #{number}", input=stdin
         )
-        self._kept(self._validate(written, _ISSUE, f"issue #{number} after it was written"))
+        answer = self._validate(written, _ISSUE, f"issue #{number} after it was written")
+        if self._answered(number, answer) is None:
+            raise self._not_an_issue(number, "roadmap.write")
+        self._kept(answer)
 
     def _kept(self, issue: _IssuePayload) -> IssueRecord:
         """The issue as a record, kept in the listing of every issue when the store holds it."""
@@ -1764,6 +1851,60 @@ class GitHubRoadmapStore(RoadmapStore):
                 else self._incremental.read(self._repo, self._read_issues)
             )
         return list(self._all.values())
+
+    def _read_issue(self, number: int, what: str) -> _IssuePayload | None:
+        """The issue or the pull request numbered `number` as GitHub holds it now, from one read
+        of the issues endpoint, or None when the repository holds none (`_answered`)."""
+        return self._answered(
+            number, self._read_or_none(issue_args(self._repo, number), _ISSUE, what)
+        )
+
+    def _answered(self, number: int, found: _IssuePayload | None) -> _IssuePayload | None:
+        """`found`, the answer of a request of number `number`, when it is that issue or pull
+        request of this repository, else None.
+
+        A read of an issue by its number can answer with another issue: GitHub redirects the read
+        of an issue that was transferred to another repository, and the answer then holds the
+        number and the repository of the issue at its new place (#7331). An answer that names
+        another issue (`_is_requested`) is no issue of this repository, as a missing one is. For
+        both, the store drops what it holds of the number (`_gone`)."""
+        if found is not None and self._is_requested(number, found.number, found.repository):
+            return found
+        if found is not None:
+            logger.warning(
+                "GitHub answered the request of issue #%d of %s with another issue, so #%d is no "
+                "issue of the repository.",
+                number,
+                self._repo,
+                number,
+            )
+        self._gone(number)
+        return None
+
+    def _is_requested(self, number: int, answered: int, named: RepoRef | None) -> bool:
+        """Whether an answer is the answer for number `number` of this repository: its number
+        `answered` is `number`, and the repository `named` that it names is this one. `RepoRef`
+        compares the names, so their case does not count. An answer that names no repository is
+        compared by its number only."""
+        own = _repository_named(self._repo.split("/"))
+        return answered == number and (named is None or own is None or named == own)
+
+    def _gone(self, number: int) -> None:
+        """Drop what the store holds of number `number`, which is no issue and no pull request
+        of this repository now: its record in the listing of the store and in the later reads of
+        that listing, so no row selects it again, and its entry in the brain. The read of the
+        changes of a listing does not show an issue that left the repository."""
+        if self._all is not None and number in self._all:
+            logger.warning(
+                "The listing of %s holds #%d, which is no issue of the repository now, so the "
+                "store drops its record.",
+                self._repo,
+                number,
+            )
+            self._all = {held: record for held, record in self._all.items() if held != number}
+            if self._incremental is not None:
+                self._incremental.drop(self._repo, number)
+        self._forget_issue(number)
 
     def _read_or_none[PayloadT](
         self,

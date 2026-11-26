@@ -24,6 +24,10 @@ read gives None, so its caller reads GitHub, and a write does not occur. `for_us
 private answer public for the process that sends `SWEEP_USER`, as the snapshot store has it. Each
 read and each write counts one result on `devops_cli_brain_reads_total` or
 `devops_cli_brain_writes_total` with the store `issue`.
+
+`forget_issue` removes the entry of a number that is no issue of the repository: GitHub answered
+its read with no issue, or with another issue (#7331). The store that reads the issue also leaves
+an entry unused, and removes it, when its record names another number or another repository.
 """
 
 from __future__ import annotations
@@ -197,6 +201,23 @@ def remember_issue(
         count_write(BrainStore.ISSUE, refused[1])
         return
     _issue_cache(repo)[str(entry.record.number)] = entry
+
+
+def forget_issue(
+    repo: str | RepoRef,
+    number: int,
+    *,
+    private: bool | None = None,
+    is_private: Callable[[], bool] | None = None,
+) -> None:
+    """Remove the entry of issue `number` from the brain cache: GitHub answered a read of that
+    number with no issue of the repository (#7331). The cache sends the removal only when the
+    shared tier takes the entries of the repository from this process, by the rule of
+    `cached_issue`: else the tier holds no entry to remove. `private` is the answer that the
+    caller holds, and `is_private` is its read of GitHub (see the module docstring). A removal
+    counts no result."""
+    if _refusal(repo, private, is_private) is None:
+        del _issue_cache(repo)[str(number)]
 
 
 def issue_from_event(repo: str | RepoRef, issue: WebhookIssue) -> CachedIssue:

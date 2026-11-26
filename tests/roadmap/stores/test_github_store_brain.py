@@ -53,6 +53,17 @@ def _github(replies: dict[str, Any]) -> RecordedGh:
     return RecordedGh({**PUBLIC, **replies})
 
 
+def _issue_of(repo: str, number: int, title: str) -> Any:
+    """Issue `number` of `repo` as GitHub gives it: each URL of the answer names the repository
+    of the store that reads it."""
+    return issue_payload(
+        number,
+        title=title,
+        url=f"https://api.github.com/repos/{repo}/issues/{number}",
+        html_url=f"https://github.com/{repo}/issues/{number}",
+    )
+
+
 def _requests(runner: RecordedGh) -> list[str]:
     """Each request that GitHub got, in order: a read of the visibility or a request of an
     issue."""
@@ -467,7 +478,7 @@ def test_a_private_repository_reads_github_each_time_and_writes_no_key(
     """Each read of an issue of a private repository answers from GitHub, and the shared tier
     gets no key, while the process sends no ACL user. The private answer is kept, so GitHub gets
     one read of the visibility, and each read and each write counts `private` (#7292)."""
-    runner = RecordedGh({**PRIVATE, "issues/6013": issue_payload(6013, title="Private issue")})
+    runner = RecordedGh({**PRIVATE, "issues/6013": _issue_of(PRIVATE_REPO, 6013, "Private issue")})
     store = _store(runner, PRIVATE_REPO)
 
     titles = [found.title for found in (store.issue(6013), store.issue(6013)) if found is not None]
@@ -508,7 +519,7 @@ def test_a_private_repository_is_shared_under_the_sweep_user(
     from devops_cli.roadmap.stores.visibility import SWEEP_USER
 
     config(valkey={"username": SWEEP_USER})
-    runner = RecordedGh({**PRIVATE, "issues/6013": issue_payload(6013, title="Private issue")})
+    runner = RecordedGh({**PRIVATE, "issues/6013": _issue_of(PRIVATE_REPO, 6013, "Private issue")})
     store = _store(runner, PRIVATE_REPO)
 
     first = store.issue(6013)
@@ -553,7 +564,7 @@ def test_a_failed_visibility_read_reads_github_and_writes_no_key(
     runner = RecordedGh(
         {
             "isPrivate": (1, "API rate limit exceeded"),
-            "issues/6013": issue_payload(6013, title="Issue of an unknown repository"),
+            "issues/6013": _issue_of(PRIVATE_REPO, 6013, "Issue of an unknown repository"),
         }
     )
     store = _store(runner, PRIVATE_REPO)
