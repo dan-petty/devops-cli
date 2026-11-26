@@ -7,12 +7,14 @@ metadata:
   labels:
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
-  # Every pod of the namespace but the Crawl4AI, SearXNG, Renovate and planner run pods. A browser
-  # that renders hostile pages must not reach the gateway or the cache Valkey, and the search
-  # service needs neither. Renovate runs commands that a repository names, so it must reach
-  # neither. The planner run pod reaches no network (ADR 0018), and NetworkPolicies add their
-  # rules, so this policy must not select it (#6065). Each has its own policies (crawl4ai/,
-  # searxng/, renovate/networkpolicy.yaml and roadmap-service/networkpolicy-planner-run.yaml).
+  # Every pod of the namespace but the Crawl4AI, SearXNG, Renovate, planner run and valkey-roadmap
+  # pods. A browser that renders hostile pages must not reach the gateway or the cache Valkey, and
+  # the search service needs neither. Renovate runs commands that a repository names, so it must
+  # reach neither. The planner run pod reaches no network (ADR 0018), and NetworkPolicies add
+  # their rules, so this policy must not select it (#6065). The pod of valkey-roadmap (label
+  # `valkey`) only answers its clients, so it gets no egress of a job (#7294). Each has its own
+  # policies (crawl4ai/, searxng/, renovate/networkpolicy.yaml,
+  # roadmap-service/networkpolicy-planner-run.yaml and the Valkey base of valkey-roadmap/).
   podSelector:
     matchExpressions:
       - key: app.kubernetes.io/name
@@ -22,6 +24,7 @@ spec:
           - searxng
           - renovate
           - devops-cli-planner-run
+          - valkey
   policyTypes:
     - Ingress
 ---
@@ -33,12 +36,14 @@ metadata:
   labels:
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
-  # Every pod of the namespace but the Crawl4AI, SearXNG, Renovate and planner run pods. A browser
-  # that renders hostile pages must not reach the gateway or the cache Valkey, and the search
-  # service needs neither. Renovate runs commands that a repository names, so it must reach
-  # neither. The planner run pod reaches no network (ADR 0018), and NetworkPolicies add their
-  # rules, so this policy must not select it (#6065). Each has its own policies (crawl4ai/,
-  # searxng/, renovate/networkpolicy.yaml and roadmap-service/networkpolicy-planner-run.yaml).
+  # Every pod of the namespace but the Crawl4AI, SearXNG, Renovate, planner run and valkey-roadmap
+  # pods. A browser that renders hostile pages must not reach the gateway or the cache Valkey, and
+  # the search service needs neither. Renovate runs commands that a repository names, so it must
+  # reach neither. The planner run pod reaches no network (ADR 0018), and NetworkPolicies add
+  # their rules, so this policy must not select it (#6065). The pod of valkey-roadmap (label
+  # `valkey`) only answers its clients, so it gets no egress of a job (#7294). Each has its own
+  # policies (crawl4ai/, searxng/, renovate/networkpolicy.yaml,
+  # roadmap-service/networkpolicy-planner-run.yaml and the Valkey base of valkey-roadmap/).
   podSelector:
     matchExpressions:
       - key: app.kubernetes.io/name
@@ -48,6 +53,7 @@ spec:
           - searxng
           - renovate
           - devops-cli-planner-run
+          - valkey
   policyTypes:
     - Egress
   egress:

@@ -200,6 +200,16 @@ data:
       # (k8s/README.md, Cluster Secrets). Both are false, so no job calls this URL now.
       mcp:
         url: http://mcp-server.devops.svc.cluster.local:8001
+      # valkey-roadmap in this namespace (k8s/devops/valkey-roadmap): the store of the shared state
+      # of the roadmap jobs, with the brain index as its first data (ADR 0021 section 3, #7294).
+      # Its user default is off. A pod sends a user only when its template sets
+      # DEVOPS_CLI_ROADMAP_STATE_USER and reads the password of that user from Secret
+      # devops/valkey-roadmap-auth as DEVOPS_CLI_ROADMAP_STATE_PASSWORD, never from this ConfigMap.
+      # No pod has them, and no code reads the store, so no pod calls this URL now. The change that
+      # adds the first client also gives its pod the label valkey-client: "true" and an egress rule
+      # to the store (docs/CLUSTER.md, valkey-roadmap).
+      state:
+        url: valkey://valkey-roadmap.devops.svc.cluster.local:6379/0
       stage:
         filter:
           - status=ready

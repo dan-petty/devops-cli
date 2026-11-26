@@ -107,6 +107,11 @@ CREDENTIALS: tuple[Credential, ...] = (
     ),
     Credential("runs.index_password", "Run index Valkey password (stored in OS keyring)"),
     Credential(
+        "roadmap.state.password",
+        "Password of the ACL user that `roadmap.state.username` names on the roadmap state Valkey "
+        "(stored in OS keyring)",
+    ),
+    Credential(
         "gitea.admin_password",
         "Password of Gitea's admin user, which `devops k8s push-secrets` writes to Secret "
         "gitea/gitea-admin (stored in OS keyring)",

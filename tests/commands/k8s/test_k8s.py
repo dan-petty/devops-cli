@@ -280,6 +280,7 @@ def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing(
             "argocd/argocd-notifications-secret: github-appID, github-installationID, github-privateKey, mattermost-deploys-url",
             "object-store/seaweedfs-admin: adminUser, adminPassword",
             "object-store/seaweedfs-s3: s3.json",
+            "devops/valkey-roadmap-auth: brain, agent, metrics, users.acl (if namespace devops exists)",
             "devops/crawl4ai: CRAWL4AI_API_TOKEN (if namespace devops exists)",
             "devops/searxng: SEARXNG_SECRET (if namespace devops exists)",
             "devops/searxng-metrics-auth: username, password (if namespace devops exists)",

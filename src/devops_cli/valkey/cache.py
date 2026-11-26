@@ -26,6 +26,11 @@ tier through the same breaker, so the listing snapshots and the tool facts share
 the embeddings and the threat-intelligence reads. `unlink_if_expiring` reads the TTL of a key and
 removes the key in one Lua script, so a write or an `EXPIRE` that comes first keeps the key
 (#6611).
+
+A process has a second tier of the same class, `roadmap_state_tier()`, over `valkey-roadmap`, the
+Valkey of the shared state of the roadmap jobs that `roadmap.state.url` names (ADR 0021 section 3,
+#7294). It has its own client, its own breaker and its own ACL user, so an outage of one Valkey
+does not turn the other tier off. A process with no `roadmap.state.url` has no such tier.
 """
 
 from __future__ import annotations
@@ -50,7 +55,11 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_CACHE_BREAKER_FAILURES,
     DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS,
 )
-from devops_cli.config.settings import get_valkey_password, load_settings
+from devops_cli.config.settings import (
+    get_roadmap_state_password,
+    get_valkey_password,
+    load_settings,
+)
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.valkey import (
     ValkeyAuthenticationError,
@@ -63,6 +72,7 @@ from devops_cli.valkey.client import ValkeyClient
 
 if TYPE_CHECKING:
     from devops_cli.config.settings import Settings
+    from devops_cli.valkey.endpoint import ValkeyEndpoint
 
 logger = logging.getLogger(__name__)
 
@@ -235,47 +245,119 @@ def _count_error(op: str, error: ValkeyCacheError) -> None:
 
 
 class _SettingsValkeyCredentialProvider(valkey.credentials.CredentialProvider):
-    """The credential provider of the Valkey cache tier, resolving the user and the password on
-    connect."""
+    """The credential provider of a tier, resolving the user and the password on connect.
 
-    def __init__(self, settings: Settings) -> None:
-        self._settings = settings
+    `user` gives the ACL user that the settings name, and `password` gives its password.
+    """
+
+    def __init__(self, user: Callable[[], str | None], password: Callable[[], str | None]) -> None:
+        self._user = user
+        self._password = password
 
     def get_credentials(self) -> tuple[str] | tuple[str, str]:
-        """The password, with the ACL user that `valkey.username` names when it names one.
+        """The password, with the ACL user when the settings name one.
 
         A password that no source gives returns None, and the connection sends no AUTH, as a
-        Valkey that needs no password admits it. An empty `valkey.username` sends the password
-        alone, which authenticates the `default` user of a server that keeps it.
+        Valkey that needs no password admits it. An empty user sends the password alone, which
+        authenticates the `default` user of a server that keeps it.
         """
-        password = get_valkey_password(self._settings)
+        password = self._password()
         if not password:
             return None  # type: ignore[return-value]
-        user = self._settings.valkey.username
+        user = self._user()
         return (user, password) if user else (password,)
 
 
-def _configured_cache_tier(settings: Settings) -> ValkeyCacheTier:
-    """A cache tier over the Valkey that `valkey.url` names.
+def _tier_over(
+    endpoint: ValkeyEndpoint, credentials: _SettingsValkeyCredentialProvider, timeout: float
+) -> ValkeyCacheTier:
+    """A tier over the Valkey at `endpoint`.
 
-    A command waits `valkey.timeout`, and a connection waits
+    A command waits `timeout`, and a connection waits
     `DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS`, but never longer than a command. It makes no
-    DNS lookup and opens no connection. A `valkey.url` that is not valid raises
-    `ConfigurationError`, which names the setting.
+    DNS lookup and opens no connection.
     """
-    cfg = settings.valkey
     client = ValkeyClient(
-        cfg.endpoint,
-        credential_provider=_SettingsValkeyCredentialProvider(settings),
-        timeout=cfg.timeout,
-        connect_timeout=min(cfg.timeout, DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS),
+        endpoint,
+        credential_provider=credentials,
+        timeout=timeout,
+        connect_timeout=min(timeout, DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS),
     )
     return ValkeyCacheTier(client)
 
 
-_SHARED_TIER_LOCK = threading.Lock()
-_shared_tier: ValkeyCacheTier | None = None
-_shared_tier_built = False
+def _configured_cache_tier(settings: Settings) -> ValkeyCacheTier:
+    """A cache tier over the Valkey that `valkey.url` names, as the user of `valkey.username`.
+
+    A command waits `valkey.timeout`. A `valkey.url` that is not valid raises
+    `ConfigurationError`, which names the setting.
+    """
+    cfg = settings.valkey
+    credentials = _SettingsValkeyCredentialProvider(
+        lambda: settings.valkey.username, lambda: get_valkey_password(settings)
+    )
+    return _tier_over(cfg.endpoint, credentials, cfg.timeout)
+
+
+def _configured_roadmap_state_tier(settings: Settings) -> ValkeyCacheTier | None:
+    """A tier over the Valkey that `roadmap.state.url` names, as the user of
+    `roadmap.state.username`; None when the setting names no Valkey.
+
+    A command waits `valkey.timeout`, as a command of the cache tier does. A `roadmap.state.url`
+    that is not valid raises `ConfigurationError`, which names the setting.
+    """
+    endpoint = settings.roadmap.state.endpoint
+    if endpoint is None:
+        return None
+    credentials = _SettingsValkeyCredentialProvider(
+        lambda: settings.roadmap.state.username, lambda: get_roadmap_state_password(settings)
+    )
+    return _tier_over(endpoint, credentials, settings.valkey.timeout)
+
+
+class _ProcessTier:
+    """The one tier of a Valkey in the process: built from the loaded settings on first use, and
+    kept until `reset`.
+
+    `build` gives the tier, or None when the settings name no Valkey. When it raises, for example
+    because the URL is not valid or the keyring is locked, the process logs one warning that
+    starts with `name`, and has no tier until `reset`.
+    """
+
+    def __init__(self, name: str, build: Callable[[Settings], ValkeyCacheTier | None]) -> None:
+        self._name = name
+        self._build = build
+        self._lock = threading.Lock()
+        self._tier: ValkeyCacheTier | None = None
+        self._built = False
+
+    def get(self) -> ValkeyCacheTier | None:
+        """The tier, built on the first call."""
+        with self._lock:
+            if not self._built:
+                try:
+                    self._tier = self._build(load_settings())
+                except DevOpsCLIError as exc:
+                    logger.warning("%s is off in this process: %s", self._name, exc)
+                    self._tier = None
+                self._built = True
+            return self._tier
+
+    def install(self, tier: ValkeyCacheTier | None) -> None:
+        """Make `tier` the tier of the process, or turn the tier off with None."""
+        with self._lock:
+            self._tier = tier
+            self._built = True
+
+    def reset(self) -> None:
+        """Drop the tier, so the next `get` builds it again."""
+        with self._lock:
+            self._tier = None
+            self._built = False
+
+
+_SHARED_TIER = _ProcessTier("The Valkey cache", _configured_cache_tier)
+_ROADMAP_STATE_TIER = _ProcessTier("The roadmap state Valkey", _configured_roadmap_state_tier)
 
 
 def shared_cache_tier() -> ValkeyCacheTier | None:
@@ -285,16 +367,7 @@ def shared_cache_tier() -> ValkeyCacheTier | None:
     is locked, the process logs one warning and each cache runs with no Valkey tier: this returns
     None until `reset_shared_cache_tier`.
     """
-    global _shared_tier, _shared_tier_built
-    with _SHARED_TIER_LOCK:
-        if not _shared_tier_built:
-            try:
-                _shared_tier = _configured_cache_tier(load_settings())
-            except DevOpsCLIError as exc:
-                logger.warning("The Valkey cache is off in this process: %s", exc)
-                _shared_tier = None
-            _shared_tier_built = True
-        return _shared_tier
+    return _SHARED_TIER.get()
 
 
 def install_shared_cache_tier(tier: ValkeyCacheTier | None) -> None:
@@ -303,15 +376,28 @@ def install_shared_cache_tier(tier: ValkeyCacheTier | None) -> None:
     A test installs a tier over the in-memory Valkey through this seam; `reset_shared_cache_tier`
     removes it.
     """
-    global _shared_tier, _shared_tier_built
-    with _SHARED_TIER_LOCK:
-        _shared_tier = tier
-        _shared_tier_built = True
+    _SHARED_TIER.install(tier)
 
 
 def reset_shared_cache_tier() -> None:
     """Drop the tier of the process, so the next `shared_cache_tier` builds it again."""
-    global _shared_tier, _shared_tier_built
-    with _SHARED_TIER_LOCK:
-        _shared_tier = None
-        _shared_tier_built = False
+    _SHARED_TIER.reset()
+
+
+def roadmap_state_tier() -> ValkeyCacheTier | None:
+    """The one tier of the process over `valkey-roadmap`, the Valkey of the shared state of the
+    roadmap jobs (ADR 0021 section 3), built from the loaded settings on first use.
+
+    Its client sends the ACL user of `roadmap.state.username` with the password of
+    `roadmap.state.password`. A reader fails soft (ADR 0023 section 2). This returns None when
+    `roadmap.state.url` names no Valkey, as on a workstation, and the reader then has a miss. It
+    also returns None, after one warning, when the tier cannot be built, for example because the
+    URL is not valid. While the instance does not answer, the breaker of the tier is open: a
+    read is a miss and a write does not occur, with no error.
+    """
+    return _ROADMAP_STATE_TIER.get()
+
+
+def reset_roadmap_state_tier() -> None:
+    """Drop the tier of the roadmap state, so the next `roadmap_state_tier` builds it again."""
+    _ROADMAP_STATE_TIER.reset()

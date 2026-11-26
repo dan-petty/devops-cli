@@ -1,0 +1,97 @@
+# valkey-roadmap: the Valkey store of the shared state of the roadmap jobs (ADR 0021 section 3,
+# #7294). Its first data is the brain index (ADR 0023). The folder builds the shared Valkey base
+# of dan-petty/infra and its three components at one release tag (ADR 0032 section 3), and
+# Renovate updates the four pins together. The suffix makes the names of the Deployment and of
+# the Service valkey-roadmap.
+#
+# The pod reads its users from the key users.acl of the Secret valkey-roadmap-auth, which
+# `devops k8s push-secrets` writes. The user default is off, so each client sends a user: brain,
+# agent or metrics. The policy valkey-ingress of the base admits only the pods of this namespace
+# with the label valkey-client: "true", on TCP 6379. The policy valkey-egress gives the pod no
+# egress, and the default perimeter of the namespace does not select the pod (networkpolicy.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: devops
+nameSuffix: -roadmap
+labels:
+  - pairs:
+      app.kubernetes.io/instance: valkey-roadmap
+      app.kubernetes.io/part-of: devops-cli-stack
+    includeTemplates: true
+resources:
+  - https://github.com/dan-petty/infra//k8s/bases/valkey?ref=v0.24.1
+components:
+  - https://github.com/dan-petty/infra//k8s/components/valkey-persistence?ref=v0.24.1
+  - https://github.com/dan-petty/infra//k8s/components/valkey-exporter?ref=v0.24.1
+  - https://github.com/dan-petty/infra//k8s/components/valkey-acl?ref=v0.24.1
+# Application devops waits for a confirmation before each prune (Prune=confirm). The old ConfigMap
+# of a changed valkey.conf goes at each rollout, so the generated ConfigMap prunes with no
+# confirmation.
+generatorOptions:
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=true
+configMapGenerator:
+  - name: valkey
+    behavior: merge
+    files:
+      - valkey.conf
+patches:
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: valkey
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: valkey
+      spec:
+        template:
+          spec:
+            # The claim is a local-path volume, so the pod stays off the control-plane node
+            # (k8s/README.md, Local-Path Volume Placement).
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: node-role.kubernetes.io/control-plane
+                          operator: DoesNotExist
+            containers:
+              - name: valkey
+                env:
+                  # Valkey ignores requirepass when it reads an aclfile, and the aclfile turns
+                  # the user default off. So the pod reads no password of that user.
+                  - name: VALKEY_PASSWORD
+                    value: ""
+                    valueFrom: null
+              - name: exporter
+                env:
+                  # The exporter logs in as the user metrics, which holds only the commands of
+                  # a scrape.
+                  - name: REDIS_USER
+                    value: metrics
+                  - name: REDIS_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: valkey-roadmap-auth
+                        key: metrics
+            volumes:
+              - name: acl
+                secret:
+                  secretName: valkey-roadmap-auth
+  - target:
+      version: v1
+      kind: PersistentVolumeClaim
+      name: valkey-data
+    patch: |-
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: valkey-data
+      spec:
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 2Gi

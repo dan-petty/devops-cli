@@ -63,6 +63,25 @@ DEVOPS_CACHE_VALKEY_ACL_TEMPLATE = (
     "user metrics on >{metrics} +info +config|get +dbsize +client|list +slowlog|get "
     "+memory|usage +ping\n"
 )
+# The password of each ACL user of `valkey-roadmap`, the Valkey of the shared state of the roadmap
+# jobs (#7294, ADR 0021 section 3). No Settings option reads them: the pod reads them from the
+# aclfile, and a process that sends a user sends its password as `roadmap.state.password`.
+ROADMAP_STATE_VALKEY_BRAIN_KEY = "valkey_roadmap_brain"
+ROADMAP_STATE_VALKEY_AGENT_KEY = "valkey_roadmap_agent"
+ROADMAP_STATE_VALKEY_METRICS_KEY = "valkey_roadmap_metrics"
+# The aclfile of `valkey-roadmap`, built from the three passwords (#7294). The instance has no old
+# client, so the user `default` is off from the first start. `brain` reads and writes the keys of
+# the brain index (`roadmap:v1:brain-*`, ADR 0023 section 3) and `agent` only reads them, with
+# read commands only. `metrics` holds no key pattern and each command that redis_exporter sends
+# at a scrape of Valkey: the scrape of v1.99.0 against Valkey 9.2.1 sends these nine, and the
+# aclfile refuses each other command (#6600).
+ROADMAP_STATE_VALKEY_ACL_TEMPLATE = (
+    "user default off\n"
+    "user brain on >{brain} ~roadmap:v1:brain-* +@all -@dangerous\n"
+    "user agent on >{agent} %R~roadmap:v1:brain-* +@read +@connection -@dangerous\n"
+    "user metrics on >{metrics} +info +config|get +latency|latest +latency|histogram "
+    "+slowlog|len +slowlog|get +commandlog|len +command|info +client|setname\n"
+)
 # LiteLLM refuses a master key without this prefix.
 LITELLM_KEY_PREFIX = "sk-"
 # The database password of Mattermost on CloudNativePG (#1391).
@@ -265,6 +284,19 @@ _DEVOPS_CACHE_VALKEY_ACL = DerivedSource(
         "brain": _DEVOPS_CACHE_VALKEY_BRAIN,
         "agent": _DEVOPS_CACHE_VALKEY_AGENT,
         "metrics": _DEVOPS_CACHE_VALKEY_METRICS,
+    },
+)
+
+_ROADMAP_STATE_VALKEY_GENERATOR = SecretGenerator("hex", 32)
+_ROADMAP_STATE_VALKEY_BRAIN = KeyringSource(ROADMAP_STATE_VALKEY_BRAIN_KEY)
+_ROADMAP_STATE_VALKEY_AGENT = KeyringSource(ROADMAP_STATE_VALKEY_AGENT_KEY)
+_ROADMAP_STATE_VALKEY_METRICS = KeyringSource(ROADMAP_STATE_VALKEY_METRICS_KEY)
+_ROADMAP_STATE_VALKEY_ACL = DerivedSource(
+    ROADMAP_STATE_VALKEY_ACL_TEMPLATE,
+    {
+        "brain": _ROADMAP_STATE_VALKEY_BRAIN,
+        "agent": _ROADMAP_STATE_VALKEY_AGENT,
+        "metrics": _ROADMAP_STATE_VALKEY_METRICS,
     },
 )
 
@@ -554,6 +586,37 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         ),
         restarts=(Workload("deployment", "valkey-devops"),),
         labels={"app.kubernetes.io/name": "valkey-devops"},
+    ),
+    # The ACL users of `valkey-roadmap` (#7294). The pod mounts key `users.acl` as its aclfile
+    # (k8s/devops/valkey-roadmap), and the exporter scrapes as `metrics`. A client pod reads the
+    # key of its user as `DEVOPS_CLI_ROADMAP_STATE_PASSWORD`.
+    ClusterSecret(
+        namespace="devops",
+        name="valkey-roadmap-auth",
+        stack="devops",
+        entries=(
+            SecretEntry(
+                "brain",
+                _ROADMAP_STATE_VALKEY_BRAIN,
+                generator=_ROADMAP_STATE_VALKEY_GENERATOR,
+            ),
+            SecretEntry(
+                "agent",
+                _ROADMAP_STATE_VALKEY_AGENT,
+                generator=_ROADMAP_STATE_VALKEY_GENERATOR,
+            ),
+            SecretEntry(
+                "metrics",
+                _ROADMAP_STATE_VALKEY_METRICS,
+                generator=_ROADMAP_STATE_VALKEY_GENERATOR,
+            ),
+            SecretEntry("users.acl", _ROADMAP_STATE_VALKEY_ACL),
+        ),
+        restarts=(Workload("deployment", "valkey-roadmap"),),
+        labels={
+            "app.kubernetes.io/name": "valkey",
+            "app.kubernetes.io/instance": "valkey-roadmap",
+        },
     ),
     # The bearer token of Crawl4AI, which refuses to listen beyond loopback without it (#3882).
     # The pod reads the token at start, so a change restarts it.

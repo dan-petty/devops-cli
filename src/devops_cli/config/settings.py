@@ -2237,6 +2237,50 @@ class RoadmapStallConfig(BaseModel):
     )
 
 
+class RoadmapStateConfig(BaseModel):
+    """The Valkey `valkey-roadmap`, which holds the shared state of the roadmap jobs (ADR 0021
+    section 3).
+
+    `url` is checked when a client reads `endpoint`, not when the settings load. The password of
+    `username` is the credential `roadmap.state.password`.
+    """
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    url: Annotated[str | None, Variable()] = Field(
+        default=None,
+        description=(
+            "The Valkey endpoint of the shared state of the roadmap jobs, such as "
+            "`valkey://valkey-roadmap.devops.svc.cluster.local:6379/0`, in the form of "
+            "`valkey.url`. With no value, a process has no shared roadmap state, and each read of "
+            "it is a miss. The URL holds no password: `roadmap.state.password` is in the OS "
+            "keyring"
+        ),
+    )
+    username: Annotated[str | None, Variable(segment="user")] = Field(
+        default=None,
+        description=(
+            "The ACL user that a client of the roadmap state Valkey sends, such as `brain` or "
+            "`agent`. The default user of that Valkey is off, so a client with no user reads "
+            "nothing"
+        ),
+    )
+
+    @property
+    def endpoint(self) -> ValkeyEndpoint | None:
+        """The endpoint of `url`, or None when `url` is unset or empty.
+
+        A URL that is not valid raises `ConfigurationError` naming `roadmap.state.url`.
+        """
+        if not self.url:
+            return None
+        return parse_valkey_url(
+            self.url,
+            setting="roadmap.state.url",
+            written_by="`devops config set roadmap.state.url`",
+        )
+
+
 class RoadmapConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
@@ -2265,6 +2309,7 @@ class RoadmapConfig(BaseModel):
         default_factory=lambda: list(DEFAULT_ROADMAP_SKIP_AUTHORS),
     )
     stall: RoadmapStallConfig = Field(default_factory=RoadmapStallConfig)
+    state: RoadmapStateConfig = Field(default_factory=RoadmapStateConfig)
     verdict_partial_score: Annotated[float, Variable()] = Field(
         default=DEFAULT_ROADMAP_VERDICT_PARTIAL_SCORE,
         ge=0.0,
@@ -3345,6 +3390,11 @@ def get_valkey_password(settings: Settings) -> str | None:
 def get_runs_index_password(settings: Settings) -> str | None:
     """Resolve the password of the Valkey holding the shared run index."""
     return _resolve("runs.index_password", settings)
+
+
+def get_roadmap_state_password(settings: Settings) -> str | None:
+    """Resolve the password of the ACL user of the roadmap state Valkey."""
+    return _resolve("roadmap.state.password", settings)
 
 
 def get_gitea_admin_password(settings: Settings) -> str | None:
