@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 from devops_cli.ai.client import network
 from devops_cli.ai.client.base import BaseLLMProviderMixin, _clean_http_error_body
 from devops_cli.ai.client.models import (
+    KEY_STOP_STATUSES,
     AIClientError,
     CallSampling,
     LLMResponse,
@@ -125,7 +126,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
 
     def _status_error(self, status: int, raw_body: str) -> AIClientError:
         """The error of a provider reply with HTTP `status` and the error body `raw_body`."""
-        if status in (401, 403):
+        if status in KEY_STOP_STATUSES:
             provider_name = getattr(self._config, "provider", "AI")
             has_key = bool(getattr(self, "_api_key", None))
             return spend_limit_error(status, raw_body) or credentials_error(

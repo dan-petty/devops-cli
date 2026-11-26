@@ -7,7 +7,7 @@ from typing import cast
 
 import httpx2
 
-from devops_cli.ai.client.models import AIClientError, spend_limit_error
+from devops_cli.ai.client.models import KEY_STOP_STATUSES, AIClientError, spend_limit_error
 from devops_cli.config.constants import CONST_AI_GATEWAY_PROVIDER
 from devops_cli.config.settings import AIConfig
 from devops_cli.http.egress import EgressLevel, configured_level
@@ -164,7 +164,7 @@ class BaseLLMProviderMixin:
 
         response = exc.response if isinstance(exc, httpx2.HTTPStatusError) else None
         status = response.status_code if response is not None else None
-        if response is not None and status in (401, 403):
+        if response is not None and status in KEY_STOP_STATUSES:
             provider_name = getattr(self._config, "provider", "AI")
             has_key = bool(getattr(self, "_api_key", None))
             return spend_limit_error(status, _reply_text(response)) or credentials_error(

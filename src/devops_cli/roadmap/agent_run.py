@@ -18,6 +18,7 @@ from pydantic_ai.exceptions import (
     ModelAPIError,
     ModelConnectionError,
     ModelHTTPError,
+    ModelQuotaExceededError,
     ModelRequestTimeout,
     ModelTimeoutError,
     UsageLimitExceeded,
@@ -37,10 +38,13 @@ from pydantic_ai.messages import (
 )
 
 from devops_cli.ai.client.models import (
+    KEY_STOP_STATUSES,
+    PAYMENT_REQUIRED,
     AIClientError,
     AICredentialsError,
     provider_error_text,
     spend_limit_error,
+    spent_key_error,
 )
 from devops_cli.ai.schema_reflection import ViolationText
 from devops_cli.ai.spend import model_answer_labels, track_request_spend
@@ -52,9 +56,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_VIOLATIONS_SHOWN,
 )
 from devops_cli.security.sanitizer import mask_secret_named_values, mask_secrets
-
-# The HTTP statuses of a model reply that refuse the key, which stop the whole run.
-_REFUSED_KEY_STATUSES = frozenset({401, 403})
 
 
 async def drain_events(_ctx: RunContext[None], events: AsyncIterable[AgentStreamEvent]) -> None:
@@ -69,15 +70,20 @@ def model_call_error(exc: ModelAPIError, subject: str) -> AIClientError:
     with the HTTP status or the timeout of the call (#2562). A failed transport also names its
     phase and the error of the HTTP library, so a report tells a dropped stream from a refused
     connection (#4345). A refused key whose body says that the provider key reached its spend
-    limit gives the spend-limit error (#6821). `subject` names the run, such as
-    `The investigation's`."""
-    if isinstance(exc, ModelHTTPError) and exc.status_code in _REFUSED_KEY_STATUSES:
+    limit gives the spend-limit error (#6821). So does an HTTP 402, and a `ModelQuotaExceededError`,
+    which pydantic-ai raises when a provider reports that its quota, its credits or its billing is
+    exhausted (#7261): a new call fails the same way until a person acts. `subject` names the run,
+    such as `The investigation's`."""
+    status = exc.status_code if isinstance(exc, ModelHTTPError) else None
+    if isinstance(exc, ModelQuotaExceededError):
+        return spent_key_error(status or PAYMENT_REQUIRED)
+    if isinstance(exc, ModelHTTPError) and exc.status_code in KEY_STOP_STATUSES:
         return spend_limit_error(exc.status_code, exc.body) or AICredentialsError(
             f"The model refused the key (HTTP {exc.status_code})."
         )
     return AIClientError(
         f"{subject} model call failed ({type(exc).__name__}{_transport_cause(exc)}).",
-        status=exc.status_code if isinstance(exc, ModelHTTPError) else None,
+        status=status,
         timed_out=isinstance(exc, (ModelTimeoutError, ModelRequestTimeout)),
     )
 
