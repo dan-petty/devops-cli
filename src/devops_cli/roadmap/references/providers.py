@@ -10,7 +10,8 @@ of its searches spends: a code search or a fact read.
   store, which sends them on the paced GitHub session.
 - An optional provider needs a connection at the start of a run. `open_providers` connects each
   one. A provider whose server is down raises `RoadmapMcpUnavailableError` and leaves the list of
-  the run, and the check continues with the other providers. A private repository gets the two
+  the run, and the check continues with the other providers. A provider that fails at a search
+  ends its connection, and `in_run` then leaves it out of the later queries. A private repository gets the two
   GitHub providers only, so no text of its items leaves GitHub.
 """
 
@@ -21,7 +22,7 @@ from collections.abc import Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_CODE_SEARCHES,
@@ -111,13 +112,24 @@ class ReferenceProvider(Protocol):
         ...
 
 
+@runtime_checkable
 class OptionalProvider(ReferenceProvider, Protocol):
     """A provider that needs a connection. `connect` raises `RoadmapMcpUnavailableError` when its
-    server is down, and `close` ends the connection."""
+    server is down, and `close` ends the connection and raises the same error when it fails.
+    `connected` is false after a failed search: the provider then left the run."""
+
+    @property
+    def connected(self) -> bool: ...
 
     def connect(self) -> None: ...
 
     def close(self) -> None: ...
+
+
+def in_run(provider: ReferenceProvider) -> bool:
+    """Whether `provider` still takes a query of the run: each provider but an optional provider
+    that is not connected."""
+    return not isinstance(provider, OptionalProvider) or provider.connected
 
 
 @dataclass(frozen=True)
@@ -191,9 +203,22 @@ def open_providers(
                 )
                 count(provider.name, Result.UNAVAILABLE)
                 continue
-            connections.callback(provider.close)
+            connections.callback(_close, provider)
             providers.append(provider)
         yield providers
+
+
+def _close(provider: OptionalProvider) -> None:
+    """Close the connection of `provider` at the end of the run. A close that fails is logged,
+    and the run ends as it would."""
+    try:
+        provider.close()
+    except RoadmapMcpUnavailableError as exc:
+        logger.warning(
+            "The reference provider %s did not close its connection (%s).",
+            provider.name,
+            type(exc.__cause__ or exc).__name__,
+        )
 
 
 __all__ = [
@@ -210,6 +235,7 @@ __all__ = [
     "Result",
     "SearchKind",
     "count",
+    "in_run",
     "open_providers",
     "repositories_query",
 ]

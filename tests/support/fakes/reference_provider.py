@@ -39,6 +39,7 @@ class FakeReferenceProvider:
         self._down = down
         self._answers: dict[str, list[Any]] = {}
         self._error: Exception | None = None
+        self._close_error: Exception | None = None
         self._gate: threading.Event | None = None
         self.holding = threading.Event()
 
@@ -67,6 +68,8 @@ class FakeReferenceProvider:
             self.holding.set()
             self._gate.wait(_HOLD_BOUND_SECONDS)
         if self._error is not None:
+            # A provider with a connection ends it at a failed search, and leaves the run.
+            self.connected = False
             raise self._error
         return list(self._answers.get(query, []))
 
@@ -78,5 +81,12 @@ class FakeReferenceProvider:
             )
         self.connected = True
 
+    def fail_close(self, error: Exception) -> None:
+        """Fail the close of the connection with `error`."""
+        self._close_error = error
+
     def close(self) -> None:
         self.closed = True
+        self.connected = False
+        if self._close_error is not None:
+            raise self._close_error

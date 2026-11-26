@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from devops_cli.exceptions.roadmap import RoadmapMcpUnavailableError
 from devops_cli.roadmap.references.providers import (
     Hit,
     HitKind,
@@ -111,6 +112,60 @@ def test_a_connected_optional_provider_takes_each_second_query_and_is_closed_at_
         ["beta two"],
         [repositories_query(["example/agent"])],
     )
+
+
+def test_a_query_that_an_optional_provider_fails_goes_to_the_github_code_search(
+    store: InMemoryRoadmapStore, otlp: FakeCollector
+) -> None:
+    """The failed call and its second try are two of the 3 code searches of the item. The
+    provider then left the run: the next item sends it no query."""
+    optional = _optional()
+    optional.fail(RoadmapMcpUnavailableError("https://mcp.example.com", message="HTTP 502"))
+    request = ReferenceRequest(
+        number=7,
+        title="Run an agent",
+        text="Use `alpha one`, `beta two` and `gamma three`.",
+        repo=REPO,
+        now=NOW,
+    )
+
+    with open_reference_step(store, mode="on", private=False, optional=[optional]) as step:
+        first = step.run(store, request)
+        searched_for_the_first_item = list(store.code_searches)
+        second = step.run(store, request)
+
+    points = {
+        (attributes["provider"], attributes["result"]): value
+        for attributes, value in otlp.points(BRAIN_REFERENCES_TOTAL.name)
+    }
+    assert (
+        first.complete,
+        second.complete,
+        optional.queries,
+        searched_for_the_first_item,
+        store.code_searches[2:],
+        points,
+    ) == (
+        True,
+        True,
+        ["beta two"],
+        ["alpha one", "beta two"],
+        ["alpha one", "beta two", "gamma three"],
+        {("mcp-code", "failed"): 1.0, ("github-code", "empty"): 5.0},
+    )
+
+
+def test_an_optional_provider_that_fails_at_its_close_does_not_stop_the_run(
+    store: InMemoryRoadmapStore, caplog: pytest.LogCaptureFixture
+) -> None:
+    optional = _optional()
+    optional.fail_close(RoadmapMcpUnavailableError("https://mcp.example.com", message="lost"))
+
+    with open_providers(store, private=False, optional=[optional]) as providers:
+        names = [provider.name for provider in providers]
+
+    assert (names, optional.closed) == ([*GITHUB, "mcp-code"], True)
+    assert "mcp-code did not close its connection" in caplog.text
 
 
 def test_mode_off_opens_no_provider(store: InMemoryRoadmapStore) -> None:

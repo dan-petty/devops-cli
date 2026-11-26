@@ -91,6 +91,13 @@ def _step(store: InMemoryRoadmapStore, mode: RowMode = "on", **options: Any) -> 
     return ReferenceStep(mode, providers, **options)
 
 
+def _connected_provider() -> FakeReferenceProvider:
+    """A fake code search provider that has its connection, so it takes the queries of a run."""
+    provider = FakeReferenceProvider("fake-code", SearchKind.CODE)
+    provider.connect()
+    return provider
+
+
 def _link(name: str, lines: str = "L3-L22", path: str = "src/agent.py") -> Reference:
     url = f"https://github.com/{name}/blob/{HEAD}/{path}#{lines}"
     return Reference(url, "github-code", HitKind.CODE)
@@ -491,7 +498,7 @@ def test_a_documentation_hit_of_a_host_that_is_not_on_the_allowlist_is_dropped(
     store: InMemoryRoadmapStore, web: WebFake
 ) -> None:
     official = "https://docs.python.org/3/library/ast.html"
-    provider = FakeReferenceProvider("fake-code", SearchKind.CODE)
+    provider = _connected_provider()
     provider.answer(
         QUERY,
         Hit("fake-code", HitKind.DOCUMENTATION, QUERY, url="https://example.com/guide"),
@@ -638,7 +645,7 @@ def test_a_provider_that_does_not_answer_stops_the_step_at_its_bound(
 ) -> None:
     """The provider holds each search until the test ends, so the work of the step cannot end
     before the bound, whenever its thread reaches the provider."""
-    provider = FakeReferenceProvider("fake-code", SearchKind.CODE)
+    provider = _connected_provider()
     provider.hold()
     step = ReferenceStep("on", (provider, GitHubRepositorySearch(store)), seconds=0.05)
 
@@ -655,7 +662,7 @@ def test_a_provider_that_does_not_answer_stops_the_step_at_its_bound(
 def test_the_work_of_the_step_runs_in_a_daemon_thread_that_cannot_hold_the_interpreter(
     store: InMemoryRoadmapStore,
 ) -> None:
-    provider = FakeReferenceProvider("fake-code", SearchKind.CODE)
+    provider = _connected_provider()
 
     found = ReferenceStep("on", (provider,)).run(store, _request())
 
@@ -675,7 +682,7 @@ def test_an_error_of_the_work_that_is_no_project_error_gives_no_link_and_no_erro
     the error, and the step gives no link: the error of the work is never read as the bound."""
     reported: list[type[BaseException]] = []
     monkeypatch.setattr(threading, "excepthook", lambda args: reported.append(args.exc_type))
-    provider = FakeReferenceProvider("fake-code", SearchKind.CODE)
+    provider = _connected_provider()
     provider.fail(TimeoutError("The read timed out."))
 
     with caplog.at_level(logging.WARNING, logger=STEP_LOGGER):

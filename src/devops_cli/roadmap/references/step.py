@@ -86,6 +86,7 @@ from devops_cli.roadmap.references.providers import (
     Result,
     SearchKind,
     count,
+    in_run,
     open_providers,
     repositories_query,
 )
@@ -252,9 +253,8 @@ class Budget:
 # ── Searches ──────────────────────────────────────────────────────────────────
 
 
-def _ask(provider: ReferenceProvider, query: str, number: int, budget: Budget) -> list[Hit]:
-    """The hits of `query` from `provider`, none when the search fails. Counts the search, and a
-    failed search marks the links of the item as not complete."""
+def _ask(provider: ReferenceProvider, query: str, number: int) -> list[Hit] | None:
+    """The hits of `query` from `provider`, or None when the search fails. Counts the search."""
     try:
         hits = provider.search(query)
     except GitHubRateLimitError:
@@ -268,8 +268,7 @@ def _ask(provider: ReferenceProvider, query: str, number: int, budget: Budget) -
             type(exc).__name__,
         )
         count(provider.name, Result.FAILED)
-        budget.fail()
-        return []
+        return None
     count(provider.name, Result.HIT if hits else Result.EMPTY)
     return hits
 
@@ -277,12 +276,22 @@ def _ask(provider: ReferenceProvider, query: str, number: int, budget: Budget) -
 def _search(
     queries: Sequence[str], providers: Sequence[ReferenceProvider], budget: Budget, number: int
 ) -> list[Hit]:
-    """The hits of `queries`: each query goes to one code search provider, in turn."""
-    code = [provider for provider in providers if provider.kind is SearchKind.CODE]
+    """The hits of `queries`: each query goes to one code search provider of the run, in turn.
+    A query that an optional provider fails goes to the first provider, the GitHub code search,
+    when the bound has a code search for it. A query that no provider answers marks the links
+    of the item as not complete."""
     hits: list[Hit] = []
     for index, query in enumerate(queries):
-        if code and budget.take_code_search():
-            hits += _ask(code[index % len(code)], query, number, budget)
+        code = [p for p in providers if p.kind is SearchKind.CODE and in_run(p)]
+        if not code or not budget.take_code_search():
+            continue
+        provider = code[index % len(code)]
+        found = _ask(provider, query, number)
+        if found is None and provider is not code[0] and budget.take_code_search():
+            found = _ask(code[0], query, number)
+        if found is None:
+            budget.fail()
+        hits += found or []
     return hits
 
 
@@ -291,16 +300,18 @@ def _search_facts(
 ) -> dict[str, ReferenceFacts]:
     """The facts of the repositories of `hits`, by repository name in lower case: one search of
     each repository search provider for all of them, which leaves the reads that verify the
-    links. A repository that no search answers has no entry."""
+    links. A repository that no search answers has no entry: the read of its head then gives its
+    facts, so a failed repository search loses no link."""
     names = list(dict.fromkeys(hit.repository for hit in hits))
     known: dict[str, ReferenceFacts] = {}
     if not names:
         return known
     reserve = CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_LINKS
     for provider in providers:
-        if provider.kind is SearchKind.CODE or not budget.take_fact_read(reserve=reserve):
+        skipped = provider.kind is SearchKind.CODE or not in_run(provider)
+        if skipped or not budget.take_fact_read(reserve=reserve):
             continue
-        for found in _ask(provider, repositories_query(names), number, budget):
+        for found in _ask(provider, repositories_query(names), number) or []:
             if found.facts is not None:
                 known[found.repository.casefold()] = found.facts
     return known

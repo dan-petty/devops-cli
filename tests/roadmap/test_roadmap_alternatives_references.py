@@ -457,6 +457,7 @@ def test_a_provider_that_holds_a_request_past_the_bound_leaves_the_verdict_of_th
     before its bound."""
     number = _item(store)
     held = FakeReferenceProvider("mcp-code", SearchKind.CODE)
+    held.connect()
     held.hold()
 
     try:
