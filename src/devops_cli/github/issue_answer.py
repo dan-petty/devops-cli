@@ -13,9 +13,10 @@ time, so that such an answer is taken and the answer of a transferred issue is n
 
 Three readers of one issue number use this module, so none of them takes the answer for another
 issue as the issue that it asked for: the roadmap store, the release feed and
-`GitHubClient.get_issue`. The readers of a command that a person runs compare nothing: `devops gh
-issue view` and `devops gh issue edit` (`github/issues.py`, `commands/gh.py`) and the issue read
-of `commands/pr.py`.
+`GitHubClient.get_issue`. The commands that a person runs compare nothing: the reads of `devops gh
+issue view` and `devops gh issue edit` (`get_repository_issue` and `resolve_updated_labels` of
+`github/issues.py`), and the answers of the issue writes of `commands/gh.py` and
+`commands/pr.py`.
 """
 
 from __future__ import annotations
