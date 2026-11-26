@@ -28,11 +28,11 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/k8s/cluster_secrets.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/config/env.py`, `src/devops_cli/valkey/cache.py`, `src/devops_cli/commands/k8s/stack_lifecycle.py`.
+- Code: `src/devops_cli/k8s/cluster_secrets.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/config/env.py`, `src/devops_cli/valkey/cache.py`, `src/devops_cli/commands/k8s/stack_lifecycle.py`, and a comment of `src/devops_cli/commands/ci.py`.
 - Manifests: `k8s/devops/valkey-roadmap/`, `k8s/devops/kustomization.yaml`, `k8s/devops/networkpolicy.yaml`, `k8s/devops/configmap.example.yaml`.
 - Gate: `tests/gate/k8s_checks/devops_runtime.py`, `tests/gate/k8s_render.py`.
 - Documents: `k8s/README.md`, `docs/CLUSTER.md`, `docs/SERVICE_PATTERNS.md`, `docs/CONFIGURATION.md`, `docs/ENV_VARS.md`.
-- A build of `k8s/devops` now fetches the base from github.com. The `k8s` row of `devops ci` makes 3 such builds and takes about 17 seconds more.
+- A build of `k8s/devops` now fetches the base from github.com with git. The `k8s` row of `devops ci` makes 3 such builds and takes about 17 seconds more. A pod with no network, such as the planner run pod of ADR 0018, cannot build `k8s/devops`.
 - A person pushes the new Secret before the merge. The pod of the store does not start while the key `users.acl` is missing.
 - The scrape of the exporter needs TCP 9121 to namespace `devops` in the egress perimeter of namespace `monitoring`, which the environment repository holds.
 
