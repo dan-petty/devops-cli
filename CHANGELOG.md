@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.223.1](https://github.com/dan-petty/devops-cli/compare/v0.223.0...v0.223.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* **ai:** read the host of a URL word in the search query check ([#7332](https://github.com/dan-petty/devops-cli/issues/7332)) ([2927816](https://github.com/dan-petty/devops-cli/commit/2927816b2515880ca1735c9fd83ac766c815fc19))
+
 ## [0.223.0](https://github.com/dan-petty/devops-cli/compare/v0.222.0...v0.223.0) (2026-11-26)
 
 
