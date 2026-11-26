@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.221.13](https://github.com/dan-petty/devops-cli/compare/v0.221.12...v0.221.13) (2026-11-26)
+
+
+### Bug Fixes
+
+* **deps:** lock file maintenance ([#7284](https://github.com/dan-petty/devops-cli/issues/7284)) ([b442382](https://github.com/dan-petty/devops-cli/commit/b442382556cc30ab1fd0c7b8a8ce8667de274b56))
+
 ## [0.221.12](https://github.com/dan-petty/devops-cli/compare/v0.221.11...v0.221.12) (2026-11-26)
 
 
