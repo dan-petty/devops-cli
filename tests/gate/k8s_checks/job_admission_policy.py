@@ -1185,7 +1185,7 @@ def check_a_planner_job_with_a_secret_env_from_is_refused() -> None:
     assert any("envFrom" in message for message in _refusals(job))
 
 
-@pytest.mark.parametrize("key", CONST_ROADMAP_STAGE_JOB_SECRET_KEYS)
+@pytest.mark.parametrize("key", [APP_KEY, MODEL_KEY, CACHE_KEY])
 def check_a_planner_job_with_a_key_of_the_secret_is_refused(key: str) -> None:
     """A runner Job and a stage Job may read these keys with `valueFrom` (#6518), but a planner
     run Job reads no key of the Secret (ADR 0018)."""
