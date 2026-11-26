@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.221.14](https://github.com/dan-petty/devops-cli/compare/v0.221.13...v0.221.14) (2026-11-26)
+
+
+### Bug Fixes
+
+* **roadmap:** the brain issue cache follows the shared-tier rules ([#7297](https://github.com/dan-petty/devops-cli/issues/7297)) ([e1552ab](https://github.com/dan-petty/devops-cli/commit/e1552ab0f247be44c5e768c9a05adfc12c9fd96a))
+
 ## [0.221.13](https://github.com/dan-petty/devops-cli/compare/v0.221.12...v0.221.13) (2026-11-26)
 
 
