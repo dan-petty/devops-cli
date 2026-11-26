@@ -14,6 +14,12 @@ is older than `DEFAULT_ROADMAP_INTAKE_SNAPSHOT_MAX_AGE_HOURS`, and on `--full`. 
 removes an issue that left the repository, and a change that moved no `updated_at`. A release that
 keeps the schema keeps the snapshot.
 
+An issue that left the repository, such as one that was transferred, is in no read of the changes.
+When GitHub answers a read of its number with no issue of the repository, the store tells the
+listing (`IncrementalListing.drop`), and the later reads of that listing leave the record out
+(#7331). Each lane has a listing of its own, so each lane drops the record at its own first read
+of the number, and the full read removes it for all of them.
+
 `SnapshotStore` is the seam of the place that keeps the snapshots. `FileSnapshotStore` keeps them
 in the state directory of the roadmap: under the data directory for `devops roadmap intake`, and on
 the Service's volume for the intake of the lane of `intake` and the scoped intake of a delivery.
@@ -35,7 +41,7 @@ import hashlib
 import json
 import logging
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Final, Protocol
@@ -186,6 +192,11 @@ class ListingRead(Protocol):
         self, repo: str, read_issues: Callable[[str], list[IssueRecord]]
     ) -> dict[int, IssueRecord]: ...
 
+    def drop(self, repo: str, number: int) -> None:
+        """Keep the record of number `number` out of the later reads of `repo`: GitHub answered
+        a read of that number with no issue of the repository (#7331)."""
+        ...
+
 
 def _now() -> datetime:
     return datetime.now(UTC)
@@ -195,12 +206,20 @@ def _now() -> datetime:
 class IncrementalListing:
     """How a store reads every issue of a repository: the snapshot that `snapshots` keeps and the
     issues changed since its watermark, or the whole listing when `full` or when no snapshot is
-    fit to read from. Each read keeps a new snapshot."""
+    fit to read from. Each read keeps a new snapshot.
+
+    The read of the changes does not show an issue that left the repository. So the listing keeps
+    the numbers that `drop` names, for each repository, and leaves their records out of each
+    later read and of the snapshot that the read keeps, whichever copy of the snapshot the read
+    starts from. A number stays out until GitHub lists it as changed, or until the next full
+    read, which gives only the issues that the repository holds (#7331)."""
 
     snapshots: SnapshotStore
     full: bool = False
     clock: Callable[[], datetime] = _now
     schema_key: str = LISTING_SCHEMA_KEY
+    # The numbers that left each repository since the last full read, by the casefolded name.
+    _left: dict[str, set[int]] = field(default_factory=dict, init=False, repr=False, compare=False)
 
     def read(
         self, repo: str, read_issues: Callable[[str], list[IssueRecord]]
@@ -209,14 +228,25 @@ class IncrementalListing:
         reads the listing of a query and parses each issue it gets."""
         started = self.clock()
         held = None if self.full else self._fit(self.snapshots.load(repo), started)
+        left = self._left.setdefault(repo.casefold(), set())
         if held is None:
             listed = {issue.number: issue for issue in read_issues(FULL_LISTING)}
             full_at = started
+            left.clear()
         else:
-            listed = merged(held.issues, read_issues(changed_listing(held.watermark)))
+            changed = read_issues(changed_listing(held.watermark))
+            left.difference_update(issue.number for issue in changed)
+            kept = [issue for issue in held.issues if issue.number not in left]
+            listed = merged(kept, changed)
             full_at = held.full_at
         self._keep(repo, listed, full_at=full_at, started=started)
         return listed
+
+    def drop(self, repo: str, number: int) -> None:
+        """Keep the record of number `number` out of the later reads of `repo`, and so out of
+        the snapshots that they keep: GitHub answered a read of that number with no issue of the
+        repository."""
+        self._left.setdefault(repo.casefold(), set()).add(number)
 
     def _fit(self, held: ListingSnapshot | None, now: datetime) -> ListingSnapshot | None:
         """`held` when a run can read the changes from it: its records have this schema, and its

@@ -89,6 +89,8 @@ class GitHubFake:
         self.commits = set(commits)
         self.check_runs: dict[str, list[dict[str, str]]] = {}
         self.issues: dict[int, dict[str, Any]] = {}
+        # The issues that left the repository, by the number they had here (`move_issue`).
+        self.moved: dict[int, dict[str, Any]] = {}
         self.pulls: dict[int, dict[str, Any]] = {}
         self.label_catalog: list[dict[str, Any]] = []
         self.comments: dict[int, list[str]] = {}
@@ -179,6 +181,20 @@ class GitHubFake:
                 "url": f"https://api.github.com/repos/{self.repo}/pulls/{number}",
                 "html_url": f"https://github.com/{self.repo}/pull/{number}",
             }
+
+    def move_issue(self, number: int, *, to: str, as_number: int) -> None:
+        """Transfer issue `number` to the repository `to`, where it is issue `as_number`. The
+        listings of this repository give it no more. A request of the issue by the number it had
+        here answers with the issue at its new place and writes nothing, as `gh` follows the
+        redirect of GitHub with a read. Its comments and its events answer 404, and so does each
+        other request below that number in this fake."""
+        issue = self.issues.pop(number)
+        self.moved[number] = {
+            **issue,
+            "number": as_number,
+            "html_url": f"https://github.com/{to}/issues/{as_number}",
+            "repository_url": f"https://api.github.com/repos/{to}",
+        }
 
     def block(self, blocked: int, blocker: int) -> None:
         """Issue `blocker` blocks issue `blocked`. GitHub counts it in the `blocked_by` summary
@@ -657,6 +673,8 @@ class GitHubFake:
         page: int,
         stdin: str | None,
     ) -> Any:
+        if number in self.moved:
+            return (1, "gh: Not Found (HTTP 404)") if rest else self.moved[number]
         listings = {"events": self._issue_events, "dependencies/blocked_by": self._blockers_page}
         if (
             method == "GET"
@@ -666,6 +684,18 @@ class GitHubFake:
             return listing(number, page)
         if number not in self.issues:
             return (1, "gh: Not Found (HTTP 404)")
+        return self._held_issue_route(method, number, rest, fields, page, stdin)
+
+    def _held_issue_route(
+        self,
+        method: str,
+        number: int,
+        rest: list[str],
+        fields: dict[str, str],
+        page: int,
+        stdin: str | None,
+    ) -> Any:
+        """The answer of a request of issue `number`, which the repository holds, or below it."""
         issue = self.issues[number]
         if rest == ["dependencies", "blocked_by"] and method == "POST":
             return self._post_blocked_by(number, fields)
