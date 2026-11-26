@@ -38,3 +38,18 @@ def test_the_references_setting_reads_its_variable(
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_ALTERNATIVES_REFERENCES", "off")
 
     assert load_settings().roadmap.alternatives.references == "off"
+
+
+def test_the_step_has_no_mcp_server_until_its_url_is_set(
+    config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config()
+    unset = load_settings().roadmap.alternatives.references_mcp_url
+    monkeypatch.setenv(
+        "DEVOPS_CLI_ROADMAP_ALTERNATIVES_REFERENCES_MCP_URL", "https://mcp.example.com/mcp"
+    )
+
+    assert (unset, load_settings().roadmap.alternatives.references_mcp_url) == (
+        None,
+        "https://mcp.example.com/mcp",
+    )

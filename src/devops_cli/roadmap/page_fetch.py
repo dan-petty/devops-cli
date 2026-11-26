@@ -60,17 +60,22 @@ def page_fetch_configured() -> bool:
     return bool(load_settings().crawl4ai.url)
 
 
+def urls_in_order(text: str) -> list[str]:
+    """The http and https URLs that `text` names, as `normalize_url` spells them, in their order.
+    A URL ends at a quote, a backtick or an angle bracket, and prose punctuation after it is not a
+    part of it."""
+    urls: list[str] = []
+    for candidate in CONST_URL_CANDIDATE_RE.findall(text):
+        end = min((i for i, char in enumerate(candidate) if char in _URL_END), default=None)
+        url = candidate[:end].rstrip(CONST_PROSE_TRAILING_PUNCTUATION)
+        if urlsplit(url).scheme in ("http", "https"):
+            urls.append(normalize_url(url))
+    return urls
+
+
 def named_urls(*texts: str) -> frozenset[str]:
-    """The http and https URLs that `texts` name, as `normalize_url` spells them. A URL ends at a
-    quote, a backtick or an angle bracket, and prose punctuation after it is not a part of it."""
-    urls: set[str] = set()
-    for text in texts:
-        for candidate in CONST_URL_CANDIDATE_RE.findall(text):
-            end = min((i for i, char in enumerate(candidate) if char in _URL_END), default=None)
-            url = candidate[:end].rstrip(CONST_PROSE_TRAILING_PUNCTUATION)
-            if urlsplit(url).scheme in ("http", "https"):
-                urls.add(normalize_url(url))
-    return frozenset(urls)
+    """The http and https URLs that `texts` name, as `urls_in_order` reads them."""
+    return frozenset(url for text in texts for url in urls_in_order(text))
 
 
 @dataclass
@@ -159,4 +164,5 @@ __all__ = [
     "PageFetch",
     "named_urls",
     "page_fetch_configured",
+    "urls_in_order",
 ]

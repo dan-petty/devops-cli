@@ -764,11 +764,12 @@ BRAIN_REFERENCES_TOTAL = Instrument(
     InstrumentKind.COUNTER,
     "1",
     "Searches and links of the reference step of the alternatives check (#4672), by provider "
-    "(github-code, github-repository, mcp-code or web) and result. A search adds 1 with hit, "
-    "empty or failed. A verified link adds 1 with verified in mode plan, or with linked when mode "
-    "on writes it. An optional provider that is down at the start of a run adds 1 with "
-    "unavailable, and a step that passes its time bound adds 1 with timeout under the provider "
-    "step. At most 29 series",
+    "and result. The providers are github-code, github-repository, mcp-code for the optional MCP "
+    "server, and web for a documentation link among the sources of the check. A search adds 1 "
+    "with hit, empty or failed, and a documentation page that cannot be read adds 1 with failed. "
+    "A verified link adds 1 with verified in mode plan, or with linked when mode on writes it. An "
+    "optional provider that is down at the start of a run adds 1 with unavailable, and a step "
+    "that passes its time bound adds 1 with timeout under the provider step. At most 18 series",
 )
 VALKEY_CACHE_ERRORS_TOTAL = Instrument(
     "devops_cli_valkey_cache_errors_total",

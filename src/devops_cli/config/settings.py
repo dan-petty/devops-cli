@@ -2010,6 +2010,11 @@ class AlternativesConfig(RowCadenceConfig):
         default=DEFAULT_ROADMAP_ALTERNATIVES_REFERENCES,
     )
 
+    references_mcp_url: Annotated[str | None, Variable()] = Field(
+        description="The URL of an MCP server with a code search tool, such as the grep.app server, that the reference step of the alternatives check asks as an optional provider for a public repository. The step sends it the queries of an item and reads the GitHub file links of its answer. A server that is down at the start of a run is left out, and the run continues. With no URL the step has the two GitHub providers only",
+        default=None,
+    )
+
 
 class RoadmapInboxConfig(BaseModel):
     """The two ages of `devops roadmap inbox` (#3494)."""

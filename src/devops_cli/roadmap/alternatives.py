@@ -167,6 +167,7 @@ from devops_cli.roadmap.item_comments import (
 )
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.page_fetch import TOOLSET_ALTERNATIVES, PageFetch, named_urls
+from devops_cli.roadmap.references.mcp_provider import configured_optional_providers
 from devops_cli.roadmap.references.providers import Result, count
 from devops_cli.roadmap.references.relevance import relevance_of
 from devops_cli.roadmap.references.step import (
@@ -1690,6 +1691,7 @@ def plan_alternatives(
                 store,
                 mode=config.references,
                 private=False,
+                optional=configured_optional_providers(settings),
                 relevance=relevance_of(settings),
             )
         )

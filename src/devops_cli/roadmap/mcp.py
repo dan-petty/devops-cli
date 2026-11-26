@@ -6,6 +6,10 @@ When a remote tool call fails or times out, it returns a tool error and records 
 in `RunTrace`. When a remote tool has the name of a local tool, the local tool wins and the remote
 tool is omitted. When the MCP server is down at start, the job stops and raises
 `RoadmapMcpUnavailableError`.
+
+An optional toolset (`optional=True`, #4672) makes one connection attempt and raises the same
+error at once when the server is down. Its caller, such as the reference step of the alternatives
+check, then leaves the server out and continues.
 """
 
 from __future__ import annotations
@@ -74,9 +78,11 @@ class RoadmapMcpToolset(MCPToolset):
         local_tool_names: Collection[str] = (),
         timeout_seconds: float | None = None,
         target_url: str | None = None,
+        optional: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(client, **kwargs)
+        self._optional = optional
         self._local_tool_names = frozenset(local_tool_names)
         self._timeout_seconds = (
             timeout_seconds
@@ -90,11 +96,13 @@ class RoadmapMcpToolset(MCPToolset):
         """Enter the toolset, and retry a refused first connection for a short, bounded time
         (#4372). A new Job pod can meet a network policy that kube-router has not programmed yet,
         and the connection is refused at once. An authentication failure is not refused, so it
-        goes to `RoadmapMcpUnavailableError` at once."""
+        goes to `RoadmapMcpUnavailableError` at once. An optional toolset does not wait for its
+        server: its first refused connection raises the error (#4672)."""
+        budget = 0.0 if self._optional else constants.ROADMAP_MCP_CONNECT_RETRY_SECONDS
         try:
             async for attempt in AsyncRetrying(
                 retry=retry_if_exception(_connection_refused),
-                stop=stop_after_delay(constants.ROADMAP_MCP_CONNECT_RETRY_SECONDS),
+                stop=stop_after_delay(budget),
                 wait=wait_exponential(
                     multiplier=1,
                     min=constants.ROADMAP_MCP_CONNECT_RETRY_INITIAL_SECONDS,

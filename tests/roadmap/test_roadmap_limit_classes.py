@@ -408,6 +408,42 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "was 6; PyPI and GitHub reads of one item",
     ),
     "CONST_ROADMAP_ALTERNATIVES_SEARCH_RESULTS": ("kept", "the size of the answer of one search"),
+    "CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_CODE_SEARCHES": (
+        "kept",
+        "GitHub answers 10 code searches a minute, and the items of a round share them",
+    ),
+    "CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_FACT_READS": (
+        "kept",
+        "the requests of one item to GitHub, deps.dev and a documentation host",
+    ),
+    "CONST_ROADMAP_ALTERNATIVES_REFERENCE_SECONDS": (
+        "kept",
+        "the time that the reference step of one item adds to a round",
+    ),
+    "CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_LINKS": (
+        "kept",
+        "the links of a kind that a person reads in the block of an issue",
+    ),
+    "CONST_ROADMAP_ALTERNATIVES_REFERENCE_SEARCH_RESULTS": (
+        "kept",
+        "the size of the answer of one code search",
+    ),
+    "CONST_ROADMAP_ALTERNATIVES_REFERENCE_SPAN_LINES": (
+        "kept",
+        "the lines of one permalink that a person reads",
+    ),
+    "CONST_ROADMAP_ALTERNATIVES_REFERENCE_QUERY_CHARS": (
+        "kept",
+        "GitHub refuses a search query over 256 characters",
+    ),
+    "CONST_ROADMAP_ALTERNATIVES_REFERENCE_DOC_TIMEOUT_SECONDS": (
+        "kept",
+        "the one request of a documentation page ends inside the time bound of the step",
+    ),
+    "CONST_ROADMAP_ALTERNATIVES_REFERENCE_RELEVANCE_SECONDS": (
+        "kept",
+        "the decision requests of 3 links end inside the time bound of the step",
+    ),
     "CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS": (
         "raised",
         "was 4096; a quarter of the planner window",

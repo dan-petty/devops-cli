@@ -27,11 +27,19 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_ADR_DIRECTORY,
     CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
     CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
+    CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_CODE_SEARCHES,
+    CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_FACT_READS,
+    CONST_ROADMAP_ALTERNATIVES_REFERENCE_SEARCH_RESULTS,
     CONST_ROADMAP_LABELS_PATH,
     CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS,
     CONST_URL_GITHUB_API_BASE,
 )
-from devops_cli.config.defaults import DEFAULT_DEPS_DEV_PROJECT_URL, DEFAULT_PYPI_PACKAGE_URL
+from devops_cli.config.defaults import (
+    DEFAULT_DEPS_DEV_DEPENDENTS_URL,
+    DEFAULT_DEPS_DEV_PROJECT_URL,
+    DEFAULT_PYPI_PACKAGE_URL,
+)
+from devops_cli.config.settings import load_settings
 from devops_cli.dry_run.requests import PlannedRequest, both, render_request_plan
 from devops_cli.git.branch_authors import LOG_FORMAT
 from devops_cli.lang import MESSAGES
@@ -493,6 +501,79 @@ def refine_requests(
     return tuple(reads), tuple(writes)
 
 
+def _reference_requests(store: StoreRequests, subject: str) -> Requests:
+    """What the reference step of the alternatives check reads for one item (#4672): the code
+    searches and the one repository search on the GitHub session, the facts and the file of each
+    candidate through gh, the two deps.dev reads of its rank, and the page of a documentation
+    link. Mode `off` reads nothing."""
+    if load_settings().roadmap.alternatives.references == "off":
+        return []
+    texts = MESSAGES.roadmap
+    rep, methods, targets = texts.plan_repeat, texts.plan_methods, texts.plan_targets
+    searches = rep["reference_search"].format(
+        limit=CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_CODE_SEARCHES
+    )
+    facts = rep["reference_fact"].format(limit=CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_FACT_READS)
+    repository, owner, name = _p("repository"), _p("owner"), _p("name")
+    package = _p("package")
+    reads = [
+        planned_session_read(
+            gh.code_search_path(
+                _p("reference_query"), CONST_ROADMAP_ALTERNATIVES_REFERENCE_SEARCH_RESULTS
+            ),
+            targets["reference_code_search"].format(subject=subject),
+            repeat=searches,
+        ),
+        planned_session_read(
+            gh.repository_search_path(
+                _p("reference_repositories"),
+                CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_CODE_SEARCHES
+                * CONST_ROADMAP_ALTERNATIVES_REFERENCE_SEARCH_RESULTS,
+            ),
+            targets["reference_repository_search"],
+        ),
+        store.gh(
+            gh.reference_facts_args(repository),
+            "reference_facts",
+            subject=repository,
+            repeat=facts,
+        ),
+        store.gh(
+            gh.repository_file_args(repository, _p("reference_path"), ref=_p("reference_sha")),
+            "reference_file",
+            subject=repository,
+            repeat=facts,
+        ),
+        PlannedRequest(
+            method=methods["deps_dev"],
+            target=targets["deps_dev_project"].format(subject=f"github.com/{owner}/{name}"),
+            argv=(
+                "GET",
+                DEFAULT_DEPS_DEV_PROJECT_URL.format(project=f"github.com%2F{owner}%2F{name}"),
+            ),
+            repeat=facts,
+        ),
+        PlannedRequest(
+            method=methods["deps_dev"],
+            target=targets["deps_dev_dependents"].format(subject=package),
+            argv=(
+                "GET",
+                DEFAULT_DEPS_DEV_DEPENDENTS_URL.format(
+                    system="pypi", name=package, version=_p("version")
+                ),
+            ),
+            repeat=facts,
+        ),
+        PlannedRequest(
+            method=methods["documentation"],
+            target=targets["reference_documentation"].format(subject=subject),
+            argv=("GET", f"https://{_p('documentation_page')}"),
+            repeat=facts,
+        ),
+    ]
+    return within(reads, texts.plan_conditions["references_on"])
+
+
 def alternatives_requests(
     repo: str,
     *,
@@ -505,8 +586,9 @@ def alternatives_requests(
     directory of the ADRs and each file of it (#3505), and, when it checks an item that is no skip
     class, the SBOM of the repository (#4661). For each item it checks it reads the item's
     comments, runs the model, and makes the searches and fact reads the model asks for, and the
-    deps.dev read of the project of a tool that the SBOM and the deployed paths do not hold;
-    `--item` names the item, and `limit` caps the items of a round, which `--limit` sets."""
+    deps.dev read of the project of a tool that the SBOM and the deployed paths do not hold, and
+    then the reads of the reference step (#4672); `--item` names the item, and `limit` caps the
+    items of a round, which `--limit` sets."""
     del limit
     store = StoreRequests(repo)
     texts = MESSAGES.roadmap
@@ -580,7 +662,14 @@ def alternatives_requests(
         *adrs,
         sbom,
         *within(
-            [*store.comments_on(subject), model, *search, *facts, deps_dev],
+            [
+                *store.comments_on(subject),
+                model,
+                *search,
+                *facts,
+                deps_dev,
+                *_reference_requests(store, subject),
+            ],
             cond["check_on"],
             each_item,
         ),
