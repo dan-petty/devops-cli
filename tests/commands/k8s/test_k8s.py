@@ -2273,9 +2273,8 @@ def test_native_deploy_stack_llm_applies_the_open_webui_origins_before_its_chart
         res.exit_code,
         [step for step, _ in steps[:2]],
         steps[1][1],
-        "example.com" in steps[0][1],
-        _DOMAIN in steps[0][1],
-    ) == (0, ["origins", "release"], "open-webui", False, True)
+        steps[0][1],
+    ) == (0, ["origins", "release"], "open-webui", f"https://chat.{_DOMAIN}")
 
 
 def test_native_deploy_stack_llm_applies_the_gateway_kustomization_after_the_secret_push(

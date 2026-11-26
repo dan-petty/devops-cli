@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.support.github_repository import OnboardHarness
+# pytest can load this file before HOME is isolated, so it imports no support module when it loads.
+if TYPE_CHECKING:
+    from tests.support.github_repository import OnboardHarness
 
 _APPLICATION = """apiVersion: argoproj.io/v1alpha1
 kind: Application
