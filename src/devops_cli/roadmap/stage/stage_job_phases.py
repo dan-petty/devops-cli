@@ -103,6 +103,7 @@ from devops_cli.roadmap.stage.stage import (
     StageTarget,
     StageWriter,
     item_failure,
+    item_left,
     job_time_decision,
     openspec_tool,
     parse_filters,
@@ -303,11 +304,12 @@ def _decide(
     plan: StagePlan,
     planned: PlannedChanges,
     target: StageTarget,
-) -> PlanResult | _Reads:
+) -> PlanResult | _Reads | None:
     """The decision of `prepare` on `target`, or the reads of the agent when none ends the run:
     the CI job-time premise, then the comments of the item, the probe of its body for a false
     premise, and the paths that the open plans create for a blocker, in the order of the planner
-    of `--phase all`. A failed read of one of them fails the item, as the planner fails it."""
+    of `--phase all`. A failed read of one of them fails the item, as the planner fails it. None
+    for an item that is no issue of the repository now, which has no result (`item_left`)."""
     decided = job_time_decision(repo, target)
     if decided is not None:
         return decided
@@ -320,7 +322,7 @@ def _decide(
     except AICredentialsError:
         raise
     except ITEM_ERRORS as exc:
-        return item_failure(target, exc)
+        return None if item_left(exc, target.item) else item_failure(target, exc)
     paths = tuple(path for path in probe.missing if path in creates)
     if blockers := blocked_by(paths, creates):
         return Blocked(target, blockers, paths)
@@ -397,6 +399,8 @@ class _Prepare:
         target = read.selected[0]
         started = clock.monotonic()
         decided = _decide(self.store, self.repo, clone, plan, read.planned, target)
+        if decided is None:
+            return self.finish(plan, writer.applied())
         if not isinstance(decided, _Reads):
             writer.settle(target, decided)
             plan = _with_result(plan, decided, clock.monotonic() - started)

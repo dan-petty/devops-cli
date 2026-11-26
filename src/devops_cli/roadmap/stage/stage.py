@@ -3024,6 +3024,14 @@ def _call_reason(exc: AIClientError) -> str:
 ITEM_ERRORS: Final = (AIClientError, GitHubOperationError, RoadmapStageError, ToolExecutionError)
 
 
+def item_left(exc: Exception, item: Item) -> bool:
+    """Whether `exc` says that `item` is no issue of the repository now (#7337): the store raised
+    `GitHubNotAnIssueError` for its number, dropped its record and logged it. The job leaves such
+    an item out with no failure, no failure class and no failure mark. An error for another
+    number is an error of the item."""
+    return isinstance(exc, GitHubNotAnIssueError) and exc.number == item.number
+
+
 def item_failure(
     target: StageTarget,
     exc: AIClientError | GitHubOperationError | RoadmapStageError | ToolExecutionError,
@@ -3058,7 +3066,8 @@ def _plan_each(
 ]:
     """Plan each target in order. With a `writer`, the result of a target is written as soon as the
     target is done, before the next target is planned (#4034). Once the Service stops, no next
-    target starts, and the stop ends the round (#4485)."""
+    target starts, and the stop ends the round (#4485). A target that is no issue of the
+    repository now has no result, and the next target is planned (`item_left`, #7337)."""
     ready: list[StagedChange] = []
     stopped: list[OverBudget] = []
     failed: list[StageFailure] = []
@@ -3074,6 +3083,8 @@ def _plan_each(
         except AICredentialsError:
             raise
         except ITEM_ERRORS as exc:
+            if item_left(exc, target.item):
+                continue
             result = _failure_of(
                 target,
                 exc,
@@ -4919,6 +4930,7 @@ __all__ = [
     "dry_run_stage",
     "emit_stage_results",
     "item_failure",
+    "item_left",
     "job_time_decision",
     "log_stage_attempts",
     "named_items",

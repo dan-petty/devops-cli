@@ -60,6 +60,11 @@ STORE_LOG = "devops_cli.roadmap.stores.github_store"
 BELOW = f"{ISSUE}/"
 """Each request below the number of issue #7: its comments, its events and its blockers."""
 NOT_FOUND = (1, "gh: Not Found (HTTP 404)")
+GONE = (1, "gh: This issue was deleted (HTTP 410)")
+REPOSITORY = f"repos/{REPO}"
+"""The request of the repository, which gives the name that GitHub gives it now."""
+RENAMED = "acme/gadgets"
+NAME_LOG = "devops_cli.github.issue_answer"
 NO_ISSUE = ("GitHubNotAnIssueError", "GITHUB_NOT_AN_ISSUE", f"#7 is not an issue of {REPO}.")
 """The class, the code and the message of the error of a number that is no issue."""
 
@@ -82,7 +87,10 @@ def _answer(number: int, repo: str = REPO, *, without: tuple[str, ...] = (), **c
 
 
 def _store(replies: dict[str, Any]) -> tuple[GitHubRoadmapStore, RecordedGh]:
-    runner = RecordedGh(replies)
+    """A store of `REPO` over the recorded `replies`. The repository answers with its own name,
+    unless `replies` give another answer. That reply is the last one, because its key is a part
+    of each other request of the repository."""
+    runner = RecordedGh({**replies, REPOSITORY: replies.get(REPOSITORY, {"full_name": REPO})})
     return GitHubRoadmapStore(REPO, runner=runner, session=RunnerSession(runner)), runner
 
 
@@ -271,6 +279,124 @@ def test_a_redirect_of_a_route_that_is_no_issue_number_stays_an_error() -> None:
     assert ("HTTP 301" in str(listing.value), "HTTP 301" in str(commit.value)) == (True, True)
 
 
+@pytest.mark.parametrize("said", LEFT)
+def test_a_store_that_read_no_listing_logs_a_number_that_left_one_time(
+    said: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A Job reads one number and no listing. The store cannot tell whether a lane lists the
+    number, so it logs the number that it leaves out."""
+    store, _ = _store({ISSUE: (1, said)})
+
+    with caplog.at_level(logging.WARNING, logger=STORE_LOG):
+        store.issue(7)
+        store.item(7, fresh=True)
+
+    assert _logged(caplog) == [
+        ("WARNING", f"#7 is no issue of {REPO} now. The store leaves it out.")
+    ]
+
+
+def test_a_store_that_read_its_listing_logs_a_number_that_was_an_issue_and_no_other(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The listing of a Job is new, so it does not hold #9, which was transferred. The status
+    301 says that #9 was an issue, and the store logs it. The status 404 of #99 says nothing of
+    the kind: no lane lists that number, and the store logs none."""
+    github = _repository()
+    github.seed_issue(9, labels=ITEM_LABELS, body="Text of 9")
+    github.move_issue(9, to=OTHER, as_number=12, followed=False)
+    store = _round(github, IncrementalListing(FileSnapshotStore(tmp_path)))
+    listed = _numbers(store)
+
+    with caplog.at_level(logging.WARNING, logger=STORE_LOG):
+        read = (store.issue(99), store.issue(9), store.issue(9))
+
+    assert (listed, read, _logged(caplog)) == (
+        [7, 8],
+        (None, None, None),
+        [("WARNING", f"#9 is no issue of {REPO} now. The store leaves it out.")],
+    )
+
+
+# ── A renamed repository ──────────────────────────────────────────────────────
+
+
+def _name_reads(runner: RecordedGh) -> list[list[str]]:
+    """Each read of the repository itself that the store sent."""
+    return [args for args, _ in runner.calls if args == ["api", REPOSITORY]]
+
+
+def test_an_answer_under_the_old_name_of_a_renamed_repository_is_the_requested_issue(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """GitHub redirects each route of a renamed repository, so each issue answer holds the
+    requested number and the new name. The store reads the name of its repository one time for
+    many such answers, takes them, and says one time that its name is old."""
+    store, runner = _store(
+        {
+            ISSUE: _answer(7, RENAMED),
+            TWELVE: _answer(12, RENAMED),
+            REPOSITORY: {"full_name": RENAMED},
+        }
+    )
+
+    with caplog.at_level(logging.WARNING):
+        seven, twelve, again = store.issue(7), store.issue(12), store.item(7, fresh=True)
+        body = store.read_issue_body(7)
+
+    assert seven is not None
+    assert twelve is not None
+    assert again is not None
+    assert (seven.number, twelve.number, again.number, body, _name_reads(runner)) == (
+        7,
+        12,
+        7,
+        f"The text of issue 7 of {RENAMED}.",
+        [["api", REPOSITORY]],
+    )
+    assert [log.getMessage() for log in caplog.records if log.name in (NAME_LOG, STORE_LOG)] == [
+        f"GitHub names the repository {REPO} as {RENAMED} now. The configured name is old: give "
+        "the new name."
+    ]
+
+
+NOT_THIS_REPOSITORY: list[Any] = [
+    pytest.param({"full_name": REPO}, id="the-repository-keeps-its-name"),
+    pytest.param({"full_name": RENAMED}, id="the-repository-has-a-third-name"),
+    pytest.param(NOT_FOUND, id="no-repository"),
+    pytest.param((1, "gh: HTTP 301"), id="redirect-not-followed"),
+]
+
+
+@pytest.mark.parametrize("repository", NOT_THIS_REPOSITORY)
+def test_a_transferred_issue_that_kept_its_number_is_refused(repository: Any) -> None:
+    """The answer holds the requested number and the name of another repository. GitHub does not
+    give the repository of the store that name, so the answer is the issue at another place. The
+    store reads the name one time for many answers."""
+    store, runner = _store(
+        {ISSUE: _answer(7, OTHER), TWELVE: _answer(12, OTHER), REPOSITORY: repository}
+    )
+
+    read = (store.issue(7), store.issue(12), store.item(7, fresh=True))
+
+    assert (read, _name_reads(runner)) == ((None, None, None), [["api", REPOSITORY]])
+
+
+def test_a_renamed_repository_drops_no_record(tmp_path: Path) -> None:
+    """The rename of a repository must not read as "each item left": a round after the rename
+    reads each item again and keeps each record of its listing."""
+    github = _repository()
+    listing = IncrementalListing(FileSnapshotStore(tmp_path))
+    _numbers(_round(github, listing))
+    github.rename_repository(RENAMED)
+
+    second = _round(github, listing)
+    read = [second.item(7, fresh=True), second.item(8, fresh=True)]
+
+    assert [None if item is None else item.number for item in read] == [7, 8]
+    assert (_numbers(second), _numbers(_round(github, listing))) == ([7, 8], [7, 8])
+
+
 # ── The listings below a number ───────────────────────────────────────────────
 
 LISTINGS: list[Any] = [
@@ -312,6 +438,41 @@ def test_a_404_below_the_number_of_an_issue_of_the_repository_stays_the_error_of
     assert (type(missing.value).__name__, missing.value.error_code) == (
         "GitHubNotFoundError",
         "GITHUB_NOT_FOUND",
+    )
+
+
+NO_LISTING: list[Any] = [
+    pytest.param(GONE, id="deleted"),
+    pytest.param((1, "gh: HTTP 301"), id="redirect-not-followed"),
+]
+
+
+@pytest.mark.parametrize("read", LISTINGS)
+@pytest.mark.parametrize("below", NO_LISTING)
+def test_a_410_or_a_301_below_the_number_of_no_issue_raises_the_error_of_no_issue(
+    read: Callable[[GitHubRoadmapStore], Any], below: Any
+) -> None:
+    """GitHub answers 410 for the comments, the events and the blockers of a deleted issue, and a
+    redirect that is not followed ends with 301. The store reads the issue for each of them."""
+    store, _ = _store({BELOW: below, ISSUE: GONE})
+
+    with pytest.raises(GitHubOperationError) as refused:
+        read(store)
+
+    assert _raised(refused.value) == NO_ISSUE
+
+
+def test_a_410_below_the_number_of_an_issue_of_the_repository_stays_the_error_of_the_listing() -> (
+    None
+):
+    store, _ = _store({BELOW: GONE, ISSUE: _answer(7)})
+
+    with pytest.raises(GitHubOperationError) as refused:
+        store.comments_on(7)
+
+    assert (type(refused.value).__name__, refused.value.details.get("status")) == (
+        "GitHubOperationError",
+        410,
     )
 
 
@@ -605,3 +766,25 @@ def test_a_redirect_that_gh_does_not_follow_drops_the_record_and_logs_it(
     assert _logged(caplog) == [
         ("WARNING", f"#7 is no issue of {REPO} now. The store leaves it out.")
     ]
+
+
+def test_a_410_of_the_comments_of_a_deleted_issue_drops_its_record(tmp_path: Path) -> None:
+    """A person deleted #7, and the lane got no delivery for it. The comments of #7 answer 410,
+    and so does the issue. The record leaves the listing at the read of the comments, so no later
+    round of the lane lists it."""
+    github = _repository()
+    listing = IncrementalListing(FileSnapshotStore(tmp_path))
+    _numbers(_round(github, listing))
+    github.delete_issue(7)
+
+    second = _round(github, listing)
+    listed_before = _numbers(second)
+    with pytest.raises(GitHubOperationError) as refused:
+        second.comments_on(7)
+
+    assert (
+        listed_before,
+        _raised(refused.value),
+        _numbers(second),
+        _numbers(_round(github, listing)),
+    ) == ([7, 8], NO_ISSUE, [8], [8])

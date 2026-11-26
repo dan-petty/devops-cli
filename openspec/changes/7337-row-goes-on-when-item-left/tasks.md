@@ -9,6 +9,10 @@ Adds: `GitHubNotAnIssueError`, `NO_ISSUE_STATUSES`, `answered_repository`, `answ
   - Verification: `$ uv run devops ci test tests/roadmap/stores/test_roadmap_github_store_issue_answer.py` fails on the base
 - [x] 1.2 Add `GitHubNotAnIssueError` to `src/devops_cli/exceptions/git.py`. Move the comparison of an answer to `src/devops_cli/github/issue_answer.py` with `NO_ISSUE_STATUSES`. In `github_store.py`, raise the class in `_not_an_issue`, read one issue with the statuses of `NO_ISSUE_STATUSES` as absent in `_read_issue` and `_revalidate_issue`, read `comments_on`, `label_changes` and `blocked_by` through `_listing_below`, and log one line for a number in `_gone`. Make `InMemoryRoadmapStore` raise the class
   - Verification: `$ uv run devops ci test tests/roadmap/stores/test_roadmap_github_store_issue_answer.py tests/roadmap/stores/test_roadmap_store_contract.py tests/roadmap/stores/test_github_store_brain.py` passes
+- [x] 1.3 Give `GitHubFake` `delete_issue` and `rename_repository`, and make `RunnerSession` raise the errors of the real session for 410 and 301 with the status in their details. Add the failing cases to `tests/roadmap/stores/test_roadmap_github_store_issue_answer.py`: a 410 or a 301 below a number, the drop of the record of a deleted issue at the read of its comments, the log line of a store that read no listing and of a store with a new listing, an answer under the old name of a renamed repository, a transferred issue that kept its number, and a renamed repository that drops no record
+  - Verification: `$ uv run devops ci test tests/roadmap/stores/test_roadmap_github_store_issue_answer.py` fails on the base
+- [x] 1.4 Add `says_no_issue` and `CurrentName` to `src/devops_cli/github/issue_answer.py` and give `answers_request` the check of the current name. In `github_store.py`, read the issue for each status of `NO_ISSUE_STATUSES` in `_listing_below`, read the name of the repository in `_full_name`, and log a number whose read answers 301 or 410 and each number of a store that read no listing
+  - Verification: `$ uv run devops ci test tests/roadmap/stores/test_roadmap_github_store_issue_answer.py tests/roadmap/stores/test_github_store_brain.py` passes
 
 ## 2. A row leaves out an item that is no issue of the repository
 
@@ -18,6 +22,10 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/status_sync.py`, `src/devops_cli/
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_rows_issue_answer.py tests/roadmap/stage/test_roadmap_stage_prepare.py tests/roadmap/stage/test_roadmap_stage_drift.py` fails on the base
 - [x] 2.2 Leave the item out in `write_each` of `src/devops_cli/roadmap/stage/stage.py`, in `_settled` of `src/devops_cli/roadmap/alternatives.py` and in `run_plan_drift` of `src/devops_cli/roadmap/stage/plan_drift.py`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_rows_issue_answer.py tests/roadmap/stage/test_roadmap_stage_prepare.py tests/roadmap/stage/test_roadmap_stage_drift.py tests/roadmap/test_roadmap_stop_clear.py` passes
+- [x] 2.3 Add the failing case of a round of the stage planner with an item that left to `tests/roadmap/stage/test_roadmap_stage_failure_class.py`, the case of a stage Job whose item left after its selection to `tests/roadmap/stage/test_roadmap_stage_prepare.py`, and the log line of the left change folder to the case of 2.1 there
+  - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_failure_class.py tests/roadmap/stage/test_roadmap_stage_prepare.py` fails on the base
+- [x] 2.4 Add `item_left` to `src/devops_cli/roadmap/stage/stage.py`, give such an item no result in `_plan_each`, and end the run in `_decide` and `_Prepare.run` of `src/devops_cli/roadmap/stage/stage_job_phases.py`
+  - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_failure_class.py tests/roadmap/stage/test_roadmap_stage_prepare.py` passes
 
 ## 3. A delivery that says that an issue left drops its record at once
 
@@ -28,6 +36,10 @@ Adds: `issue_left`, `TriggerBatch.left`
   - Verification: `$ uv run devops ci test tests/server/routes/test_webhooks_brain.py tests/server/test_server_service.py tests/roadmap/test_roadmap_rows_issue_answer.py` fails on the base
 - [x] 3.2 Add `issue_left` to `src/devops_cli/models/webhooks.py`. Remove the entry in the roadmap consumer of `src/devops_cli/server/routes/webhooks.py`, keep the numbers in `TriggerBatch.left` in `src/devops_cli/server/service.py`, and drop them from the listing in `service_job` of `src/devops_cli/roadmap/run.py`
   - Verification: `$ uv run devops ci test tests/server/routes/test_webhooks_brain.py tests/server/test_server_service.py tests/roadmap/test_roadmap_rows_issue_answer.py` passes
+- [x] 3.3 Add the failing case of a delivery of the bot of the App with the action `transferred` or `deleted` to `tests/server/routes/test_webhooks_brain.py`
+  - Verification: `$ uv run devops ci test tests/server/routes/test_webhooks_brain.py` fails on the base
+- [x] 3.4 Add `GitHubWebhookPayload.says_issue_left`, and remove the entry for such a payload in `_remember_own_delivery_issue`
+  - Verification: `$ uv run devops ci test tests/server/routes/test_webhooks_brain.py` passes
 
 ## 4. The other readers of one issue number compare the answer
 
@@ -37,12 +49,16 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/release_comments.py`, `src/devops
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_release_feed.py tests/github/test_github_client_issue_reads.py` fails on the base
 - [x] 4.2 Compare the answer in `GitHubReleaseFeed._issue` and in `GitHubClient.get_issue` with `answers_request`, and take the statuses of `NO_ISSUE_STATUSES` as absent in the feed
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_release_feed.py tests/github/test_github_client_issue_reads.py tests/roadmap/test_roadmap_release_comments.py` passes
+- [x] 4.3 Add the failing cases of the client for the status 410 and for a 301 that is not followed, and the cases of a renamed repository for the client and for the feed, to `tests/github/test_github_client_issue_reads.py` and `tests/roadmap/test_roadmap_release_feed.py`
+  - Verification: `$ uv run devops ci test tests/github/test_github_client_issue_reads.py tests/roadmap/test_roadmap_release_feed.py` fails on the base
+- [x] 4.4 Raise `GitHubNotAnIssueError` for these two statuses in `GitHubClient.get_issue`, and give the client and the feed a `CurrentName`
+  - Verification: `$ uv run devops ci test tests/github/test_github_client_issue_reads.py tests/roadmap/test_roadmap_release_feed.py tests/roadmap/stage/test_roadmap_stage_drift.py` passes
 
 ## 5. Give the rule in the documents
 
 Kind: other. Reads: `docs/CLUSTER.md`. Changes: `docs/CLUSTER.md`, `docs/ERRORS.md`.
 
-- [x] 5.1 Give the rule of this change in the paragraph of `docs/CLUSTER.md` about the issue cache, and write `docs/ERRORS.md` again with `uv run devops docs generate`
+- [x] 5.1 Give the rule of this change in the paragraph of `docs/CLUSTER.md` about the issue cache, with the rows that leave such an item out and the rows that still fail one round for it, and write `docs/ERRORS.md` again with `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs`
 
 ## Workflow follow-up

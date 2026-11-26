@@ -512,3 +512,27 @@ def test_a_delivery_of_an_issue_that_left_removes_its_entry_and_wakes_each_lane(
         [(REPO, "issues", "labeled", 42), (REPO, "issues", action, 42)],
         None,
     )
+
+
+@pytest.mark.parametrize("action", ["transferred", "deleted"])
+def test_a_delivery_of_the_app_for_an_issue_that_left_writes_no_entry(
+    shared_valkey: ValkeyCacheTier, action: str
+) -> None:
+    """The route refuses a delivery whose sender is the bot of the App, and it brings the entry
+    of the issue up to date from such a payload. For the action `transferred` or `deleted` the
+    issue is no issue of the repository now: the route writes no entry from the payload, removes
+    the entry that the tier holds, and wakes no lane."""
+    public = {"full_name": REPO, "private": False}
+    own = _Service()
+    bot = own.bot_login or ""
+
+    with_no_entry = _deliver(own, public, sender=bot, action=action)
+    after_the_first = cached_issue(REPO, 42, private=False)
+    _deliver(_Service(), public)
+    held = cached_issue(REPO, 42, private=False)
+    again = _Service()
+    with_an_entry = _deliver(again, public, sender=bot, action=action)
+
+    assert held is not None
+    assert (with_no_entry, with_an_entry, after_the_first) == (200, 200, None)
+    assert (cached_issue(REPO, 42, private=False), own.triggers, again.triggers) == (None, [], [])

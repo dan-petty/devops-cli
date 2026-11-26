@@ -17,7 +17,12 @@ from pydantic import ValidationError as MalformedPayloadError
 
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.error_classifier import classify_gh_failure, gh_http_status
-from devops_cli.github.issue_answer import NO_ISSUE_STATUSES, answered_repository, answers_request
+from devops_cli.github.issue_answer import (
+    NO_ISSUE_STATUSES,
+    CurrentName,
+    answered_repository,
+    answers_request,
+)
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.roadmap.stores.github_store import GhRunner
 
@@ -69,17 +74,25 @@ class _IssuePayload(BaseModel):
     url: str | None = None
     html_url: str | None = None
 
-    def answers(self, repo: str, number: int) -> bool:
-        """Whether the payload is the answer for number `number` of `repo`, and not the issue at
-        another place that GitHub gives for a transferred issue (`issue_answer`)."""
+    def answers(self, number: int, current: CurrentName) -> bool:
+        """Whether the payload is the answer for number `number` of the repository of `current`,
+        and not the issue at another place that GitHub gives for a transferred issue
+        (`issue_answer`)."""
         named = answered_repository(
             repository_url=self.repository_url, url=self.url, html_url=self.html_url
         )
-        return answers_request(repo, number, answered=self.number, named=named)
+        return answers_request(
+            current.repo, number, answered=self.number, named=named, current=current
+        )
+
+
+class _RepositoryPayload(BaseModel):
+    full_name: str
 
 
 _RELEASES = TypeAdapter(list[_ReleasePayload])
 _ISSUE = TypeAdapter(_IssuePayload)
+_REPOSITORY = TypeAdapter(_RepositoryPayload)
 
 
 def _unique(numbers: list[int]) -> tuple[int, ...]:
@@ -103,6 +116,7 @@ class GitHubReleaseFeed:
     def __init__(self, repo: str, runner: GhRunner = run_gh) -> None:
         self._repo = repo
         self._runner = runner
+        self._name = CurrentName(repo, self._full_name)
 
     def releases(self, limit: int) -> tuple[ReleaseInfo, ...]:
         """The published releases among the `limit` newest ones, newest first. A release with no
@@ -139,7 +153,12 @@ class GitHubReleaseFeed:
         if text is None:
             return None
         payload = self._validate(_ISSUE, text, f"#{number}")
-        return payload if payload.answers(self._repo, number) else None
+        return payload if payload.answers(number, self._name) else None
+
+    def _full_name(self) -> str | None:
+        """The name that GitHub gives the repository now, or None when it gives none."""
+        text = self._read(f"repos/{self._repo}", "the repository", absent_ok=True)
+        return None if text is None else self._validate(_REPOSITORY, text, "repository").full_name
 
     def _read(self, path: str, what: str, *, absent_ok: bool = False) -> str | None:
         proc = self._runner(["api", path], input=None, check=False, quiet=True, use_cache=False)

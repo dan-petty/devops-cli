@@ -6,20 +6,33 @@ is no issue there, 301 for an issue that was transferred to another repository, 
 that was deleted, and, when the client follows the redirect of a transferred issue, 200 with the
 issue at its new place. That last answer holds the number and the repository of another issue.
 
-Each reader of one issue number uses this module, so no reader takes such an answer as the issue
-that it asked for: the roadmap store, the release feed and the GitHub client.
+GitHub also redirects each route of a repository that was renamed or moved to another owner. An
+issue answer under the old name then holds the same number and the new name of the same
+repository. `CurrentName` reads the name that GitHub gives the configured repository now, one
+time, so that such an answer is taken and the answer of a transferred issue is not.
+
+Three readers of one issue number use this module, so none of them takes the answer for another
+issue as the issue that it asked for: the roadmap store, the release feed and
+`GitHubClient.get_issue`. The readers of a command that a person runs compare nothing: `devops gh
+issue view` and `devops gh issue edit` (`github/issues.py`, `commands/gh.py`) and the issue read
+of `commands/pr.py`.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import logging
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from http import HTTPStatus
 from pathlib import PurePosixPath
 from typing import Final
 from urllib.parse import urlsplit
 
+from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.validation import ValidationError as RepositoryNameError
 from devops_cli.github.repo_ref import RepoRef
+
+logger = logging.getLogger(__name__)
 
 NO_ISSUE_STATUSES: Final = (
     HTTPStatus.NOT_FOUND,
@@ -83,19 +96,73 @@ def answered_repository(
     return None if html_url is None else page_repository(html_url)
 
 
-def answers_request(repo: str, number: int, *, answered: int, named: RepoRef | None) -> bool:
+def says_no_issue(error: GitHubOperationError) -> bool:
+    """Whether `error`, the failure of a request, holds a status of `NO_ISSUE_STATUSES`. The
+    GitHub session puts the status of the answer in the details of each error that it raises."""
+    return error.details.get("status") in NO_ISSUE_STATUSES
+
+
+@dataclass
+class CurrentName:
+    """The name that GitHub gives now for the repository that a reader holds as `repo`.
+
+    `read` gives the `full_name` of the answer of `repos/<repo>`, or None when GitHub gives no
+    repository for that name. The reader calls it at most one time in the life of this object,
+    and only for an answer with the requested number and another repository name. A name that
+    differs from `repo` says that the repository was renamed or moved to another owner: one
+    warning says that the configured name is old."""
+
+    repo: str
+    read: Callable[[], str | None]
+    _now: list[RepoRef | None] = field(default_factory=list, init=False, repr=False)
+
+    def names(self, named: RepoRef) -> bool:
+        """Whether `named` is the name that GitHub gives this repository now."""
+        if not self._now:
+            found = self.read()
+            now = None if found is None else repository_named(found.split("/"))
+            self._now.append(now)
+            if now is not None and now != repository_named(self.repo.split("/")):
+                logger.warning(
+                    "GitHub names the repository %s as %s now. The configured name is old: give "
+                    "the new name.",
+                    self.repo,
+                    now.display,
+                )
+        return self._now[0] is not None and self._now[0] == named
+
+
+def answers_request(
+    repo: str,
+    number: int,
+    *,
+    answered: int,
+    named: RepoRef | None,
+    current: CurrentName | None = None,
+) -> bool:
     """Whether an answer is the answer for number `number` of the repository `repo`: its number
     `answered` is `number`, and the repository `named` that it names is `repo`. `RepoRef`
     compares the names, so their case does not count. An answer that names no repository is
-    compared by its number only."""
+    compared by its number only.
+
+    An answer with the number and another repository name is the answer of this repository only
+    when `current` says that GitHub gives this repository that name now (a renamed repository).
+    The answer of a transferred issue names a repository that is not this one under any name, so
+    it stays refused, also when its number is the requested one."""
+    if answered != number:
+        return False
     own = repository_named(repo.split("/"))
-    return answered == number and (named is None or own is None or named == own)
+    if named is None or own is None or named == own:
+        return True
+    return current is not None and current.names(named)
 
 
 __all__ = [
     "NO_ISSUE_STATUSES",
+    "CurrentName",
     "answered_repository",
     "answers_request",
     "page_repository",
     "repository_named",
+    "says_no_issue",
 ]

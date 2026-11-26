@@ -143,6 +143,21 @@ def test_a_closed_issue_that_left_the_repository_is_left_out(followed: bool) -> 
     assert feed.closed_issues(release) == (105,)
 
 
+def test_the_closed_issues_of_a_renamed_repository_are_read_under_its_old_name() -> None:
+    """GitHub redirects each route of a renamed repository, so each answer holds the requested
+    number and the new name. The feed reads the name of its repository one time and takes the
+    answers (#7337)."""
+    github, feed = _feed()
+    github.seed_issue(1, "pull", state="closed", body="Closes #104\nCloses #105", pull_request=True)
+    github.seed_issue(104, "one", state="closed")
+    github.seed_issue(105, "two", state="closed")
+    github.rename_repository("example/renamed")
+    release = ReleaseInfo("v1.0.0", "u", PUBLISHED, False, False, "([#1](https://e.com/1))")
+
+    assert feed.closed_issues(release) == (104, 105)
+    assert [call[1] for call in github.calls].count(f"repos/{REPO}") == 1
+
+
 def test_any_other_error_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     github, feed = _feed()
     github.seed_issue(1, "pull", state="closed", body="Closes #105", pull_request=True)

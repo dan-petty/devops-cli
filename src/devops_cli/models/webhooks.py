@@ -138,6 +138,16 @@ class GitHubWebhookPayload(BaseModel):
     release: WebhookRelease | None = None
 
     @property
+    def says_issue_left(self) -> bool:
+        """Whether this is the payload of an `issues` delivery that says that its issue left the
+        repository (`issue_left`), for a reader that has no event name: it holds an issue and no
+        comment, and its action is `transferred` or `deleted`. The delivery of a deleted comment
+        holds its comment."""
+        return (
+            self.issue is not None and self.comment is None and self.action in _ISSUE_LEFT_ACTIONS
+        )
+
+    @property
     def delivery_numbers(self) -> tuple[int, ...]:
         """The numbers of the pull requests that a delivery names, or the number of its issue. An
         event that names no number gives an empty tuple."""

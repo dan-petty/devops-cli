@@ -452,7 +452,9 @@ def _remember_own_delivery_issue(repo: str, payload: GitHubWebhookPayload) -> No
     """Refresh the cached issue from an App bot `issues` webhook only when its `updated_at` time
     is strictly newer than the stored entry, so stale or same-second hooks cannot replace newer
     writes (#7063). The read and the write take the visibility as `_remember_delivery_issue`
-    does, so the issue of a private repository stays out of the shared tier (#7292)."""
+    does, so the issue of a private repository stays out of the shared tier (#7292). A payload
+    that says that the issue left the repository writes no entry: the route removes the entry of
+    the number (#7337)."""
     issue = payload.issue
     if (
         payload.comment is not None
@@ -460,6 +462,9 @@ def _remember_own_delivery_issue(repo: str, payload: GitHubWebhookPayload) -> No
         or issue.number is None
         or issue.pull_request is not None
     ):
+        return
+    if payload.says_issue_left:
+        _forget_delivery_issue(repo, payload)
         return
     from devops_cli.roadmap.stores.brain_issues import (
         cached_issue,
