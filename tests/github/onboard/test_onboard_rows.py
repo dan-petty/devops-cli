@@ -918,22 +918,23 @@ def test_a_matrix_leg_gives_way_to_its_job_name(onboard_github: OnboardHarness, 
     assert "Tests & Coverage (shard 1 of 5)" not in checks
 
 
-def _merged_template_pull(harness: OnboardHarness) -> None:
-    """REPO with its template pull request merged, as a confirmed run leaves it."""
-    state = harness.state
-    state.refs[TEMPLATE_BRANCH] = state.refs["main"]
-    state.pulls.append(
+def _template_pull(harness: OnboardHarness, *, state: str, merged: bool = False) -> None:
+    """A template pull request of REPO in `state` whose head is the default branch head, as a
+    pull request that still waits or that a confirmed run merged leaves it."""
+    repository = harness.state
+    repository.refs[TEMPLATE_BRANCH] = repository.refs["main"]
+    repository.pulls.append(
         {
             "number": 1,
             "node_id": "PR_1",
-            "state": "closed",
+            "state": state,
             "draft": False,
-            "merged": True,
+            "merged": merged,
             "auto_merge": None,
             "title": "ci: add the files of the repository template",
             "user": {"login": REPO.partition("/")[0]},
             "requested_reviewers": [],
-            "head": {"ref": TEMPLATE_BRANCH, "sha": state.refs["main"]},
+            "head": {"ref": TEMPLATE_BRANCH, "sha": repository.refs["main"]},
         }
     )
 
@@ -954,7 +955,7 @@ def test_a_live_required_check_that_only_skipped_is_dropped(
     onboard_github: OnboardHarness, config: Any
 ) -> None:
     _onboarded(onboard_github, config)
-    _merged_template_pull(onboard_github)
+    _template_pull(onboard_github, state="open")
     _require_live_checks(onboard_github, ["K8s"])
     onboard_github.state.check_runs = [
         {"name": "K8s", "status": "completed", "conclusion": "skipped"},
@@ -974,7 +975,7 @@ def test_a_live_matrix_leg_gives_way_to_its_job_name(
     onboard_github: OnboardHarness, config: Any
 ) -> None:
     _onboarded(onboard_github, config)
-    _merged_template_pull(onboard_github)
+    _template_pull(onboard_github, state="open")
     _require_live_checks(onboard_github, ["Tests & Coverage (shard 1 of 5)"])
     onboard_github.state.check_runs = [
         {"name": "Tests & Coverage", "status": "completed", "conclusion": "success"},
@@ -991,11 +992,11 @@ def test_a_live_matrix_leg_gives_way_to_its_job_name(
     assert _required_checks(onboard_github) == [CHECK_NAME, "Tests & Coverage"]
 
 
-def test_an_onboarded_repository_reports_a_required_check_that_only_skipped(
+def test_a_plan_reports_a_required_check_that_only_skipped(
     onboard_github: OnboardHarness, config: Any
 ) -> None:
     _onboarded(onboard_github, config)
-    _merged_template_pull(onboard_github)
+    _template_pull(onboard_github, state="open")
     _require_live_checks(onboard_github, ["K8s"])
     onboard_github.state.check_runs = [
         {"name": "K8s", "status": "completed", "conclusion": "skipped"},
@@ -1010,6 +1011,40 @@ def test_an_onboarded_repository_reports_a_required_check_that_only_skipped(
         (f"ruleset main: required checks {CHECK_NAME}; dropped K8s",),
     ), render_report(report)
     assert onboard_github.writes() == []
+
+
+@pytest.mark.parametrize(
+    ("merged", "run", "live"),
+    [
+        (True, ("Semantic PR title", "success"), []),
+        (True, ("K8s", "skipped"), ["K8s"]),
+        (False, ("Semantic PR title", "success"), []),
+    ],
+    ids=["merged-old-check-name", "merged-skipped-live-check", "closed-old-check-name"],
+)
+def test_a_template_pull_request_that_is_not_open_gives_row_10_no_check(
+    onboard_github: OnboardHarness,
+    config: Any,
+    merged: bool,
+    run: tuple[str, str],
+    live: list[str],
+) -> None:
+    # The head of a merged pull request ran the workflows of that time: dan-petty/devtools#99
+    # reported `Semantic PR title`, which no workflow reports after the template came back (#7476).
+    _onboarded(onboard_github, config)
+    _template_pull(onboard_github, state="closed", merged=merged)
+    _require_live_checks(onboard_github, live)
+    name, conclusion = run
+    onboard_github.state.check_runs = [
+        {"name": CHECK_NAME, "status": "completed", "conclusion": "success"},
+        {"name": name, "status": "completed", "conclusion": conclusion},
+    ]
+
+    report = _run(onboard_github, confirm=True, only=frozenset({9, 10}))
+
+    states = _states(report)
+    assert (states[9], states[10], onboard_github.writes()) == (P, P, []), render_report(report)
+    assert _required_checks(onboard_github) == [CHECK_NAME, *live]
 
 
 @pytest.mark.parametrize(
