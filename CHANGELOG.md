@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.228.3](https://github.com/dan-petty/devops-cli/compare/v0.228.2...v0.228.3) (2026-11-27)
+
+
+### Bug Fixes
+
+* **k8s:** image-pins reads the version of an upgrade Plan ([#7456](https://github.com/dan-petty/devops-cli/issues/7456)) ([aee7d69](https://github.com/dan-petty/devops-cli/commit/aee7d69fac1f6e7a411fa7f7f553c663c75a7da2))
+
 ## [0.228.2](https://github.com/dan-petty/devops-cli/compare/v0.228.1...v0.228.2) (2026-11-27)
 
 
