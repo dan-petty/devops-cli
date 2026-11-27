@@ -13,7 +13,7 @@ FROM node:24.22.3-trixie-slim@sha256:4d00acb4bcc42c454c4eb801526f7ad7f772ea3bd4f
 # and the digest of this line, in the devtools group with the devcontainer image (#4361). The runner
 # uses the OpenSpec of this image. The OpenSpec pin of the project reaches a runner Job through the
 # coder bootstrap (#6517) after #6409.
-FROM ghcr.io/dan-petty/devtools:1.3.3@sha256:378ee84eaeec824fb0030e8425d3fe71f074eff4c7f3f12ef8a070bee71d37a9 AS devtools
+FROM ghcr.io/dan-petty/devtools:1.3.4@sha256:b33bbd7ab7cf9b95c2827a3393bf997b278b5f458f3995d38dda92c789507b48 AS devtools
 
 # The runtime requirements of `uv.lock` with the `review` extra, with their hashes and without the
 # project (#4550). A release changes the project version in `pyproject.toml` and `uv.lock`, but not
