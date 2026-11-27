@@ -1,17 +1,25 @@
-"""The Argo objects of the product base use the plural fields that the controller reads (#5289).
+"""The Argo objects of the product base pass `argo lint --offline` (#5289).
 
 The Argo Workflows controller v4 refuses a CronWorkflow with the singular `spec.schedule`
 (`SpecError`, "cron workflow must have at least one schedule"), and it does not read the singular
 `synchronization.mutex` or `synchronization.semaphore`. The installed CRDs keep unknown fields, so
 the API server and Argo CD accept such an object, and only the log of the controller shows it.
+`argo lint --offline` decodes each Argo object strictly, as the controller does, and names each
+field that the controller does not know, at the spec level, in a template and in the
+`workflowSpec` of a CronWorkflow. The `argo` command comes from the devtools image, as the
+controller comes from the same Argo release.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+import subprocess
+import tempfile
+from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from tests.gate.k8s_render import applied_documents
 from tests.support.paths import REPO_ROOT
@@ -19,141 +27,137 @@ from tests.support.paths import REPO_ROOT
 DEVOPS_DIR = REPO_ROOT / "k8s" / "devops"
 
 
-# The kinds whose `spec` is a Workflow spec. A CronWorkflow holds one in `spec.workflowSpec`.
-_WORKFLOW_SPEC_KINDS = frozenset({"Workflow", "WorkflowTemplate", "ClusterWorkflowTemplate"})
+# An offline lint of a few objects takes less than a second. The bound stops a hung binary.
+ARGO_LINT_TIMEOUT_SECONDS = 60
 
 
-# Each singular field of controller v3 and the list that controller v4 reads in its place.
-_PLURAL = {"schedule": "schedules", "mutex": "mutexes", "semaphore": "semaphores"}
-
-
-def _singular_locks(spec: dict[str, Any], path: str) -> Iterator[str]:
-    """The path of each singular lock of the Workflow spec at `path`: in its `synchronization`
-    and in the `synchronization` of each of its templates."""
-    owners = [(path, spec.get("synchronization") or {})]
-    owners += [
-        (f"{path}.templates[{template.get('name', index)}]", template.get("synchronization") or {})
-        for index, template in enumerate(spec.get("templates") or [])
-    ]
-    for owner, synchronization in owners:
-        yield from (
-            f"{owner}.synchronization.{lock}"
-            for lock in ("mutex", "semaphore")
-            if lock in synchronization
+def argo_lint_problems(documents: Iterable[dict[str, Any]]) -> list[str]:
+    """Each problem that `argo lint --offline` finds in the Argo objects of `documents`, one line
+    for each, such as `in "rag-ingest" (CronWorkflow): strict decoding error: unknown field
+    "spec.schedule"`. The command skips each object that is not of the group `argoproj.io`."""
+    with tempfile.TemporaryDirectory(prefix="argo-lint-") as folder:
+        manifest = Path(folder) / "objects.yaml"
+        manifest.write_text(yaml.safe_dump_all(list(documents)), encoding="utf-8")
+        result = subprocess.run(
+            ["argo", "lint", "--offline", "--output", "simple", str(manifest)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=ARGO_LINT_TIMEOUT_SECONDS,
         )
+    prefix = f"{manifest}: "
+    problems = [line.removeprefix(prefix) for line in result.stdout.splitlines() if prefix in line]
+    # A lint that fails with no line of an object did not read the objects, such as on a YAML
+    # error: its output is the problem.
+    if result.returncode != 0 and not problems:
+        problems = [f"argo lint exited {result.returncode}: {result.stderr or result.stdout}"]
+    return problems
 
 
-def _singular_fields(document: dict[str, Any]) -> Iterator[str]:
-    """The path of each singular field of one Argo object."""
-    spec = document.get("spec") or {}
-    if document["kind"] == "CronWorkflow":
-        if "schedule" in spec:
-            yield "spec.schedule"
-        yield from _singular_locks(spec.get("workflowSpec") or {}, "spec.workflowSpec")
-    elif document["kind"] in _WORKFLOW_SPEC_KINDS:
-        yield from _singular_locks(spec, "spec")
-
-
-def singular_field_problems(documents: Iterable[dict[str, Any]]) -> list[str]:
-    """One line for each singular field of each object of the group `argoproj.io` (#5289)."""
-    return [
-        f"{document['kind']} {document['metadata'].get('namespace')}/"
-        f"{document['metadata']['name']}: sets {field}. The Argo Workflows controller v4 refuses "
-        "or does not read the singular field, so write the list "
-        f"{field.rpartition('.')[0]}.{_PLURAL[field.rpartition('.')[2]]} in its place"
-        for document in documents
-        if str(document.get("apiVersion", "")).startswith("argoproj.io/")
-        for field in _singular_fields(document)
-    ]
-
-
-def _argo(kind: str, **spec: Any) -> dict[str, Any]:
-    """An Argo object of `kind` named `fixture` in namespace `fixture` with the fields `spec`."""
+def _argo(kind: str, name: str, **spec: Any) -> dict[str, Any]:
+    """An Argo object of `kind` named `name` in namespace `fixture` with the fields `spec`."""
     return {
         "apiVersion": "argoproj.io/v1alpha1",
         "kind": kind,
-        "metadata": {"name": "fixture", "namespace": "fixture"},
+        "metadata": {"name": name, "namespace": "fixture"},
         "spec": spec,
     }
 
 
+_CRON = "*/3 * * * *"
 _MUTEX = {"name": "fixture"}
 _SEMAPHORE = {"configMapKeyRef": {"name": "fixture", "key": "workflow"}}
 _PLURAL_LOCKS = {"mutexes": [_MUTEX], "semaphores": [_SEMAPHORE]}
+_REF = {"workflowTemplateRef": {"name": "fixture-template"}}
+
+
+def _template(**synchronization: Any) -> dict[str, Any]:
+    """The WorkflowTemplate `fixture-template` with one container template `main`. The keys of
+    `synchronization` go to the spec, and the key `main` goes to the template `main`."""
+    main = {"name": "main", "container": {"image": "example.com/fixture", "command": ["true"]}}
+    if "main" in synchronization:
+        main["synchronization"] = synchronization.pop("main")
+    spec: dict[str, Any] = {"entrypoint": "main", "templates": [main]}
+    if synchronization:
+        spec["synchronization"] = synchronization
+    return _argo("WorkflowTemplate", "fixture-template", **spec)
 
 
 @pytest.mark.parametrize(
-    ("document", "field"),
+    ("document", "named", "field"),
     [
         pytest.param(
-            _argo("CronWorkflow", schedule="*/3 * * * *", workflowSpec={}),
+            _argo("CronWorkflow", "fixture-cron", schedule=_CRON, workflowSpec=_REF),
+            '"fixture-cron" (CronWorkflow)',
             "spec.schedule",
             id="cron-schedule",
         ),
         pytest.param(
-            _argo("WorkflowTemplate", synchronization={"mutex": _MUTEX}),
+            _template(mutex=_MUTEX),
+            '"fixture-template" (WorkflowTemplate)',
             "spec.synchronization.mutex",
             id="template-mutex",
         ),
         pytest.param(
-            _argo(
-                "WorkflowTemplate",
-                templates=[{"name": "main", "synchronization": {"mutex": _MUTEX}}],
-            ),
-            "spec.templates[main].synchronization.mutex",
+            _template(main={"mutex": _MUTEX}),
+            '"fixture-template" (WorkflowTemplate)',
+            "spec.templates[0].synchronization.mutex",
             id="template-step-mutex",
         ),
         pytest.param(
-            _argo("Workflow", synchronization={"semaphore": _SEMAPHORE}),
+            _argo("Workflow", "fixture-run", synchronization={"semaphore": _SEMAPHORE}, **_REF),
+            '"fixture-run" (Workflow)',
             "spec.synchronization.semaphore",
             id="workflow-semaphore",
         ),
         pytest.param(
             _argo(
                 "CronWorkflow",
-                schedules=["*/3 * * * *"],
-                workflowSpec={"synchronization": {"semaphore": _SEMAPHORE}},
+                "fixture-cron",
+                schedules=[_CRON],
+                workflowSpec={"synchronization": {"semaphore": _SEMAPHORE}, **_REF},
             ),
+            '"fixture-cron" (CronWorkflow)',
             "spec.workflowSpec.synchronization.semaphore",
             id="cron-workflow-spec-semaphore",
         ),
     ],
 )
-def check_the_rule_names_each_singular_field(document: dict[str, Any], field: str) -> None:
-    (problem,) = singular_field_problems([document])
-    assert (f"{document['kind']} fixture/fixture" in problem, f" sets {field}." in problem) == (
-        True,
-        True,
-    )
+def check_the_lint_names_each_singular_field(
+    document: dict[str, Any], named: str, field: str
+) -> None:
+    # The template that the reference names comes with each object, so the offline lint finds it.
+    documents = [document] if document["kind"] == "WorkflowTemplate" else [document, _template()]
+
+    (problem,) = argo_lint_problems(documents)
+    assert (named in problem, f'unknown field "{field}"' in problem) == (True, True), problem
 
 
-def check_the_rule_accepts_the_plural_fields_and_a_cronjob() -> None:
+def check_the_lint_accepts_the_plural_fields_and_a_cronjob() -> None:
     documents = [
         _argo(
             "CronWorkflow",
-            schedules=["*/3 * * * *"],
-            workflowSpec={"synchronization": _PLURAL_LOCKS},
+            "fixture-cron",
+            schedules=[_CRON],
+            workflowSpec={"synchronization": _PLURAL_LOCKS, **_REF},
         ),
-        _argo(
-            "WorkflowTemplate",
-            synchronization=_PLURAL_LOCKS,
-            templates=[{"name": "main", "synchronization": _PLURAL_LOCKS}],
-        ),
-        _argo("Workflow", synchronization=_PLURAL_LOCKS),
+        _template(main=_PLURAL_LOCKS, **_PLURAL_LOCKS),
+        _argo("Workflow", "fixture-run", synchronization=_PLURAL_LOCKS, **_REF),
         # A CronJob holds `spec.schedule` too, and it is no Argo object.
         {
             "apiVersion": "batch/v1",
             "kind": "CronJob",
-            "metadata": {"name": "fixture", "namespace": "fixture"},
-            "spec": {"schedule": "*/3 * * * *"},
+            "metadata": {"name": "fixture-job", "namespace": "fixture"},
+            "spec": {"schedule": _CRON},
         },
     ]
 
-    assert singular_field_problems(documents) == []
+    assert argo_lint_problems(documents) == []
 
 
-def check_no_argo_object_of_the_product_base_sets_a_singular_field() -> None:
+def check_each_argo_object_of_the_product_base_passes_the_offline_lint() -> None:
     """Each Argo object that `kubectl apply -k k8s/devops` applies uses `schedules`, `mutexes`
-    and `semaphores`, the fields that the controller v4 reads (#5289)."""
-    problems = singular_field_problems(applied_documents(DEVOPS_DIR))
+    and `semaphores`, the fields that the controller v4 reads, and no other field that it does
+    not know (#5289)."""
+    problems = argo_lint_problems(applied_documents(DEVOPS_DIR))
     assert not problems, "\n".join(problems)
