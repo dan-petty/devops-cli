@@ -92,3 +92,4 @@ With `--confirm`, the command adds the repository to `service.repos` and runs `d
 
 - 2026-11-26: Fact out of date: row 13 also needs a clean, current environment checkout, and passes it with `--k8s-dir` (#7290).
 - 2026-11-27: Fact out of date: the `main` ruleset also requires each check that `github/repository.yaml` of the repository requires (#7423).
+- 2026-11-27: Fact out of date: the baseline is the template of dan-petty/github-workflows, the default of `github.template_repository`, not of dan-petty/infra (#7482).
