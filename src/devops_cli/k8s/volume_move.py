@@ -36,6 +36,7 @@ from typing import Any
 from devops_cli.config.commands import BIN_BASH, build_kubectl_cmd
 from devops_cli.config.constants import (
     CONST_ARGOCD_TRACKING_ID_ANNOTATION,
+    CONST_K8S_ACCESS_MODES,
     CONST_K8S_CLAIM_CONTROLLER_ANNOTATIONS,
     CONST_K8S_CLAIM_PHASE_BOUND,
     CONST_K8S_CONTROL_PLANE_LABEL,
@@ -128,11 +129,18 @@ class VolumeMovePlan:
     image: str = ""
     # The class of the new volume when the move changes the class; empty when it keeps the class.
     target_storage_class: str = ""
+    # The access modes of the new claims when the move changes them; empty when it keeps them.
+    target_access_modes: tuple[str, ...] = ()
 
     @property
     def changes_class(self) -> bool:
         """True when the new volume has another class than the old claim."""
         return bool(self.target_storage_class)
+
+    @property
+    def new_access_modes(self) -> tuple[str, ...]:
+        """The access modes of the temporary claim and of the claim made again (#7459)."""
+        return self.target_access_modes or self.access_modes
 
     @property
     def new_storage_class(self) -> str:
@@ -421,7 +429,7 @@ def _move_claim_manifest(plan: VolumeMovePlan) -> dict[str, Any]:
             "labels": dict(CONST_K8S_VOLUME_MOVE_LABELS),
         },
         "spec": {
-            "accessModes": list(plan.access_modes),
+            "accessModes": list(plan.new_access_modes),
             "storageClassName": plan.new_storage_class,
             "volumeMode": plan.volume_mode,
             "resources": {"requests": {"storage": plan.size}},
@@ -511,7 +519,10 @@ def _copy_pod_manifest(plan: VolumeMovePlan, *, destination: bool) -> dict[str, 
 
 
 def rebound_claim(
-    saved: dict[str, Any], volume: str, storage_class: str | None = None
+    saved: dict[str, Any],
+    volume: str,
+    storage_class: str | None = None,
+    access_modes: Sequence[str] = (),
 ) -> tuple[dict[str, Any], str | None]:
     """The saved claim made again on `volume`, and its last-applied configuration to put back.
 
@@ -521,7 +532,8 @@ def rebound_claim(
     out the annotations of the volume controllers too, which name the old binding.
 
     `storage_class`, when given, replaces the class of the saved claim: a claim binds only to a
-    volume of its own class.
+    volume of its own class. `access_modes`, when given, replace the access modes of the saved
+    claim, which must fit the modes of the volume.
     """
     metadata = saved.get("metadata") or {}
     annotations = dict(metadata.get("annotations") or {})
@@ -539,6 +551,8 @@ def rebound_claim(
     spec = {**(saved.get("spec") or {}), "volumeName": volume}
     if storage_class:
         spec["storageClassName"] = storage_class
+    if access_modes:
+        spec["accessModes"] = list(access_modes)
     manifest = {
         "apiVersion": "v1",
         "kind": "PersistentVolumeClaim",
@@ -852,11 +866,13 @@ def plan_volume_move(
     parents: Sequence[str],
     to_node: str | None = None,
     storage_class: str | None = None,
+    access_mode: str | None = None,
     context: str | None = None,
 ) -> VolumeMovePlan:
     """Read what the move needs and return its plan; refuse a move that cannot run safely.
     `parents` are the root Applications (`argocd.root_applications`), paused first.
     `storage_class` is the class of the new volume; the class of the old claim keeps the class.
+    `access_mode` is the access mode of the new claims; the modes of the old claim keep them.
 
     Raises `VolumeMoveRefusedError` with every problem it finds, and `VolumeMoveError` when a
     read fails. It changes nothing either way.
@@ -885,6 +901,14 @@ def plan_volume_move(
     states = _workloads(pods, namespace, claim, context)
     problems = _retention_problems(states, claim) + _leftover_problems(namespace, claim, context)
     old_class = spec.get("storageClassName", "")
+    old_modes = tuple(spec.get("accessModes") or ())
+    if access_mode and access_mode not in CONST_K8S_ACCESS_MODES:
+        problems.append(
+            MESSAGES.k8s.volume_move_unknown_access_mode.format(
+                access_mode=access_mode, modes=", ".join(CONST_K8S_ACCESS_MODES)
+            )
+        )
+    new_modes = (access_mode,) if access_mode and (access_mode,) != old_modes else ()
     change = storage_class if storage_class and storage_class != old_class else ""
     new_class = _target_class(change, context) if change else None
     target = (
@@ -920,7 +944,7 @@ def plan_volume_move(
         target_free_bytes=free,
         storage_class=old_class,
         size=((spec.get("resources") or {}).get("requests") or {}).get("storage", ""),
-        access_modes=tuple(spec.get("accessModes") or ()),
+        access_modes=old_modes,
         volume_mode=spec.get("volumeMode", "Filesystem"),
         workloads=tuple(state.workload for state in states),
         pods=tuple((pod.get("metadata") or {}).get("name", "") for pod in pods),
@@ -929,6 +953,7 @@ def plan_volume_move(
         paused=paused,
         image=image,
         target_storage_class=change,
+        target_access_modes=new_modes,
     )
 
 
@@ -1253,7 +1278,9 @@ class _MoveRun:
 
     def recreate_claim(self) -> None:
         plan = self.plan
-        manifest, last_applied = rebound_claim(self.saved, self.new_volume, plan.new_storage_class)
+        manifest, last_applied = rebound_claim(
+            self.saved, self.new_volume, plan.new_storage_class, plan.new_access_modes
+        )
         self._create(manifest)
         if last_applied is not None:
             self._kubectl(
@@ -1401,6 +1428,7 @@ def _placeholder_plan(
     to_node: str | None,
     parents: Sequence[str],
     storage_class: str | None = None,
+    access_mode: str | None = None,
 ) -> VolumeMovePlan:
     return VolumeMovePlan(
         namespace=namespace,
@@ -1421,6 +1449,7 @@ def _placeholder_plan(
         paused=(*parents, "<application>"),
         image="<template image>",
         target_storage_class=storage_class or "",
+        target_access_modes=(access_mode,) if access_mode else (),
     )
 
 
@@ -1574,6 +1603,7 @@ def _dry_run_writes(plan: VolumeMovePlan, context: str | None) -> list[PlannedRe
         },
         "<new-volume>",
         plan.new_storage_class,
+        plan.new_access_modes,
     )
     return [
         _planned(
@@ -1733,10 +1763,11 @@ def dry_run_volume_move(
     parents: Sequence[str],
     to_node: str | None = None,
     storage_class: str | None = None,
+    access_mode: str | None = None,
     context: str | None = None,
 ) -> tuple[PlannedRequest, ...]:
     """The requests a move would make, in order, making none: not even the claim is read."""
-    plan = _placeholder_plan(namespace, claim, to_node, parents, storage_class)
+    plan = _placeholder_plan(namespace, claim, to_node, parents, storage_class, access_mode)
     return (*_dry_run_reads(plan, to_node, context), *_dry_run_writes(plan, context))
 
 

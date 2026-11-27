@@ -123,6 +123,11 @@ def _print_plan(plan: VolumeMovePlan) -> None:
             storage_class=plan.new_storage_class,
         )
     )
+    _say(
+        m.volume_move_plan_access_modes.format(
+            old=", ".join(plan.access_modes), new=", ".join(plan.new_access_modes)
+        )
+    )
     workloads = ", ".join(f"{w.ref} (replicas: {w.replicas})" for w in plan.workloads)
     _say(m.volume_move_plan_workloads.format(workloads=workloads, pods=", ".join(plan.pods)))
     if plan.applications:
@@ -209,6 +214,7 @@ def _plan_or_exit(
     claim: str,
     to_node: str | None,
     storage_class: str | None,
+    access_mode: str | None,
     context: str | None,
 ) -> VolumeMovePlan:
     """The plan, or exit 1 naming each problem: the plan only reads, so nothing changed."""
@@ -222,6 +228,7 @@ def _plan_or_exit(
             parents=parents,
             to_node=to_node,
             storage_class=storage_class,
+            access_mode=access_mode,
             context=context,
         )
     except VolumeMoveRefusedError as exc:
@@ -280,6 +287,10 @@ def volume_move_cmd(
         str | None,
         typer.Option("--storage-class", metavar="CLASS", help=HELP.k8s.volume_move_storage_class),
     ] = None,
+    access_mode: Annotated[
+        str | None,
+        typer.Option("--access-mode", metavar="MODE", help=HELP.k8s.volume_move_access_mode),
+    ] = None,
     plan: Annotated[bool, typer.Option("--plan", help=HELP.k8s.volume_move_plan)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.k8s.volume_move_dry_run)] = False,
     context: Annotated[
@@ -309,6 +320,7 @@ def volume_move_cmd(
                 parents=load_settings().argocd.root_applications,
                 to_node=to_node,
                 storage_class=storage_class,
+                access_mode=access_mode,
                 context=effective_context,
             ),
             (
@@ -319,7 +331,9 @@ def volume_move_cmd(
             ),
         )
         return
-    move_plan = _plan_or_exit(namespace, name, to_node, storage_class, effective_context)
+    move_plan = _plan_or_exit(
+        namespace, name, to_node, storage_class, access_mode, effective_context
+    )
     _print_plan(move_plan)
     if plan:
         return

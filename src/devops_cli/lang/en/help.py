@@ -629,6 +629,10 @@ class K8sCommandHelp:
         "disk, for a volume on the control-plane node. A volume on a worker node moves only to "
         "the node that this option names, unless --storage-class changes its class."
     )
+    volume_move_access_mode: str = (
+        "The access mode of the new claim, such as ReadWriteMany for a claim that pods on more "
+        "than one node mount. Default: the access modes of the old claim."
+    )
     volume_move_storage_class: str = (
         "The StorageClass of the new volume. Default: the class of the old claim. With another "
         "class, the default target is the worker node with the most free disk that can attach a "

@@ -1066,6 +1066,7 @@ class K8sMessages:
     volume_move_target_unavailable: str = "Node {node} is not Ready, or it is cordoned."
     volume_move_no_target: str = "No worker node is Ready and schedulable for the volume."
     volume_move_unknown_storage_class: str = "StorageClass {storage_class} does not exist."
+    volume_move_unknown_access_mode: str = "Access mode {access_mode} is not one of {modes}."
     volume_move_target_no_driver: str = (
         "Node {node} cannot attach a volume of class {storage_class}: its CSINode does not list "
         "the CSI driver {driver}."
@@ -1179,6 +1180,7 @@ class K8sMessages:
     volume_move_plan_target: str = (
         "Target node: {node}, {free} free. Target class: {storage_class}."
     )
+    volume_move_plan_access_modes: str = "Access modes: {old} now, {new} after the move."
     volume_move_plan_workloads: str = (
         "Workloads that mount the claim: {workloads}. Their pods: {pods}."
     )

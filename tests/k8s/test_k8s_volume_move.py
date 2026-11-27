@@ -701,6 +701,56 @@ def test_an_ended_pod_of_the_claim_is_not_a_pod_of_the_move(
     assert not any(f"pod/{ENDED_POD}" in argv for argv in waits)
 
 
+# ── An access mode change ─────────────────────────────────────────────────
+
+
+def test_an_access_mode_change_makes_both_claims_with_the_new_mode(
+    cluster: Cluster, tmp_path: Path
+) -> None:
+    """A claim of several pods becomes ReadWriteMany on a replicated class (#7459)."""
+    plan = _plan(storage_class=LONGHORN, access_mode="ReadWriteMany")
+    _move(tmp_path, storage_class=LONGHORN, access_mode="ReadWriteMany")
+
+    assert (plan.access_modes, plan.target_access_modes, plan.new_access_modes) == (
+        ("ReadWriteOnce",),
+        ("ReadWriteMany",),
+        ("ReadWriteMany",),
+    )
+    claims = [item for item in cluster.created if item["kind"] == "PersistentVolumeClaim"]
+    assert [claim["spec"]["accessModes"] for claim in claims] == [
+        ["ReadWriteMany"],
+        ["ReadWriteMany"],
+    ]
+
+
+def test_the_access_mode_of_the_old_claim_is_a_move_that_keeps_it(cluster: Cluster) -> None:
+    assert _plan(access_mode="ReadWriteOnce") == PLAN
+
+
+def test_the_dry_run_of_an_access_mode_change_shows_the_new_mode(
+    process_fake: ProcessFake,
+) -> None:
+    requests = dry_run_volume_move(
+        NAMESPACE,
+        CLAIM,
+        parents=PARENTS,
+        storage_class=LONGHORN,
+        access_mode="ReadWriteMany",
+        context=CONTEXT,
+    )
+
+    claims = [
+        json.loads(request.stdin)
+        for request in requests
+        if request.stdin and '"PersistentVolumeClaim"' in request.stdin
+    ]
+    assert [claim["spec"]["accessModes"] for claim in claims] == [
+        ["ReadWriteMany"],
+        ["ReadWriteMany"],
+    ]
+    assert process_fake.calls == []
+
+
 # ── Refusals: nothing changes ──────────────────────────────────────────────
 
 
@@ -771,6 +821,13 @@ def _unknown_application(cluster: Cluster) -> tuple[dict[str, Any], str]:
     )
 
 
+def _unknown_access_mode(cluster: Cluster) -> tuple[dict[str, Any], str]:
+    return {"access_mode": "ReadWriteSome"}, MESSAGES.k8s.volume_move_unknown_access_mode.format(
+        access_mode="ReadWriteSome",
+        modes="ReadWriteOnce, ReadOnlyMany, ReadWriteMany, ReadWriteOncePod",
+    )
+
+
 def _unknown_storage_class(cluster: Cluster) -> tuple[dict[str, Any], str]:
     return {"storage_class": "fast"}, MESSAGES.k8s.volume_move_unknown_storage_class.format(
         storage_class="fast"
@@ -796,6 +853,7 @@ def _no_worker_has_the_driver(cluster: Cluster) -> tuple[dict[str, Any], str]:
 @pytest.mark.parametrize(
     "precondition",
     [
+        _unknown_access_mode,
         _unknown_storage_class,
         _target_without_the_driver,
         _no_worker_has_the_driver,
@@ -1358,6 +1416,31 @@ def test_move_plan_of_a_class_change_prints_the_two_classes(cli: Any, cluster: C
         ),
     ):
         assert " ".join(line.split()) in output
+    assert cluster.changes == []
+
+
+def test_move_plan_of_an_access_mode_change_prints_the_two_modes(
+    cli: Any, cluster: Cluster
+) -> None:
+    result = cli(
+        "k8s",
+        "volume",
+        "move",
+        "monitoring/grafana",
+        "--storage-class",
+        LONGHORN,
+        "--access-mode",
+        "ReadWriteMany",
+        "--plan",
+        "--context",
+        CONTEXT,
+    )
+
+    assert result.exit_code == 0, result.output
+    line = MESSAGES.k8s.volume_move_plan_access_modes.format(
+        old="ReadWriteOnce", new="ReadWriteMany"
+    )
+    assert " ".join(line.split()) in " ".join(result.output.split())
     assert cluster.changes == []
 
 
