@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.226.0](https://github.com/dan-petty/devops-cli/compare/v0.225.1...v0.226.0) (2026-11-27)
+
+
+### Features
+
+* **roadmap:** Add the OpenSpec row to the onboard command ([#7407](https://github.com/dan-petty/devops-cli/issues/7407)) ([1d80f4d](https://github.com/dan-petty/devops-cli/commit/1d80f4dcdd2c8d2946cee8dbd6d04e21ca16316d))
+
+
+### Bug Fixes
+
+* **deps:** update dan-petty/devtools Docker tag to v1.3.3 ([#7420](https://github.com/dan-petty/devops-cli/issues/7420)) ([d6fc228](https://github.com/dan-petty/devops-cli/commit/d6fc2281f20fb310835cdc8be4580a8260cedb65))
+* **k8s:** copy volume move data pod to pod, not via API server ([#7417](https://github.com/dan-petty/devops-cli/issues/7417)) ([3a448e3](https://github.com/dan-petty/devops-cli/commit/3a448e3b1148cc129b50f8c0c463666b4e7d63c4))
+* **k8s:** run rag-ingest on Argo Workflows v4 ([#7421](https://github.com/dan-petty/devops-cli/issues/7421)) ([28036a8](https://github.com/dan-petty/devops-cli/commit/28036a82bca5e5a67656521d870114917865ce03))
+
 ## [0.225.1](https://github.com/dan-petty/devops-cli/compare/v0.225.0...v0.225.1) (2026-11-27)
 
 
