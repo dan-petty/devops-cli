@@ -655,8 +655,9 @@ def _with_required_checks(
     own_rules = _checks_rules(own)
     rules = _checks_rules(result)
     if not rules and own_rules:
-        rules = [{"type": _REQUIRED_CHECKS_RULE, "parameters": {}}]
-        result["rules"] = [*(result.get("rules") or []), *rules]
+        added: dict[str, Any] = {"type": _REQUIRED_CHECKS_RULE, "parameters": {}}
+        rules = [added]
+        result["rules"] = [*(result.get("rules") or []), added]
     own_parameters = {
         key: copy.deepcopy(value)
         for rule in own_rules
