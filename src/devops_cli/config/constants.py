@@ -4877,6 +4877,13 @@ CONST_K8S_RECLAIM_DELETE: Final[str] = "Delete"
 CONST_K8S_RETENTION_DELETE: Final[str] = "Delete"
 CONST_K8S_CLAIM_PHASE_BOUND: Final[str] = "Bound"
 CONST_K8S_POD_PHASE_RUNNING: Final[str] = "Running"
+# The access modes that a PersistentVolumeClaim can name (#7459).
+CONST_K8S_ACCESS_MODES: Final[tuple[str, ...]] = (
+    "ReadWriteOnce",
+    "ReadOnlyMany",
+    "ReadWriteMany",
+    "ReadWriteOncePod",
+)
 # A pod in one of these phases has ended: it holds no volume, and a scale of its workload to zero
 # does not delete it, such as a pod that the shutdown of its node ended (#7431).
 CONST_K8S_POD_PHASES_ENDED: Final[frozenset[str]] = frozenset({"Succeeded", "Failed"})
