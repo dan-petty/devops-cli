@@ -1,21 +1,21 @@
 ## ADDED Requirements
 
 ### Requirement: The OpenSpec row reads present
-`devops repos onboard` SHALL print row 16 `openspec` as `present` when the default branch holds `openspec/config.yaml` with `schema: spec-driven` and at least one tracked regular file under `openspec/specs/`, and the command SHALL write nothing for that row.
+`devops repos onboard` SHALL print row 16 `openspec` as `present` when the default branch holds `openspec/config.yaml` with `schema: spec-driven` and the folder `openspec/specs/` exists, and the command SHALL write nothing for that row.
 
 #### Scenario: A complete OpenSpec setup
 - **WHEN** The default branch holds `openspec/config.yaml` with the schema `spec-driven` and `openspec/specs/.gitkeep`, and `--plan` runs
 - **THEN** Row 16 is `present`, the row writes nothing, and the command exits 0
 
 ### Requirement: The OpenSpec row reads missing
-The command SHALL print row 16 as `missing`, with `openspec/config.yaml` in its reason, when the default branch holds no `openspec/config.yaml` and the head of the open template pull request holds none of the shipped OpenSpec files.
+The command SHALL print row 16 as `missing`, with `openspec/config.yaml` in its reason, when the default branch holds no `openspec/config.yaml` and no open template pull request holds it.
 
 #### Scenario: A repository with no OpenSpec
 - **WHEN** The default branch holds no `openspec/config.yaml` and no template pull request is open
 - **THEN** Row 16 is `missing`, its reason names `openspec/config.yaml`, and the command exits 1
 
 ### Requirement: The OpenSpec row reads invalid
-The command SHALL print row 16 as `invalid`, with the failed condition in its reason, when the default branch holds `openspec/config.yaml` and the file does not parse as YAML, names a schema other than `spec-driven`, or no tracked regular file is under `openspec/specs/`.
+The command SHALL print row 16 as `invalid`, with the failed condition in its reason, when the default branch holds `openspec/config.yaml` and the file does not parse as YAML, names a schema other than `spec-driven`, or the folder `openspec/specs/` does not exist.
 
 #### Scenario: A config file of another schema
 - **WHEN** `openspec/config.yaml` names a schema other than `spec-driven`
@@ -25,26 +25,26 @@ The command SHALL print row 16 as `invalid`, with the failed condition in its re
 - **WHEN** `openspec/config.yaml` is not valid YAML
 - **THEN** Row 16 is `invalid` and its reason names the parse failure
 
-#### Scenario: No file under the specs path
+#### Scenario: No specs folder
 - **WHEN** `openspec/config.yaml` names `spec-driven` and the default branch holds no file under `openspec/specs/`
 - **THEN** Row 16 is `invalid` and its reason names `openspec/specs/`
 
 ### Requirement: The OpenSpec row reads waiting on the template pull request
-The command SHALL print row 16 as `waiting`, with the number of the open template pull request in its reason, when the default branch holds no `openspec/config.yaml` and the head of that pull request holds the shipped OpenSpec files.
+The command SHALL print row 16 as `waiting`, with the number of the open template pull request in its reason, when the default branch holds no `openspec/config.yaml` and the head of that pull request holds it.
 
 #### Scenario: A config file only on the template branch
 - **WHEN** The default branch holds no `openspec/config.yaml` and the open template pull request holds it
-- **THEN** Row 16 is `waiting` and its reason names that pull request
+- **THEN** Row 16 is `waiting`, its reason names that pull request, and the row does not make the command exit 1
 
-### Requirement: The shipped OpenSpec config is project-neutral
-The command SHALL write the OpenSpec config file from `src/devops_cli/templates/openspec/config.yaml`, and that template SHALL hold a context line marked for a person to fill in and a `rules` entry for proposal, specs, design and tasks, and SHALL hold no text that names devops-cli.
+### Requirement: The OpenSpec config comes from the repository template
+The command SHALL write `openspec/config.yaml` and `openspec/specs/.gitkeep` only as files of the render of the repository template, and devops-cli SHALL hold no OpenSpec config template of its own.
 
-#### Scenario: The template content
-- **WHEN** The command writes the config file for a target repository
-- **THEN** The written file equals `src/devops_cli/templates/openspec/config.yaml`, holds the marked context line and the four rules, and holds no devops-cli text
+#### Scenario: The written config file
+- **WHEN** `--confirm` adds `openspec/config.yaml` to a repository
+- **THEN** The file in the template pull request equals the file of the render of the template, byte for byte
 
 ### Requirement: The OpenSpec files reach the repository in one pull request
-With `--confirm`, the command SHALL add the OpenSpec config file from the shipped template and `openspec/specs/.gitkeep` to the one template pull request of row 9, and it SHALL NOT overwrite a file that the default branch or the head of that pull request holds. A second `--confirm` SHALL create no commit and no second pull request while that pull request is open.
+With `--confirm`, the template pull request of row 9 SHALL carry the OpenSpec files of the template with the other template files, and it SHALL NOT overwrite a file that the default branch holds. A second `--confirm` SHALL create no commit and no second pull request while that pull request is open.
 
 #### Scenario: Both rows need files
 - **WHEN** One run finds the label rule of #3742 and the `openspec` row missing
@@ -66,11 +66,11 @@ After the template pull request merges, the pinned `openspec validate --specs --
 - **THEN** The run exits 0 and the default branch holds the OpenSpec config file and the specs placeholder
 
 ### Requirement: The onboard document describes the OpenSpec row
-`docs/repos/onboard.md` SHALL describe the `openspec` row, its states, the shipped template and `openspec/specs/.gitkeep`, and `uv run devops ci docs` SHALL exit 0 on the document.
+`docs/repos/onboard.md` SHALL describe the `openspec` row, its states and the OpenSpec files of the repository template, and `uv run devops ci docs` SHALL exit 0 on the document.
 
 #### Scenario: The onboard document
 - **WHEN** A reader opens `docs/repos/onboard.md` after the merge
-- **THEN** The document names `present`, `missing`, `invalid` and `waiting`, the marked context line and `openspec/specs/.gitkeep`, and `uv run devops ci docs` exits 0
+- **THEN** The document names `present`, `missing`, `invalid` and `waiting`, the marked `Product:` context line and `openspec/specs/.gitkeep`, and `uv run devops ci docs` exits 0
 
 ## MODIFIED Requirements
 
