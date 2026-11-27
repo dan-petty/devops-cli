@@ -206,6 +206,8 @@ Revert: Remove the check, its test and the Renovate rule with a devops-cli pull 
 
 Who: an agent. A person merges each pull request, and the owner accepts the objects to prune.
 
+Since dan-petty/homelab#552 (2026-11-27, owner decision), the Applications prune with no confirmation: no Application sets `Prune=confirm`, and `make k8s-parity` of homelab refuses a data object without the sync options `Prune=false,Delete=false`. The steps below record how the prune was first turned on.
+
 Each Application that gets prune also gets the sync option `Prune=confirm`: a sync that has an object to prune waits for an approval, and so does a deletion of the Application ([Argo CD sync options](https://argo-cd.readthedocs.io/en/stable/user-guide/sync-options/#resource-pruning-requires-confirmation)). Without it, an infra update that homelab Renovate merges deletes each object that its render drops, with no review. The ConfigMaps of a `configMapGenerator` with a hashed name set the annotation `argocd.argoproj.io/sync-options: Prune=true`, so a rollout waits for nothing.
 
 1. Post the objects to prune on #5134, with what each was checked against. The owner accepts the list.
