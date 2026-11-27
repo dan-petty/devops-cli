@@ -91,6 +91,12 @@ CREDENTIALS: tuple[Credential, ...] = (
         "plans on `tf/github` stacks (stored in OS keyring)",
     ),
     Credential(
+        "infra.ssh_private_key",
+        "OpenSSH private key of the infra SSH key, which `devops k8s push-secrets` writes to key "
+        "id_ed25519 of Secret devops/infra-ssh-key for the Ansible runs of the infra-drift "
+        "Workflow (stored in OS keyring)",
+    ),
+    Credential(
         "github.release_app_private_key",
         "PEM private key of the release App, which `devops repos onboard` seals into the secret "
         "RELEASE_APP_PRIVATE_KEY of the environment release (stored in OS keyring)",
