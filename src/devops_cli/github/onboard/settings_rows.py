@@ -22,6 +22,7 @@ from urllib.parse import quote
 from devops_cli.config.constants import CONST_GITHUB_USER_AGENT, CONST_URL_GITHUB_API_BASE
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubNotFoundError
+from devops_cli.github.onboard.baseline import read_repository_settings
 from devops_cli.github.onboard.model import (
     DOC_CREATE_REPOSITORY,
     DOC_ENVIRONMENTS,
@@ -618,26 +619,57 @@ def release_secret_row(
     return Row(6, "Release secret", state, steps=tuple(steps))
 
 
+def _checks_rules(ruleset: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """The required checks rules of `ruleset`."""
+    return [
+        rule
+        for rule in (ruleset or {}).get("rules") or []
+        if rule.get("type") == _REQUIRED_CHECKS_RULE
+    ]
+
+
+def _check_entries(ruleset: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Each required check of `ruleset`."""
+    return [
+        entry
+        for rule in _checks_rules(ruleset)
+        for entry in (rule.get("parameters") or {}).get("required_status_checks") or []
+    ]
+
+
 def _with_required_checks(
-    desired: dict[str, Any], live: dict[str, Any] | None, reported: tuple[str, ...]
+    desired: dict[str, Any],
+    own: dict[str, Any] | None,
+    live: dict[str, Any] | None,
+    reported: tuple[str, ...],
 ) -> dict[str, Any]:
-    """`desired` with each required check of the baseline, of the live ruleset and of the checks
-    that reported on the template pull request (D3)."""
+    """`desired` with each required check of `own`, of the baseline, of the live ruleset and of
+    the checks that reported on the template pull request (D3).
+
+    `own` is the ruleset of the same name in the `github/repository.yaml` that the repository
+    holds (#7423). It wins for each parameter of the required checks rule that it sets and for
+    the entry of each check that it names. A baseline ruleset with no required checks rule gets
+    the rule of `own`. No source removes a check that another source requires.
+    """
     result = copy.deepcopy(desired)
-    live_rules = (live or {}).get("rules") or []
-    for rule in result.get("rules") or []:
-        if rule.get("type") != _REQUIRED_CHECKS_RULE:
-            continue
+    own_rules = _checks_rules(own)
+    rules = _checks_rules(result)
+    if not rules and own_rules:
+        rules = [{"type": _REQUIRED_CHECKS_RULE, "parameters": {}}]
+        result["rules"] = [*(result.get("rules") or []), *rules]
+    own_parameters = {
+        key: copy.deepcopy(value)
+        for rule in own_rules
+        for key, value in (rule.get("parameters") or {}).items()
+        if key != "required_status_checks"
+    }
+    for rule in rules:
         parameters = rule.setdefault("parameters", {})
+        baseline_checks = parameters.get("required_status_checks") or []
+        parameters.update(own_parameters)
         by_context: dict[str, dict[str, Any]] = {}
-        held = [
-            entry
-            for live_rule in live_rules
-            if live_rule.get("type") == _REQUIRED_CHECKS_RULE
-            for entry in (live_rule.get("parameters") or {}).get("required_status_checks") or []
-        ]
-        for entry in [*(parameters.get("required_status_checks") or []), *held]:
-            by_context.setdefault(str(entry.get("context")), entry)
+        for entry in [*_check_entries(own), *baseline_checks, *_check_entries(live)]:
+            by_context.setdefault(str(entry.get("context")), copy.deepcopy(entry))
         for name in reported:
             by_context.setdefault(name, {"context": name})
         parameters["required_status_checks"] = [by_context[key] for key in sorted(by_context)]
@@ -647,12 +679,15 @@ def _with_required_checks(
 def ruleset_row(
     session: GitHubSession, writer: RouteWriter, ctx: RowContext, baseline: Baseline
 ) -> Row:
-    """Row 10: each ruleset of the baseline, with the required checks of D3. A key that the reply
-    does not hold, such as `bypass_actors` for a token without write access to the ruleset, is
-    unknown: with no other difference the row is `not readable` (#6875)."""
+    """Row 10: each ruleset of the baseline, with the required checks of D3 and of the
+    `github/repository.yaml` that the repository holds on its default branch (#7423). A key that
+    the reply does not hold, such as `bypass_actors` for a token without write access to the
+    ruleset, is unknown: with no other difference the row is `not readable` (#6875)."""
     if ctx.plan_limited:
         step = PersonStep("Rulesets need a public repository or a paid plan.", DOC_RULESETS)
         return Row(10, "Ruleset", RowState.SKIPPED, reason=_D2_REASON, steps=(step,))
+    own = read_repository_settings(session, ctx.repo, ctx.default_branch, baseline) or {}
+    own_rulesets = {item.get("name"): item for item in own.get("rulesets") or []}
     changes: list[str] = []
     unread: list[str] = []
     for ruleset in baseline.settings.get("rulesets") or []:
@@ -660,7 +695,8 @@ def ruleset_row(
             (item for item in ctx.rulesets or [] if item.get("name") == ruleset.get("name")), None
         )
         live = session.rest("GET", f"/repos/{ctx.repo}/rulesets/{match['id']}") if match else None
-        desired = _with_required_checks(ruleset, live, ctx.reported_checks)
+        own_ruleset = own_rulesets.get(ruleset.get("name"))
+        desired = _with_required_checks(ruleset, own_ruleset, live, ctx.reported_checks)
         checks = [
             entry["context"]
             for rule in desired.get("rules") or []
