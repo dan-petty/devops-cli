@@ -17,9 +17,9 @@ Changes: `src/devops_cli/k8s/volume_move.py`, `src/devops_cli/commands/k8s/volum
 
 Kind: documents.
 
-- [ ] 2.1 Update `k8s/README.md` (Move a volume to another node) and the generated command reference.
+- [x] 2.1 Update `k8s/README.md` (Move a volume to another node) and the generated command reference.
   - Verification: `$ uv run devops ci docs`
 
 ## Workflow follow-up
 
-- A live move of a test claim from `local-path` to `longhorn` on the homelab: the claim name is bound to a Longhorn volume, the two sides are equal, and Argo CD is resumed. The pull request records the result.
+- Done 2026-11-27: a live move of a test claim from `local-path` on a node without Longhorn to `longhorn` on the homelab. The claim name is bound to a Longhorn volume, the two sides are equal, and the pod runs on a node that the scheduler selected. The claim had no Argo CD Application, so the move paused none. A claim of 600 MiB did not pass the copy (#7408).
