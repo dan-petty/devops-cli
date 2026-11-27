@@ -1140,7 +1140,8 @@ class K8sMessages:
         "Delete the pods {source} and {destination}, and NetworkPolicy {policy}."
     )
     volume_move_step_delete_claim: str = (
-        "Save claim {namespace}/{claim} and delete it. This is the point of no return."
+        "Save claim {namespace}/{claim}, delete the pods of the claim that have ended, and delete "
+        "the claim. This is the point of no return."
     )
     volume_move_step_rebind: str = (
         "Delete claim {move_claim}, and reserve its volume for claim {namespace}/{claim}."
