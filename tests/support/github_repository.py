@@ -681,8 +681,13 @@ class RepositoryState:
 
     def _pulls(self, _found: Any, query: dict[str, str], _body: Any) -> httpx2.Response:
         head = query.get("head", "").partition(":")[2]
+        state = query.get("state", "open")
         return github_json(
-            [p for p in self.pulls if p["state"] == "open" and p["head"]["ref"] == head]
+            [
+                pull
+                for pull in self.pulls
+                if pull["head"]["ref"] == head and state in {pull["state"], "all"}
+            ]
         )
 
     def _create_pull(self, _found: Any, _query: Any, body: dict[str, Any]) -> httpx2.Response:

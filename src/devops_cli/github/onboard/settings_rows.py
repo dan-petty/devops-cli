@@ -13,6 +13,7 @@ step.
 from __future__ import annotations
 
 import copy
+import re
 from collections.abc import Sequence
 from functools import partial
 from http import HTTPStatus
@@ -64,6 +65,9 @@ _RELEASE_KEY_CREDENTIAL: Final[str] = "github.release_app_private_key"
 # A PEM key is a few KiB; a larger file is no key.
 _KEY_FILE_MAX_BYTES: Final[int] = 64 * 1024
 _REQUIRED_CHECKS_RULE: Final[str] = "required_status_checks"
+# A matrix leg reports `<job> (<values>)`, such as `Tests & Coverage (shard 1 of 5)`. The values
+# vary by job, so only the shape of the name holds (#7318).
+_LEG_PATTERN: Final[re.Pattern[str]] = re.compile(r"(?P<base>.+) \((?P<suffix>.+)\)")
 _D2_REASON: Final[str] = (
     "a private repository on the GitHub Free plan has no rulesets and no environments (D2)"
 )
@@ -637,19 +641,68 @@ def _check_entries(ruleset: dict[str, Any] | None) -> list[dict[str, Any]]:
     ]
 
 
+def _check_base_name(name: str) -> str | None:
+    """The name of the job of a matrix leg, `<job> (<values>)`, or None for another name."""
+    match = _LEG_PATTERN.fullmatch(name)
+    return match["base"] if match else None
+
+
+def _checks_to_require(successful: tuple[str, ...], skipped: tuple[str, ...]) -> tuple[str, ...]:
+    """The check names that a ruleset requires of the check runs of the template pull request.
+
+    Only a run that ended `success` gives a name. A name that holds an unexpanded expression, such
+    as the name of a skipped matrix job, and the leg of a matrix job whose own name reported, name
+    a check that no pull request reports, so neither becomes required (#7318).
+    """
+    reported = frozenset({*successful, *skipped})
+    return tuple(
+        name for name in successful if "${{" not in name and _check_base_name(name) not in reported
+    )
+
+
+def _dropped_checks(
+    live: dict[str, Any] | None,
+    declared: Sequence[str],
+    successful: tuple[str, ...],
+    skipped: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Each required check of `live` that the desired ruleset leaves out, because only a skipped
+    check run gave it or because it is the leg of a job that ended `success` (#7318).
+
+    A check that `declared` names, which is a check of `own` or of the baseline ruleset, stays
+    required. A check that no check run names stays too: the runs of the head do not contradict
+    it.
+    """
+    named = frozenset(declared)
+    kept = frozenset(successful)
+    dropped: list[str] = []
+    for entry in _check_entries(live):
+        name = str(entry.get("context"))
+        if name in named or name in kept:
+            continue
+        if name in skipped or _check_base_name(name) in kept:
+            dropped.append(name)
+    return tuple(sorted(set(dropped)))
+
+
 def _with_required_checks(
     desired: dict[str, Any],
     own: dict[str, Any] | None,
     live: dict[str, Any] | None,
-    reported: tuple[str, ...],
-) -> dict[str, Any]:
+    successful: tuple[str, ...],
+    skipped: tuple[str, ...],
+) -> tuple[dict[str, Any], tuple[str, ...]]:
     """`desired` with each required check of `own`, of the baseline, of the live ruleset and of
-    the checks that reported on the template pull request (D3).
+    the check runs of the template pull request (D3), and the live checks that it leaves out.
 
     `own` is the ruleset of the same name in the `github/repository.yaml` that the repository
     holds (#7423). It wins for each parameter of the required checks rule that it sets and for
     the entry of each check that it names. A baseline ruleset with no required checks rule gets
-    the rule of `own`. No source removes a check that another source requires.
+    the rule of `own`. No source removes a check that another source requires. A check run gives a
+    name only when it ended `success`: a run that ended `skipped`, an unexpanded matrix name and
+    the leg of a matrix job whose own name reported add no check (#7318). A live check that only a
+    skipped check run gave, or that is the leg of a job that ended `success`, leaves the desired
+    set unless `own` or the baseline names it, and the second item of the result names it.
     """
     result = copy.deepcopy(desired)
     own_rules = _checks_rules(own)
@@ -664,24 +717,34 @@ def _with_required_checks(
         for key, value in (rule.get("parameters") or {}).items()
         if key != "required_status_checks"
     }
+    dropped: list[str] = []
     for rule in rules:
         parameters = rule.setdefault("parameters", {})
         baseline_checks = parameters.get("required_status_checks") or []
         parameters.update(own_parameters)
+        own_entries = _check_entries(own)
+        declared = [str(entry.get("context")) for entry in (*own_entries, *baseline_checks)]
+        gone = _dropped_checks(live, declared, successful, skipped)
+        dropped.extend(gone)
         by_context: dict[str, dict[str, Any]] = {}
-        for entry in [*_check_entries(own), *baseline_checks, *_check_entries(live)]:
+        for entry in [*own_entries, *baseline_checks]:
             by_context.setdefault(str(entry.get("context")), copy.deepcopy(entry))
-        for name in reported:
+        for entry in _check_entries(live):
+            if str(entry.get("context")) not in gone:
+                by_context.setdefault(str(entry.get("context")), copy.deepcopy(entry))
+        for name in _checks_to_require(successful, skipped):
             by_context.setdefault(name, {"context": name})
         parameters["required_status_checks"] = [by_context[key] for key in sorted(by_context)]
-    return result
+    return result, tuple(sorted(set(dropped)))
 
 
 def ruleset_row(
     session: GitHubSession, writer: RouteWriter, ctx: RowContext, baseline: Baseline
 ) -> Row:
     """Row 10: each ruleset of the baseline, with the required checks of D3 and of the
-    `github/repository.yaml` that the repository holds on its default branch (#7423). A key that
+    `github/repository.yaml` that the repository holds on its default branch (#7423). A live
+    required check that only a skipped check run gave, or that is the leg of a job that ended
+    `success`, leaves the set, and the change line names it after `; dropped` (#7318). A key that
     the reply does not hold, such as `bypass_actors` for a token without write access to the
     ruleset, is unknown: with no other difference the row is `not readable` (#6875)."""
     if ctx.plan_limited:
@@ -697,7 +760,9 @@ def ruleset_row(
         )
         live = session.rest("GET", f"/repos/{ctx.repo}/rulesets/{match['id']}") if match else None
         own_ruleset = own_rulesets.get(ruleset.get("name"))
-        desired = _with_required_checks(ruleset, own_ruleset, live, ctx.reported_checks)
+        desired, dropped = _with_required_checks(
+            ruleset, own_ruleset, live, ctx.successful_checks, ctx.skipped_checks
+        )
         checks = [
             entry["context"]
             for rule in desired.get("rules") or []
@@ -713,7 +778,10 @@ def ruleset_row(
                 continue
             writer.rest("ruleset-update", f"/repos/{ctx.repo}/rulesets/{match['id']}", desired)
         required = ", ".join(checks) or "none yet"
-        changes.append(f"ruleset {ruleset.get('name')}: required checks {required}")
+        line = f"ruleset {ruleset.get('name')}: required checks {required}"
+        if dropped:
+            line = f"{line}; dropped {', '.join(dropped)}"
+        changes.append(line)
     reason, steps = _unknown(
         unread, PersonStep(_BYPASS_ACTORS_STEP.format(repo=ctx.repo), DOC_GET_RULESET)
     )

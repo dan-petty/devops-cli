@@ -863,6 +863,155 @@ def test_a_baseline_ruleset_with_no_checks_rule_gets_the_rule_of_the_repository_
     assert onboard_github.writes() == []
 
 
+def _required_checks(harness: OnboardHarness) -> list[str]:
+    """The check names that the live ruleset `main` of REPO requires."""
+    rule = next(
+        rule
+        for rule in harness.state.rulesets[0]["rules"]
+        if rule["type"] == "required_status_checks"
+    )
+    return [entry["context"] for entry in rule["parameters"]["required_status_checks"]]
+
+
+def test_a_skipped_check_run_is_no_required_check(onboard_github: OnboardHarness) -> None:
+    # A reusable-workflow job that skips reports its own name: the ruleset must not require it.
+    onboard_github.state.check_runs = [
+        {"name": "K8s", "status": "completed", "conclusion": "skipped"},
+        {"name": "Lint", "status": "completed", "conclusion": "success"},
+    ]
+
+    _run(onboard_github, confirm=True, only=frozenset({9, 10}))
+
+    checks = _required_checks(onboard_github)
+    assert "K8s" not in checks
+    assert "Lint" in checks
+
+
+def test_an_unexpanded_matrix_name_is_no_required_check(onboard_github: OnboardHarness) -> None:
+    # A skipped matrix job reports its name with the expression unexpanded, and no pull request
+    # reports such a name.
+    onboard_github.state.check_runs = [
+        {
+            "name": "Push by digest (${{ matrix.platform }})",
+            "status": "completed",
+            "conclusion": "success",
+        },
+        {"name": "Lint", "status": "completed", "conclusion": "success"},
+    ]
+
+    _run(onboard_github, confirm=True, only=frozenset({9, 10}))
+
+    assert _required_checks(onboard_github) == ["Lint"]
+
+
+@pytest.mark.parametrize("leg", ["skipped", "success"], ids=["skipped leg", "passing leg"])
+def test_a_matrix_leg_gives_way_to_its_job_name(onboard_github: OnboardHarness, leg: str) -> None:
+    onboard_github.state.check_runs = [
+        {"name": "Tests & Coverage", "status": "completed", "conclusion": "success"},
+        {"name": "Tests & Coverage (shard 1 of 5)", "status": "completed", "conclusion": leg},
+    ]
+
+    _run(onboard_github, confirm=True, only=frozenset({9, 10}))
+
+    checks = _required_checks(onboard_github)
+    assert "Tests & Coverage" in checks
+    assert "Tests & Coverage (shard 1 of 5)" not in checks
+
+
+def _merged_template_pull(harness: OnboardHarness) -> None:
+    """REPO with its template pull request merged, as a confirmed run leaves it."""
+    state = harness.state
+    state.refs[TEMPLATE_BRANCH] = state.refs["main"]
+    state.pulls.append(
+        {
+            "number": 1,
+            "node_id": "PR_1",
+            "state": "closed",
+            "draft": False,
+            "merged": True,
+            "auto_merge": None,
+            "title": "ci: add the files of the repository template",
+            "user": {"login": REPO.partition("/")[0]},
+            "requested_reviewers": [],
+            "head": {"ref": TEMPLATE_BRANCH, "sha": state.refs["main"]},
+        }
+    )
+
+
+def _require_live_checks(harness: OnboardHarness, checks: list[str]) -> None:
+    """Add `checks` to the required checks of the live ruleset `main` of REPO."""
+    rule = next(
+        rule
+        for rule in harness.state.rulesets[0]["rules"]
+        if rule["type"] == "required_status_checks"
+    )
+    rule["parameters"]["required_status_checks"] += [
+        {"context": name, "integration_id": _ACTIONS} for name in checks
+    ]
+
+
+def test_a_live_required_check_that_only_skipped_is_dropped(
+    onboard_github: OnboardHarness, config: Any
+) -> None:
+    _onboarded(onboard_github, config)
+    _merged_template_pull(onboard_github)
+    _require_live_checks(onboard_github, ["K8s"])
+    onboard_github.state.check_runs = [
+        {"name": "K8s", "status": "completed", "conclusion": "skipped"},
+        {"name": CHECK_NAME, "status": "completed", "conclusion": "success"},
+    ]
+
+    report = _run(onboard_github, confirm=True, only=frozenset({9, 10}))
+
+    row = _row(report, 10)
+    assert row.changes == (f"ruleset main: required checks {CHECK_NAME}; dropped K8s",), (
+        render_report(report)
+    )
+    assert _required_checks(onboard_github) == [CHECK_NAME]
+
+
+def test_a_live_matrix_leg_gives_way_to_its_job_name(
+    onboard_github: OnboardHarness, config: Any
+) -> None:
+    _onboarded(onboard_github, config)
+    _merged_template_pull(onboard_github)
+    _require_live_checks(onboard_github, ["Tests & Coverage (shard 1 of 5)"])
+    onboard_github.state.check_runs = [
+        {"name": "Tests & Coverage", "status": "completed", "conclusion": "success"},
+        {"name": CHECK_NAME, "status": "completed", "conclusion": "success"},
+    ]
+
+    report = _run(onboard_github, confirm=True, only=frozenset({9, 10}))
+
+    row = _row(report, 10)
+    assert row.changes == (
+        f"ruleset main: required checks {CHECK_NAME}, Tests & Coverage; "
+        "dropped Tests & Coverage (shard 1 of 5)",
+    ), render_report(report)
+    assert _required_checks(onboard_github) == [CHECK_NAME, "Tests & Coverage"]
+
+
+def test_an_onboarded_repository_reports_a_required_check_that_only_skipped(
+    onboard_github: OnboardHarness, config: Any
+) -> None:
+    _onboarded(onboard_github, config)
+    _merged_template_pull(onboard_github)
+    _require_live_checks(onboard_github, ["K8s"])
+    onboard_github.state.check_runs = [
+        {"name": "K8s", "status": "completed", "conclusion": "skipped"},
+        {"name": CHECK_NAME, "status": "completed", "conclusion": "success"},
+    ]
+
+    report = _run(onboard_github, only=frozenset({9, 10}))
+
+    row = _row(report, 10)
+    assert (row.state, row.changes) == (
+        RowState.PENDING,
+        (f"ruleset main: required checks {CHECK_NAME}; dropped K8s",),
+    ), render_report(report)
+    assert onboard_github.writes() == []
+
+
 @pytest.mark.parametrize(
     ("text", "reason"),
     [

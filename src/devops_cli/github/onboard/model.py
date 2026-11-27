@@ -222,7 +222,8 @@ class RowContext:
     repo_payload: dict[str, Any] | None = None
     plan_limited: bool = False
     rulesets: list[dict[str, Any]] | None = None
-    reported_checks: tuple[str, ...] = ()
+    successful_checks: tuple[str, ...] = ()
+    skipped_checks: tuple[str, ...] = ()
     template_pull: int | None = None
     template_head: str | None = None
     checks_passed: bool = False

@@ -1,0 +1,27 @@
+# Design
+
+## Decisions
+
+- **Row 10 adds a required check only from a check run that ended `success`.**: `src/devops_cli/github/onboard/template_pr.py:40:_PASSED_CONCLUSIONS: Final[frozenset[str]] = frozenset({"success", "neutral", "skipped"})` counts `skipped` as passed, and a required check that never reports blocks each pull request.
+- **`RowContext` carries `successful_checks` and `skipped_checks` in place of `reported_checks`.**: The context held one flat tuple of passed names, so row 10 could not tell a skipped run from a passing one; `references` lists the three source files that groups 1 and 2 change.
+- **A matrix leg is a check name of the shape `<job> (<values>)`, and it gives way to `<job>` when a check run of that name ended `success`.**: The values vary by job, `shard 1 of 5` at `.github/workflows/ci.yml:144:name: Tests & Coverage (shard ${{ matrix.shard }} of ${{ strategy.job-total }})` and `run 1 of 3` in the comment of 2026-11-26, so the shape of the name is the part that holds.
+- **Row 9 reads the check runs of the head of the newest template pull request, whatever its state, when the repository holds each template file.**: `src/devops_cli/github/onboard/template_pr.py:227:if not missing:` returns before it reads a check run, so a repository that onboard already changed gave row 10 no evidence, and `docs/repos/onboard.md:96:devops repos onboard --all --plan --only 0,1,2,3,4,5,6,7,8,9,10,11` shows that the nightly run reads rows 0 to 11 of each repository of `service.repos`.
+- **The audit of each repository that onboard already changed is part of this change and needs no new command.**: The nightly drift run already reads the live ruleset of each repository of `service.repos` (`docs/repos/onboard.md:96:devops repos onboard --all --plan --only 0,1,2,3,4,5,6,7,8,9,10,11`), so row 10 reports a required check that only a skipped run gave as drift, and a person removes it with one confirmed run of rows 9 and 10.
+- **Row 10 leaves each live required check out of the desired set when only a skipped check run gave it, and its change line names it after `; dropped`.**: `src/devops_cli/github/onboard/settings_rows.py:676:parameters["required_status_checks"] = [by_context[key] for key in sorted(by_context)]` keeps each live entry, so a name that only skipped would stay in the ruleset on each later run, and a person needs the name to know what left.
+- **A check that the required checks rule of the baseline settings file names stays required.**: The base requirement says that file wins for the entry of each check that it names, and a repository whose job is filtered by path declares the check that it needs there.
+- **The change carries a spec delta for `repos-onboard`.**: The rows, their states and their change lines are what a consumer of the command observes, so the living spec must state the new rule of rows 9 and 10.
+
+## Rejected alternatives
+
+- **Keep each check run that passed, as `_PASSED_CONCLUSIONS` defines passing.**: `src/devops_cli/github/onboard/template_pr.py:40:_PASSED_CONCLUSIONS: Final[frozenset[str]] = frozenset({"success", "neutral", "skipped"})` holds `skipped`, which repeats the defect.
+- **Exclude skipped check runs only, and keep each successful matrix leg.**: The comment of 2026-11-26 names the legs `Tests & Coverage (shard 1 of 5)` and `Changed-Test Independence (run 1 of 3)`, which `.github/workflows/ci.yml:144:name: Tests & Coverage (shard ${{ matrix.shard }} of ${{ strategy.job-total }})` builds, so a successful leg name would stay required and would skip on a release pull request.
+- **Match a matrix leg with a regular expression on its values.**: The values vary by job, `shard 1 of 5` at `.github/workflows/ci.yml:144` and `run 1 of 3` in the comment of 2026-11-26, so one pattern misses a name.
+- **Require every successful matrix leg.**: `.github/workflows/ci.yml:238:# the filter, so the required check reports success. On the release pull request, no shard runs:` states that no shard runs there, so a required leg name never reports.
+- **Name each skipped check as a person step and keep it required.**: `src/devops_cli/github/onboard/settings_rows.py:676:parameters["required_status_checks"] = [by_context[key] for key in sorted(by_context)]` keeps the name in the desired set, so a pull request that runs the job still waits on a name that it never reports.
+- **Defer the audit of the repositories that onboard already changed to #7327.**: `docs/repos/onboard.md:96:devops repos onboard --all --plan --only 0,1,2,3,4,5,6,7,8,9,10,11` shows that the nightly run already reads rows 0 to 11 of each repository of `service.repos`, so the audit needs no access that the change lacks.
+- **Add a new audit command for the repositories that onboard already changed.**: `src/devops_cli/github/onboard/settings_rows.py:680:def ruleset_row(` already reads and writes each ruleset, so a second command would carry the same logic and a second path for one rule.
+- **Read the check runs of the default branch head to find a bad required name.**: A job that calls a reusable workflow reports `<job> / <called job>` when it runs and `<job>` when it skips, so the bad name can be absent from the default branch head; the head of the template pull request holds the names that built the ruleset.
+
+## Unchanged references
+
+- `openspec/changes/archive/2026-11-27-7423-onboard-repo-required-checks/proposal.md` (document): It is the archived record of the change of #7423 and states the field as the tree held it then, so it stays as history.

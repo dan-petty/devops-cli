@@ -4,9 +4,11 @@ Row 9 adds only the template files that the repository lacks. A file that the re
 with other text stays: after the first render the repository owns its files, and the copier manager
 of Renovate brings each new tag of the template. The row writes the files to `TEMPLATE_BRANCH` with
 the Git data API, in one tree and one commit, opens the draft pull request (AGENTS.md rule 6), and
-waits for the check runs of its head. Row 11 marks the pull request ready and turns on auto-merge
-with the head that the checks ran on. When GitHub has nothing to wait for, it merges the pull
-request at once, as `gh pr merge --auto` does, so the run of the person starts the merge.
+waits for the check runs of its head. A repository that holds each file gives row 10 the check
+runs of the head of its newest template pull request, merged included. Row 11 marks the pull
+request ready and turns on auto-merge with the head that the checks ran on. When GitHub has
+nothing to wait for, it merges the pull request at once, as `gh pr merge --auto` does, so the run
+of the person starts the merge.
 """
 
 from __future__ import annotations
@@ -62,10 +64,12 @@ _MERGE_STATE_QUERY: Final[str] = (
 
 @dataclass(frozen=True)
 class _Checks:
-    """The check runs of a head: the names that passed, the names that failed, and whether all
-    of them ended."""
+    """The check runs of a head: the names that passed, the names that ended `success`, the names
+    that ended `skipped`, the names that failed, and whether all of them ended."""
 
     passed: tuple[str, ...]
+    successful: tuple[str, ...]
+    skipped: tuple[str, ...]
     failed: tuple[str, ...]
     ended: bool
 
@@ -92,6 +96,16 @@ def _open_pull(session: GitHubSession, repo: str, owner: str) -> dict[str, Any] 
     return pulls[0] if isinstance(pulls, list) and pulls else None
 
 
+def _last_template_pull(session: GitHubSession, repo: str, owner: str) -> dict[str, Any] | None:
+    """The newest template pull request, whatever its state, or None."""
+    query = urlencode({"state": "all", "head": f"{owner}:{TEMPLATE_BRANCH}"})
+    pulls = session.rest("GET", f"/repos/{repo}/pulls?{query}")
+    if not isinstance(pulls, list) or not pulls:
+        return None
+    newest: dict[str, Any] = max(pulls, key=lambda pull: int(pull["number"]))
+    return newest
+
+
 def _branch_sha(session: GitHubSession, repo: str, branch: str) -> str | None:
     """The head of `branch`, or None when it does not exist."""
     from devops_cli.exceptions.git import GitHubNotFoundError
@@ -104,7 +118,8 @@ def _branch_sha(session: GitHubSession, repo: str, branch: str) -> str | None:
 
 
 def _read_checks(session: GitHubSession, repo: str, head: str) -> _Checks:
-    """The check runs of `head`."""
+    """The check runs of `head`. A name counts as passed on `success`, `neutral` or `skipped`,
+    and only a run that ended `success` gives a name that a ruleset may require (#7318)."""
     runs = list(
         session.paginate(f"/repos/{repo}/commits/{head}/check-runs", iterable_key="check_runs")
     )
@@ -112,6 +127,10 @@ def _read_checks(session: GitHubSession, repo: str, head: str) -> _Checks:
     passed = tuple(
         sorted(str(run["name"]) for run in runs if run.get("conclusion") in _PASSED_CONCLUSIONS)
     )
+    successful = tuple(
+        sorted(str(run["name"]) for run in runs if run.get("conclusion") == "success")
+    )
+    skipped = tuple(sorted(str(run["name"]) for run in runs if run.get("conclusion") == "skipped"))
     failed = tuple(
         sorted(
             str(run["name"])
@@ -119,7 +138,9 @@ def _read_checks(session: GitHubSession, repo: str, head: str) -> _Checks:
             if run.get("status") == "completed" and run.get("conclusion") not in _PASSED_CONCLUSIONS
         )
     )
-    return _Checks(passed=passed, failed=failed, ended=ended)
+    return _Checks(
+        passed=passed, successful=successful, skipped=skipped, failed=failed, ended=ended
+    )
 
 
 def _wait_for_checks(session: GitHubSession, repo: str, head: str, *, wait: bool) -> _Checks:
@@ -202,7 +223,8 @@ def _checks_row(ctx: RowContext, number: int, checks: _Checks, changes: tuple[st
             reason=f"#{number}: its checks have not ended",
         )
     ctx.checks_passed = True
-    ctx.reported_checks = checks.passed
+    ctx.successful_checks = checks.successful
+    ctx.skipped_checks = checks.skipped
     state = RowState.APPLIED if changes else RowState.WAITING
     return Row(
         9,
@@ -220,11 +242,21 @@ def template_row(
     baseline: Baseline,
     template: str,
 ) -> tuple[Row, tuple[str, ...]]:
-    """Row 9, and the template files that the repository holds with other text."""
+    """Row 9, and the template files that the repository holds with other text.
+
+    When the repository holds each file, the row reads the check runs of the head of the newest
+    template pull request, whatever its state, so row 10 finds the evidence of a repository that
+    an earlier run already changed (#7318).
+    """
     name = "Template pull request"
     repo = ctx.repo
     missing, kept = _file_states(session, repo, baseline.files, ctx.default_branch)
     if not missing:
+        pull = _last_template_pull(session, repo, ctx.options.repo.owner)
+        if pull is not None:
+            checks = _read_checks(session, repo, str(pull["head"]["sha"]))
+            ctx.successful_checks = checks.successful
+            ctx.skipped_checks = checks.skipped
         return Row(9, name, RowState.PRESENT), tuple(kept)
     pull = _open_pull(session, repo, ctx.options.repo.owner)
     head = str(pull["head"]["sha"]) if pull else None
