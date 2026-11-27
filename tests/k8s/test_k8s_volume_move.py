@@ -496,6 +496,7 @@ UNDO_AFTER_COPY = [
     "scale deployment/grafana --replicas=1",
     "delete pod grafana-dst",
     "delete networkpolicy grafana-copy",
+    "patch pv pvc-new reclaim=Delete",
     "delete pvc grafana-move",
     *_pause(True, ("grafana", "cluster", "bootstrap")),
 ]
@@ -1080,6 +1081,28 @@ def test_a_failed_request_is_undone_as_if_it_made_its_change(
     ]
 
 
+def test_an_undo_deletes_the_volume_that_a_class_binds_before_the_pod(
+    cluster: Cluster, tmp_path: Path
+) -> None:
+    """A class such as `longhorn` binds the temporary claim at once and keeps its volume after a
+    delete (reclaim policy Retain), so the undo sets that volume to Delete first (#7416)."""
+    cluster.move_claim_volume = NEW_VOLUME
+    cluster.failing = frozenset({"create Pod grafana-dst"})
+
+    with pytest.raises(VolumeMoveError) as failed:
+        _move(tmp_path)
+
+    assert failed.value.error_code == "K8S_VOLUME_MOVE_FAILED"
+    created = cluster.changes.index("create Pod grafana-dst")
+    assert cluster.changes[created + 1 :] == [
+        "delete pod grafana-dst",
+        "delete networkpolicy grafana-copy",
+        "patch pv pvc-new reclaim=Delete",
+        "delete pvc grafana-move",
+        *_pause(True, ("grafana", "cluster", "bootstrap")),
+    ]
+
+
 def test_an_undo_step_that_fails_is_reported_and_the_others_still_run(
     cluster: Cluster, tmp_path: Path
 ) -> None:
@@ -1390,7 +1413,7 @@ def test_move_undone_prints_the_steps_it_undid(cli: Any, cluster: Cluster) -> No
                     MESSAGES.k8s.volume_move_undo_delete.format(
                         kind="NetworkPolicy", name="grafana-copy"
                     ),
-                    MESSAGES.k8s.volume_move_undo_delete.format(kind="claim", name="grafana-move"),
+                    MESSAGES.k8s.volume_move_undo_discard.format(claim="grafana-move"),
                     *(
                         MESSAGES.k8s.volume_move_undo_resume.format(application=name)
                         for name in ("grafana", "cluster", "bootstrap")
