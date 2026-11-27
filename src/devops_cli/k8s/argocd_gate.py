@@ -20,6 +20,7 @@ import yaml
 from devops_cli.config.constants import CONST_K8S_PLACEHOLDER_HOST_APPLICATIONS
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.serialization import YAML_SAFE_LOADER
 from devops_cli.exceptions.k8s import ApplicationSourceError, ArgoCDGateError, KubernetesError
 from devops_cli.k8s.app_sources import (
     SourceTrees,
@@ -262,7 +263,7 @@ def _check_path_source(app_name: str, source: dict[str, Any], trees: SourceTrees
         return [f"Kustomize build failed for path '{path_str}': {msg}"]
 
     try:
-        docs = list(yaml.safe_load_all(rendered))
+        docs = list(yaml.load_all(rendered, Loader=YAML_SAFE_LOADER))
     except yaml.YAMLError as e:
         return [f"Rendered output for path '{path_str}' failed to parse: {e}"]
 

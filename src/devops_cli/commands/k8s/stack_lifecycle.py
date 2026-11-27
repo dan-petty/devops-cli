@@ -1295,8 +1295,10 @@ class _PathBuild:
             return None
         import yaml
 
+        from devops_cli.core.serialization import YAML_SAFE_LOADER
+
         found = []
-        for doc in yaml.safe_load_all(self.text):
+        for doc in yaml.load_all(self.text, Loader=YAML_SAFE_LOADER):
             if isinstance(doc, dict):
                 metadata = doc.get("metadata") or {}
                 scope = f"{metadata['namespace']}/" if metadata.get("namespace") else ""
