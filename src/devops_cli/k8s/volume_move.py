@@ -1,5 +1,9 @@
 """Move a local-path claim to a volume on another node, and bind the claim to that volume (#2186).
 
+The new volume can have another StorageClass (#7382). Then the target node is one that can attach
+a volume of that class: when a CSIDriver has the name of the provisioner of the class, only a node
+whose CSINode lists that driver.
+
 `plan_volume_move` only reads: the claim, its volume, the nodes, the pods that mount the claim and
 their workloads, the leftovers of an earlier move and the Argo CD Applications. It refuses a move
 that cannot run safely, and returns the plan with the real names. `run_volume_move` runs the steps
@@ -113,6 +117,18 @@ class VolumeMovePlan:
     applications: tuple[str, ...] = ()
     paused: tuple[str, ...] = ()
     image: str = ""
+    # The class of the new volume when the move changes the class; empty when it keeps the class.
+    target_storage_class: str = ""
+
+    @property
+    def changes_class(self) -> bool:
+        """True when the new volume has another class than the old claim."""
+        return bool(self.target_storage_class)
+
+    @property
+    def new_storage_class(self) -> str:
+        """The class of the temporary claim and of the claim made again."""
+        return self.target_storage_class or self.storage_class
 
     @property
     def move_claim(self) -> str:
@@ -409,7 +425,7 @@ def _move_claim_manifest(plan: VolumeMovePlan) -> dict[str, Any]:
         },
         "spec": {
             "accessModes": list(plan.access_modes),
-            "storageClassName": plan.storage_class,
+            "storageClassName": plan.new_storage_class,
             "volumeMode": plan.volume_mode,
             "resources": {"requests": {"storage": plan.size}},
         },
@@ -472,13 +488,18 @@ def _copy_pod_manifest(plan: VolumeMovePlan, *, destination: bool) -> dict[str, 
     }
 
 
-def rebound_claim(saved: dict[str, Any], volume: str) -> tuple[dict[str, Any], str | None]:
+def rebound_claim(
+    saved: dict[str, Any], volume: str, storage_class: str | None = None
+) -> tuple[dict[str, Any], str | None]:
     """The saved claim made again on `volume`, and its last-applied configuration to put back.
 
     The create leaves the last-applied configuration out: `kubectl create` writes the whole new
     object into that annotation when the manifest has it, `volumeName` included, and Argo CD then
     tries to remove `volumeName`, which the API server refuses (`spec is immutable`). It leaves
     out the annotations of the volume controllers too, which name the old binding.
+
+    `storage_class`, when given, replaces the class of the saved claim: a claim binds only to a
+    volume of its own class.
     """
     metadata = saved.get("metadata") or {}
     annotations = dict(metadata.get("annotations") or {})
@@ -493,11 +514,14 @@ def rebound_claim(saved: dict[str, Any], volume: str) -> tuple[dict[str, Any], s
     }
     if kept:
         new_metadata["annotations"] = kept
+    spec = {**(saved.get("spec") or {}), "volumeName": volume}
+    if storage_class:
+        spec["storageClassName"] = storage_class
     manifest = {
         "apiVersion": "v1",
         "kind": "PersistentVolumeClaim",
         "metadata": new_metadata,
-        "spec": {**(saved.get("spec") or {}), "volumeName": volume},
+        "spec": spec,
     }
     return manifest, last_applied
 
@@ -663,15 +687,62 @@ def _free_bytes(node: str, context: str | None) -> int:
     return int(((summary.get("node") or {}).get("fs") or {}).get("availableBytes") or 0)
 
 
-def _named_target_problem(node: _Node | None, name: str, source: _Node, volume: str) -> str | None:
+@dataclass(frozen=True)
+class _TargetClass:
+    """The class of a class change, its provisioner, and the nodes that can attach its volumes.
+
+    `nodes` is None when the provisioner is not a CSI driver: it does not limit the nodes.
+    """
+
+    name: str
+    driver: str
+    nodes: frozenset[str] | None
+
+    def attaches(self, node: _Node) -> bool:
+        return self.nodes is None or node.name in self.nodes
+
+
+def _target_class(storage_class: str, context: str | None) -> _TargetClass | str:
+    """The class of a class change, or the problem that stops the move.
+
+    A CSI driver attaches a volume only on a node whose CSINode lists it, so the nodes come from
+    the CSINodes when a CSIDriver has the name of the provisioner of the class.
+    """
+    found = _read_json(
+        ["get", "storageclass", storage_class, "--ignore-not-found", "-o", "json"], context
+    )
+    if not found:
+        return MESSAGES.k8s.volume_move_unknown_storage_class.format(storage_class=storage_class)
+    driver = str(found.get("provisioner") or "")
+    if not _read_json(["get", "csidriver", driver, "--ignore-not-found", "-o", "json"], context):
+        return _TargetClass(name=storage_class, driver=driver, nodes=None)
+    items = _read_json(["get", "csinodes", "-o", "json"], context).get("items") or []
+    nodes = frozenset(
+        (item.get("metadata") or {}).get("name", "")
+        for item in items
+        if any(
+            listed.get("name") == driver for listed in (item.get("spec") or {}).get("drivers") or []
+        )
+    )
+    return _TargetClass(name=storage_class, driver=driver, nodes=nodes)
+
+
+def _named_target_problem(
+    node: _Node | None, name: str, source: _Node, volume: str, new_class: _TargetClass | None
+) -> str | None:
+    m = MESSAGES.k8s
     if node is None:
-        return MESSAGES.k8s.volume_move_unknown_node.format(node=name)
+        return m.volume_move_unknown_node.format(node=name)
     if node.control_plane:
-        return MESSAGES.k8s.volume_move_target_control_plane.format(node=name)
-    if node.name == source.name:
-        return MESSAGES.k8s.volume_move_target_is_source.format(volume=volume, node=name)
+        return m.volume_move_target_control_plane.format(node=name)
+    if new_class is None and node.name == source.name:
+        return m.volume_move_target_is_source.format(volume=volume, node=name)
     if not node.available:
-        return MESSAGES.k8s.volume_move_target_unavailable.format(node=name)
+        return m.volume_move_target_unavailable.format(node=name)
+    if new_class is not None and not new_class.attaches(node):
+        return m.volume_move_target_no_driver.format(
+            node=name, storage_class=new_class.name, driver=new_class.driver
+        )
     return None
 
 
@@ -681,23 +752,34 @@ def _target(
     to_node: str | None,
     volume: str,
     context: str | None,
+    new_class: _TargetClass | None = None,
 ) -> tuple[_Node, int] | str:
-    """The target node and its free bytes, or the problem that stops the move."""
+    """The target node and its free bytes, or the problem that stops the move.
+
+    A move that keeps the class needs another node. With a class change, the new volume is not
+    the old one, so the node of the old volume can be the target too.
+    """
     if to_node:
         node = nodes.get(to_node)
-        problem = _named_target_problem(node, to_node, source, volume)
+        problem = _named_target_problem(node, to_node, source, volume, new_class)
         if node is None or problem:
             return problem or MESSAGES.k8s.volume_move_unknown_node.format(node=to_node)
         return node, _free_bytes(node.name, context)
-    if not source.control_plane:
+    if new_class is None and not source.control_plane:
         return MESSAGES.k8s.volume_move_not_on_control_plane.format(volume=volume, node=source.name)
     candidates = [
         node
         for node in nodes.values()
-        if node.available and not node.control_plane and node.name != source.name
+        if node.available
+        and not node.control_plane
+        and (node.name != source.name if new_class is None else new_class.attaches(node))
     ]
     if not candidates:
-        return MESSAGES.k8s.volume_move_no_target
+        return (
+            MESSAGES.k8s.volume_move_no_target
+            if new_class is None
+            else MESSAGES.k8s.volume_move_no_target_for_class.format(storage_class=new_class.name)
+        )
     free = {node.name: _free_bytes(node.name, context) for node in candidates}
     best = max(candidates, key=lambda node: (free[node.name], node.name))
     return best, free[best.name]
@@ -739,10 +821,12 @@ def plan_volume_move(
     *,
     parents: Sequence[str],
     to_node: str | None = None,
+    storage_class: str | None = None,
     context: str | None = None,
 ) -> VolumeMovePlan:
     """Read what the move needs and return its plan; refuse a move that cannot run safely.
     `parents` are the root Applications (`argocd.root_applications`), paused first.
+    `storage_class` is the class of the new volume; the class of the old claim keeps the class.
 
     Raises `VolumeMoveRefusedError` with every problem it finds, and `VolumeMoveError` when a
     read fails. It changes nothing either way.
@@ -770,7 +854,14 @@ def plan_volume_move(
         )
     states = _workloads(pods, namespace, claim, context)
     problems = _retention_problems(states, claim) + _leftover_problems(namespace, claim, context)
-    target = _target(source, nodes, to_node, spec["volumeName"], context)
+    old_class = spec.get("storageClassName", "")
+    change = storage_class if storage_class and storage_class != old_class else ""
+    new_class = _target_class(change, context) if change else None
+    target = (
+        new_class
+        if isinstance(new_class, str)
+        else _target(source, nodes, to_node, spec["volumeName"], context, new_class)
+    )
     if isinstance(target, str):
         problems.append(target)
     applications = tuple(
@@ -797,7 +888,7 @@ def plan_volume_move(
         target_node=node.name,
         target_hostname=node.hostname,
         target_free_bytes=free,
-        storage_class=spec.get("storageClassName", ""),
+        storage_class=old_class,
         size=((spec.get("resources") or {}).get("requests") or {}).get("storage", ""),
         access_modes=tuple(spec.get("accessModes") or ()),
         volume_mode=spec.get("volumeMode", "Filesystem"),
@@ -807,6 +898,7 @@ def plan_volume_move(
         applications=applications,
         paused=paused,
         image=image,
+        target_storage_class=change,
     )
 
 
@@ -814,6 +906,7 @@ def describe_volume_move(plan: VolumeMovePlan) -> tuple[str, ...]:
     """The steps of the move, in order, with the real names; the run prints the same text."""
     m = MESSAGES.k8s
     workloads = ", ".join(workload.ref for workload in plan.workloads)
+    scaled = ", ".join(f"{w.ref} to {w.replicas}" for w in plan.workloads)
     return (
         m.volume_move_step_pause.format(applications=", ".join(plan.paused))
         if plan.paused
@@ -821,7 +914,7 @@ def describe_volume_move(plan: VolumeMovePlan) -> tuple[str, ...]:
         m.volume_move_step_destination.format(
             claim=plan.move_claim,
             size=plan.size,
-            storage_class=plan.storage_class,
+            storage_class=plan.new_storage_class,
             pod=plan.destination_pod,
             node=plan.target_node,
         ),
@@ -840,10 +933,9 @@ def describe_volume_move(plan: VolumeMovePlan) -> tuple[str, ...]:
             move_claim=plan.move_claim, namespace=plan.namespace, claim=plan.claim
         ),
         m.volume_move_step_recreate.format(namespace=plan.namespace, claim=plan.claim),
-        m.volume_move_step_start.format(
-            workloads=", ".join(f"{w.ref} to {w.replicas}" for w in plan.workloads),
-            node=plan.target_node,
-        ),
+        m.volume_move_step_start_any_node.format(workloads=scaled)
+        if plan.changes_class
+        else m.volume_move_step_start.format(workloads=scaled, node=plan.target_node),
         m.volume_move_step_resume.format(applications=", ".join(reversed(plan.paused)))
         if plan.paused
         else m.volume_move_step_no_resume,
@@ -1095,7 +1187,7 @@ class _MoveRun:
 
     def recreate_claim(self) -> None:
         plan = self.plan
-        manifest, last_applied = rebound_claim(self.saved, self.new_volume)
+        manifest, last_applied = rebound_claim(self.saved, self.new_volume, plan.new_storage_class)
         self._create(manifest)
         if last_applied is not None:
             self._kubectl(
@@ -1130,17 +1222,22 @@ class _MoveRun:
             ((pod.get("spec") or {}).get("nodeName"), (pod.get("status") or {}).get("phase"))
             for pod in pods
         ]
-        if not placed or any(
-            place != (plan.target_node, CONST_K8S_POD_PHASE_RUNNING) for place in placed
+        # A volume of another class does not hold its pod on the target node: the scheduler
+        # selects the node, so the pods must only run.
+        if placed and all(
+            phase == CONST_K8S_POD_PHASE_RUNNING
+            and (plan.changes_class or node == plan.target_node)
+            for node, phase in placed
         ):
-            raise VolumeMoveError(
-                MESSAGES.k8s.volume_move_placement.format(
-                    claim=plan.claim,
-                    node=plan.target_node,
-                    pods=", ".join(f"{node or 'no node'} ({phase})" for node, phase in placed)
-                    or "none",
-                )
+            return
+        found = ", ".join(f"{node or 'no node'} ({phase})" for node, phase in placed) or "none"
+        raise VolumeMoveError(
+            MESSAGES.k8s.volume_move_not_running.format(claim=plan.claim, pods=found)
+            if plan.changes_class
+            else MESSAGES.k8s.volume_move_placement.format(
+                claim=plan.claim, node=plan.target_node, pods=found
             )
+        )
 
     def resume(self) -> None:
         for application in reversed(self.plan.paused):
@@ -1233,7 +1330,11 @@ def run_volume_move(
 
 
 def _placeholder_plan(
-    namespace: str, claim: str, to_node: str | None, parents: Sequence[str]
+    namespace: str,
+    claim: str,
+    to_node: str | None,
+    parents: Sequence[str],
+    storage_class: str | None = None,
 ) -> VolumeMovePlan:
     return VolumeMovePlan(
         namespace=namespace,
@@ -1253,6 +1354,7 @@ def _placeholder_plan(
         applications=("<application>",),
         paused=(*parents, "<application>"),
         image="<template image>",
+        target_storage_class=storage_class or "",
     )
 
 
@@ -1275,12 +1377,41 @@ def _planned(
     )
 
 
+def _dry_run_class_reads(storage_class: str, context: str | None) -> list[PlannedRequest]:
+    if not storage_class:
+        return []
+    csi = "a CSIDriver has the name of the provisioner of the class"
+    return [
+        _planned(
+            ["get", "storageclass", storage_class, "--ignore-not-found", "-o", "json"],
+            context,
+            f"StorageClass {storage_class}",
+            condition="the class is not the class of the claim",
+        ),
+        _planned(
+            ["get", "csidriver", "<provisioner>", "--ignore-not-found", "-o", "json"],
+            context,
+            "the CSIDriver of the provisioner of the class",
+            condition="the class is not the class of the claim",
+        ),
+        _planned(
+            ["get", "csinodes", "-o", "json"],
+            context,
+            "the CSI drivers of each node",
+            condition=csi,
+        ),
+    ]
+
+
 def _dry_run_reads(
     plan: VolumeMovePlan, to_node: str | None, context: str | None
 ) -> list[PlannedRequest]:
     ns, claim = plan.namespace, plan.claim
     node = to_node or "<worker-node>"
     leftovers = [f"pod/{plan.source_pod}", f"pod/{plan.destination_pod}", f"pvc/{plan.move_claim}"]
+    nodes = "for each worker node that is Ready and schedulable" + (
+        " and can attach a volume of the class" if plan.changes_class else ""
+    )
     return [
         _planned(
             ["get", "cronjob", "volume-move", "-n", "devops", "--ignore-not-found", "-o", "json"],
@@ -1313,11 +1444,12 @@ def _dry_run_reads(
             context,
             "leftovers of an earlier move",
         ),
+        *_dry_run_class_reads(plan.target_storage_class, context),
         _planned(
             ["get", "--raw", f"/api/v1/nodes/{node}/proxy/stats/summary"],
             context,
             "the free disk of a node",
-            repeat="" if to_node else "for each worker node that is Ready and schedulable",
+            repeat="" if to_node else nodes,
         ),
         _planned(
             ["get", "applications", "-n", DEFAULT_ARGOCD_NAMESPACE, "-o", "json"],
@@ -1370,6 +1502,7 @@ def _dry_run_writes(plan: VolumeMovePlan, context: str | None) -> list[PlannedRe
             "spec": _move_claim_manifest(plan)["spec"] | {"storageClassName": plan.storage_class},
         },
         "<new-volume>",
+        plan.new_storage_class,
     )
     return [
         _planned(
@@ -1517,10 +1650,11 @@ def dry_run_volume_move(
     *,
     parents: Sequence[str],
     to_node: str | None = None,
+    storage_class: str | None = None,
     context: str | None = None,
 ) -> tuple[PlannedRequest, ...]:
     """The requests a move would make, in order, making none: not even the claim is read."""
-    plan = _placeholder_plan(namespace, claim, to_node, parents)
+    plan = _placeholder_plan(namespace, claim, to_node, parents, storage_class)
     return (*_dry_run_reads(plan, to_node, context), *_dry_run_writes(plan, context))
 
 
