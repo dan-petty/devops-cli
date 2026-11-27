@@ -1175,6 +1175,24 @@ def test_plan_volume_move_raises_when_cronjob_missing(cluster: Cluster) -> None:
     assert "volume-move" in str(exc_info.value)
 
 
+def test_the_digest_leaves_out_the_lost_and_found_of_a_new_filesystem() -> None:
+    """A new ext4 volume, such as one of `longhorn`, has `./lost+found`, and a local-path
+    directory has none, so each count and digest leaves it out on both sides (#7414)."""
+    # Imported here, so the file collects on the base commit and this test fails there.
+    from devops_cli.config.constants import CONST_K8S_VOLUME_MOVE_DIGEST_SCRIPT
+
+    finds = [line for line in CONST_K8S_VOLUME_MOVE_DIGEST_SCRIPT.splitlines() if "find " in line]
+
+    assert [line.split("=", 1)[0] for line in finds] == [
+        "entries",
+        "files",
+        "bytes",
+        "metadata",
+        "content",
+    ]
+    assert all("$(find . -path ./lost+found -prune -o " in line for line in finds)
+
+
 def test_copy_pods_use_template_image_and_allow_root(cluster: Cluster, tmp_path: Path) -> None:
     _move(tmp_path)
     copy_pods = [

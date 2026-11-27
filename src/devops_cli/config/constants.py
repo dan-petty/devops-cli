@@ -4894,12 +4894,14 @@ CONST_K8S_VOLUME_MOVE_SAVE_DIR: Final[Path] = Path("k8s") / "volume-move"
 CONST_K8S_VOLUME_MOVE_DIGEST_SCRIPT: Final[str] = (
     "set -euo pipefail\n"
     'cd "$1"\n'
-    "entries=$(find . -mindepth 1 -printf x | wc -c)\n"
-    "files=$(find . -type f -printf x | wc -c)\n"
-    "bytes=$(find . -type f -printf '%s\\n' | awk '{s += $1} END {printf \"%.0f\", s}')\n"
-    "metadata=$(find . -printf '%y %m %U:%G %P\\n' | LC_ALL=C sort | sha256sum | cut -d' ' -f1)\n"
-    "content=$(find . -type f -print0 | LC_ALL=C sort -z | xargs -0r sha256sum | sha256sum"
-    " | cut -d' ' -f1)\n"
+    "entries=$(find . -path ./lost+found -prune -o ! -path . -printf x | wc -c)\n"
+    "files=$(find . -path ./lost+found -prune -o -type f -printf x | wc -c)\n"
+    "bytes=$(find . -path ./lost+found -prune -o -type f -printf '%s\\n'"
+    " | awk '{s += $1} END {printf \"%.0f\", s}')\n"
+    "metadata=$(find . -path ./lost+found -prune -o -printf '%y %m %U:%G %P\\n'"
+    " | LC_ALL=C sort | sha256sum | cut -d' ' -f1)\n"
+    "content=$(find . -path ./lost+found -prune -o -type f -print0 | LC_ALL=C sort -z"
+    " | xargs -0r sha256sum | sha256sum | cut -d' ' -f1)\n"
     "printf 'entries %s\\nfiles %s\\nbytes %s\\nmetadata %s\\ncontent %s\\n'"
     ' "$entries" "$files" "$bytes" "$metadata" "$content"\n'
 )
@@ -4907,7 +4909,9 @@ CONST_K8S_VOLUME_MOVE_DIGEST_SCRIPT: Final[str] = (
 
 It counts the entries and the regular files, adds the bytes of the regular files (not `du`,
 which counts directory blocks), and makes a digest of each entry's type, mode, numeric owner and
-path, and a digest of the content of the regular files, both in byte order.
+path, and a digest of the content of the regular files, both in byte order. Each `find` leaves out
+the top-level `lost+found`: mkfs makes it on a new ext4 volume, such as one of `longhorn`, and a
+local-path directory has none (#7414).
 """
 
 
