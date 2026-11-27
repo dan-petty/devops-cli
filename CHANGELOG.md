@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.224.2](https://github.com/dan-petty/devops-cli/compare/v0.224.1...v0.224.2) (2026-11-27)
+
+
+### Bug Fixes
+
+* **repos:** Guard the webhook row against the default URL ([#7391](https://github.com/dan-petty/devops-cli/issues/7391)) ([8a4f37c](https://github.com/dan-petty/devops-cli/commit/8a4f37c87da279321680d0b539ad7c479b1be2fd))
+
 ## [0.224.1](https://github.com/dan-petty/devops-cli/compare/v0.224.0...v0.224.1) (2026-11-27)
 
 
