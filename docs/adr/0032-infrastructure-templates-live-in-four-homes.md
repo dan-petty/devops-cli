@@ -94,3 +94,4 @@ The private-data check of the infra CI refuses a private value in infra (dan-pet
 ## Status History
 
 2026-11-21: Accepted by the owner, the merge of #6683.
+2026-11-27: Fact out of date: sections 1, 3 and 5, dan-petty/github-workflows holds the reusable workflows and the repository template, and releases them with its own tags (dan-petty/infra#217, #7482).

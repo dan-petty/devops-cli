@@ -144,9 +144,9 @@ def labels_text(scopes: str) -> str:
     )
 
 
-# The `openspec/config.yaml` of the repository template of dan-petty/infra: a comment block, the
-# schema that the planner reads, a context line that a person fills in, and the rule of each
-# artifact. Row 9 adds it to a repository that lacks it (#3770).
+# The `openspec/config.yaml` of the repository template of dan-petty/github-workflows: a comment
+# block, the schema that the planner reads, a context line that a person fills in, and the rule of
+# each artifact. Row 9 adds it to a repository that lacks it (#3770).
 OPENSPEC_CONFIG = """\
 # The planning setup of this repository: OpenSpec (https://github.com/Fission-AI/OpenSpec).
 # A change of this repository is one folder under openspec/changes/.
