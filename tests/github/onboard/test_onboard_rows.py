@@ -11,9 +11,11 @@ from typing import Any
 import pytest
 import yaml
 
+from devops_cli.config.constants import CONST_OPENSPEC_CONFIG_PATH
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.github.onboard import model
+from devops_cli.github.onboard.drift import DriftState, drift_counts
 from devops_cli.github.onboard.model import (
     DOC_COPIER,
     DOC_SECRETS,
@@ -103,6 +105,7 @@ def test_a_second_confirmed_run_on_a_new_repository_writes_nothing(
         13: RowState.APPLIED,
         14: RowState.SKIPPED,
         15: P,
+        16: RowState.WAITING,
     }, render_report(first)
     assert first.failing is False
     assert harness.state.graphql == [
@@ -126,6 +129,7 @@ def test_a_second_confirmed_run_on_a_new_repository_writes_nothing(
     assert {row.state for row in second.rows} <= {P, RowState.NOT_AVAILABLE, RowState.SKIPPED}, (
         render_report(second)
     )
+    assert _row(second, 16).state is P
     assert second.failing is False
     later = [" ".join(call.argv) for call in harness.processes.calls[calls:]]
     assert not any("PUT" in argv or "k8s" in argv for argv in later), later
@@ -156,6 +160,23 @@ def test_an_onboarded_repository_plans_no_change(
     assert {request.method for request in onboard_github.api.sent} == {"GET"}
     assert report.person_steps == ()
     assert render_report(report).endswith("Person steps: none.")
+    assert _row(report, 16).state is P
+
+
+def test_a_plan_with_an_invalid_openspec_row_reports_drift(
+    onboard_github: OnboardHarness, config: Any
+) -> None:
+    _onboarded(onboard_github, config)
+    tree = onboard_github.state.commits[onboard_github.state.refs["main"]]
+    tree[CONST_OPENSPEC_CONFIG_PATH] = "schema: another\n"
+
+    report = _run(onboard_github)
+
+    assert _row(report, 16).state is RowState.INVALID
+    counts = drift_counts(report)
+    assert counts.drift == 1
+    assert counts.not_readable == 0
+    assert counts.state is DriftState.DRIFT
 
 
 def test_the_release_key_reaches_no_output_log_or_argv(

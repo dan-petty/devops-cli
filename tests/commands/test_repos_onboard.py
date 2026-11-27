@@ -89,6 +89,22 @@ def test_only_one_row(cli: Callable[..., Any], onboard_github: OnboardHarness) -
     assert result.exit_code == 1
 
 
+def test_only_takes_the_openspec_row(
+    cli: Callable[..., Any], onboard_github: OnboardHarness
+) -> None:
+    result = cli("repos", "onboard", REPO, "--plan", "--only", "16")
+
+    rows = [line for line in result.stdout.splitlines() if line[:1].isdigit()]
+    assert len(rows) == 1
+    assert rows[0].startswith("16. OpenSpec: missing")
+    assert result.exit_code == 1
+
+    refused = cli("repos", "onboard", REPO, "--plan", "--only", "17")
+
+    assert refused.exit_code == 2
+    assert "row numbers from 0 to 16" in refused.output
+
+
 def _default_webhook_url() -> Any:
     """The default of `service.webhook_url`, read from the field, so a test meets no constant."""
     from devops_cli.config.settings import ServiceConfig

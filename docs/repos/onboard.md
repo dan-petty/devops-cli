@@ -59,10 +59,22 @@ Each row reads the live state with GET, compares it with the baseline, and write
 | 13 | Service | With `--confirm` (D4): adds the repository to `service.repos`, then runs `devops k8s push-secrets --only devops/devops-cli --rotate` and `devops k8s deploy-stack --stack devops`, unless `--no-deploy`. It does this only from a clean checkout of `origin/main` of devops-cli. Unless `--no-deploy`, it also needs the environment tree (from the project profile of the current folder, else from `infra.repos`) with its Argo CD Applications and `cluster-secrets.toml`, in a checkout that is clean at its `origin/main`, and both commands get it with `--k8s-dir`. Else the row is `refused` with the reason, and the other rows run. |
 | 14 | Cluster | With `--service`: the person step of the services entry of the repository in the environment repository. |
 | 15 | RAG | The `indexed`, `rag visibility` and `rag schedule` reads of the Qdrant points of the repository (#3771). With `--confirm`, an index that is not current gets the ingestion pass of the repository alone, when `service.repos` holds it. The row does not change the exit code. |
+| 16 | OpenSpec | The planning setup that the stage job reads: `openspec/config.yaml` with `schema: spec-driven`, and the folder `openspec/specs/` (#3770). The row reads the file with `GET /repos/<repo>/contents/openspec/config.yaml` and the folder with `GET /repos/<repo>/contents/openspec/specs`, at the default branch and at the head of the open template pull request. It writes nothing: row 9 adds both files. |
 
 A private repository on the GitHub Free plan gets no release flow (D2), also with `--release-flow`: no release workflow, no `release` environment, no key and never a repository secret, and no ruleset, because GitHub answers 403. The rows 5, 6 and 10 are `skipped`.
 
-Each row ends in one state: `present`, `pending` (a plan found a difference), `applied`, `waiting`, `skipped`, `not available`, `person`, `refused`, `not readable` or `failed`.
+Each row ends in one state: `present`, `pending` (a plan found a difference), `applied`, `waiting`, `skipped`, `not available`, `person`, `refused`, `missing` (the repository lacks a file that it must hold), `invalid` (the file is there and fails a condition), `not readable` or `failed`. The states `missing` and `invalid` belong to row 16, and they count as a failing row.
+
+## OpenSpec
+
+Row 16 reports the OpenSpec setup of the repository, because the stage job plans each item with it (#3770). It ends in one of four states:
+
+- `present`: the config file parses, names `schema: spec-driven`, and a file is under `openspec/specs/`.
+- `missing`: the default branch holds no `openspec/config.yaml`. The reason names the path.
+- `invalid`: the config file does not parse as YAML, names another schema, or no file is under `openspec/specs/`. The reason names the failed condition. For the folder it also names the next step: the next `copier update` of the template, which Renovate brings, or a commit of `openspec/specs/.gitkeep`.
+- `waiting`: the default branch fails a condition, and the head of the open template pull request passes each one. The next run reads `present` after the merge.
+
+The template pull request of row 9 adds both files, from the repository template of dan-petty/infra: `openspec/config.yaml`, with its comment lines, the schema, the context line and the rules for proposal, specs, design and tasks, and the empty placeholder `openspec/specs/.gitkeep`. Row 16 adds no file itself, and the command never writes over a file that exists: a repository that holds a config file with other text keeps it, and a second `--confirm` writes nothing while the pull request is open. The config file is project-neutral, so a person fills the marked `Product:` line of its `context` after the merge. A run with `--only 16` reads the default branch alone, because row 9 does not run and no head of a template pull request is known.
 
 ## What stays with a person
 
@@ -86,12 +98,13 @@ CronJob `repos-drift` (`k8s/devops/cronjob-repos-drift.yaml`, #6783) runs the dr
 - Row 12 stays out: it needs the keyring map of the webhook secrets, a secret value, and #4417 deletes it.
 - Row 13 stays out: with `--all`, `service.repos` holds each repository, so the row reads no live state.
 - Rows 14 and 15 stay out: row 14 runs only with `--service`, and row 15 informs only and needs a Qdrant key.
+- Row 16 stays out until the `--only` list of the CronJob manifest names it. Its reads need only Contents read, which the token holds, and the manifest names rows 0 to 11 today.
 
 The pod acts as the GitHub App of the Service, and `service.github_app.drift_check` makes its installation token ask for `CONST_GITHUB_APP_DRIFT_TOKEN_PERMISSIONS` only: read on Actions, Checks, Environments, Issues, Metadata, Pull requests and Secrets, and read and write on Administration and Contents. GitHub gives the merge settings of row 2 only with Contents write, and `bypass_actors` of row 10 and the Code Quality setup of row 4 only with Administration write (#6888). The pod holds the key of the App, which can mint a write token anyway. A plan sends GET requests only: the writer of the command sends no write without `--confirm`, and `--all` refuses `--confirm`. An installation token has no OAuth scopes, and GitHub refuses it `GET /user`, so row 0 sends no such request and notes that the token reports no OAuth scopes.
 
 `--all --plan` sets the gauge `devops_cli_repos_drift_rows` of each repository, with the label `state`:
 
-- `drift`: the rows that are `pending`, `failed` or `waiting`, the rows off the baseline.
+- `drift`: the rows that are `pending`, `failed`, `waiting`, `missing` or `invalid`, the rows off the baseline.
 - `not_readable`: the rows that are `not readable`. Such a row is its own state: it is no drift, and the repository is not clean.
 
 Each run sets both values, zero included, and a row that informs only does not count. The alerts `RepositorySettingsDrift`, `RepositorySettingsUnreadable` and `RepositoryDriftCheckStopped` read the gauge ([alerting](../../k8s/README.md#alerting)). The command exits 1 on a drift row or a not readable row, so the Job then ends `Failed`: the gauge is the report.
@@ -102,4 +115,4 @@ The Job leaves out row 12, so it does not check the hook of the Service. Without
 
 ## A missing dependency that a job finds
 
-A Service row can find a project-management dependency that the repository lacks. The stage job reads `openspec/config.yaml` at the default branch in each round (`uses_openspec`). With no file, it writes no plan for an item of the repository, and each item gets a reason that names the file. The stage row also names the file in its outcome (`JobOutcome.missing`), which the later rows of the round read. A later row can start the onboarding of the repository from this record (#4664). The template adds `openspec/config.yaml`, so the hold ends when the template pull request merges.
+A Service row can find a project-management dependency that the repository lacks. The stage job reads `openspec/config.yaml` at the default branch in each round (`uses_openspec`). With no file, it writes no plan for an item of the repository, and each item gets a reason that names the file. The stage row also names the file in its outcome (`JobOutcome.missing`), which the later rows of the round read. A later row can start the onboarding of the repository from this record (#4664). The template adds `openspec/config.yaml`, so the hold ends when the template pull request merges. Row 16 of the onboarding reports the setup, and it reads `missing` until the file reaches the default branch.

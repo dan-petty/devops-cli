@@ -1030,19 +1030,20 @@ class OnboardReleaseType(StrEnum):
     NODE = "node"
 
 
-_ONBOARD_ROWS = range(16)
-
-
 def _onboard_rows(only: str | None) -> frozenset[int] | None:
     """The row numbers of `--only`, or None for every row."""
+    from devops_cli.github.onboard.run import ROW_NAMES
+
     if only is None:
         return None
     try:
         rows = frozenset(int(part) for part in only.split(",") if part.strip())
     except ValueError:
         rows = frozenset({-1})
-    if not rows or not rows <= set(_ONBOARD_ROWS):
-        raise typer.BadParameter(MESSAGES.repos.onboard_only_invalid.format(value=only))
+    if not rows or not rows <= set(ROW_NAMES):
+        raise typer.BadParameter(
+            MESSAGES.repos.onboard_only_invalid.format(value=only, last=max(ROW_NAMES))
+        )
     return rows
 
 

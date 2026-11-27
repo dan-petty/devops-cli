@@ -144,6 +144,32 @@ def labels_text(scopes: str) -> str:
     )
 
 
+# The `openspec/config.yaml` of the repository template of dan-petty/infra: a comment block, the
+# schema that the planner reads, a context line that a person fills in, and the rule of each
+# artifact. Row 9 adds it to a repository that lacks it (#3770).
+OPENSPEC_CONFIG = """\
+# The planning setup of this repository: OpenSpec (https://github.com/Fission-AI/OpenSpec).
+# A change of this repository is one folder under openspec/changes/.
+# The spec of each capability is under openspec/specs/.
+# Replace the context line below with the context of this project.
+# Each rule gives its artifact the form that the planner needs.
+schema: spec-driven
+
+context: |
+  Product: <one line: what this repository makes, for whom, and its main constraints>.
+
+rules:
+  proposal:
+    - Cite the issue as #<issue> in Why, and name the open tool that covers the need.
+  specs:
+    - Write each scenario so that a test under tests/ can assert it offline.
+  design:
+    - Record each rejected alternative with the evidence that rejected it.
+  tasks:
+    - Order the tasks of a behavior group as failing test, then implementation.
+"""
+
+
 def _answers(argv: tuple[str, ...]) -> dict[str, Any]:
     """The answers of the `--data` options of a `copier copy` argv."""
     given: dict[str, Any] = {}
@@ -171,6 +197,8 @@ def render_template(argv: tuple[str, ...], *, extra: dict[str, Any] | None = Non
         "github/repository.yaml": yaml.safe_dump(
             baseline_settings(release_flow=release_flow, extra=extra), sort_keys=False
         ),
+        "openspec/config.yaml": OPENSPEC_CONFIG,
+        "openspec/specs/.gitkeep": "",
     }
     for path, text in files.items():
         target = dest / path
@@ -219,6 +247,23 @@ def rendered_files(*, release_flow: bool, scopes: str = "") -> dict[str, str]:
             for path in sorted(dest.rglob("*"))
             if path.is_file()
         }
+
+
+def _folder_entries(files: dict[str, str], path: str) -> list[dict[str, str]]:
+    """The direct children of the folder `path` of `files`, as the contents endpoint lists them:
+    one item for each file or folder, and no item for a path that holds none."""
+    prefix = f"{path.strip('/')}/"
+    entries: dict[str, dict[str, str]] = {}
+    for name in files:
+        if not name.startswith(prefix):
+            continue
+        child, slash, _rest = name[len(prefix) :].partition("/")
+        entries[child] = {
+            "type": "dir" if slash else "file",
+            "name": child,
+            "path": f"{prefix}{child}",
+        }
+    return list(entries.values())
 
 
 @dataclass
@@ -528,10 +573,19 @@ class RepositoryState:
         return github_json(self.payload)
 
     def _contents(self, files: dict[str, str] | None, path: str) -> httpx2.Response:
-        if files is None or path not in files:
+        """A file of `files` as the contents endpoint gives it, or the listing of a folder of
+        `files`: GitHub answers a folder path with one item for each direct child."""
+        if files is None:
             return github_json({"message": "Not Found"}, status=404)
-        encoded = base64.b64encode(files[path].encode()).decode()
-        return github_json({"type": "file", "encoding": "base64", "content": encoded, "path": path})
+        if path in files:
+            encoded = base64.b64encode(files[path].encode()).decode()
+            return github_json(
+                {"type": "file", "encoding": "base64", "content": encoded, "path": path}
+            )
+        entries = _folder_entries(files, path)
+        if not entries:
+            return github_json({"message": "Not Found"}, status=404)
+        return github_json(entries)
 
     def _template_file(
         self, found: re.Match[str], query: dict[str, str], _body: Any

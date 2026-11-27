@@ -30,6 +30,7 @@ from devops_cli.github.onboard.model import (
     RowContext,
     RowState,
 )
+from devops_cli.github.onboard.openspec_row import openspec_row
 from devops_cli.github.onboard.routes import READS, ROUTES, RouteWriteError, RouteWriter
 from devops_cli.github.onboard.service_rows import (
     app_row,
@@ -77,6 +78,7 @@ ROW_NAMES: Final[dict[int, str]] = {
     13: "Service",
     14: "Cluster",
     15: "RAG",
+    16: "OpenSpec",
 }
 # The states of a template pull request whose checks have not passed: the ruleset waits, so it
 # requires only the checks that reported (D3).
@@ -217,7 +219,7 @@ def onboard_repository(
     session: GitHubSession,
     settings: Settings,
 ) -> OnboardReport:
-    """Run rows 0 to 15 over one repository and give the report.
+    """Run rows 0 to 16 over one repository and give the report.
 
     Raises `AnswerFlagError` when a flag differs from `.copier-answers.yml`, before any write.
     """
@@ -246,6 +248,7 @@ def onboard_repository(
     run.put(13, lambda: service_row(writer, ctx, settings, deploy=deploy))
     run.put(14, lambda: cluster_row(ctx))
     run.put(15, lambda: rag_row(writer, ctx, settings))
+    run.put(16, lambda: openspec_row(session, ctx))
     return _report(run)
 
 

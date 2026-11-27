@@ -18,6 +18,8 @@ class RowState(StrEnum):
     PENDING = "pending"
     APPLIED = "applied"
     WAITING = "waiting"
+    MISSING = "missing"
+    INVALID = "invalid"
     SKIPPED = "skipped"
     NOT_AVAILABLE = "not available"
     PERSON = "person"
@@ -28,7 +30,7 @@ class RowState(StrEnum):
 
 # The states that leave the repository off its baseline: the command exits 1 on each of them.
 _FAILING_STATES: Final[frozenset[RowState]] = frozenset(
-    {RowState.PENDING, RowState.FAILED, RowState.NOT_READABLE}
+    {RowState.PENDING, RowState.FAILED, RowState.NOT_READABLE, RowState.MISSING, RowState.INVALID}
 )
 
 

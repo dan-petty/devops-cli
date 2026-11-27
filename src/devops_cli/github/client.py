@@ -727,6 +727,20 @@ class GitHubClient:
             if isinstance(entry, dict) and entry.get("type") == "dir" and entry.get("name")
         )
 
+    def folder_exists_at(self, repo: str, path: str, ref: str) -> bool:
+        """Whether GitHub answers `path` at a commit with the listing of a folder (#3770).
+
+        Git keeps a folder only while it holds a file, so a list answer is the fact that the folder
+        exists. `folder_names_at` gives no name for a folder that holds only `.gitkeep`. A 404 and
+        the answer of a file read as False.
+        """
+        endpoint = _repo_path(repo, f"contents/{quote(path, safe='/')}?{urlencode({'ref': ref})}")
+        try:
+            answer = self._session.rest("GET", endpoint)
+        except GitHubNotFoundError:
+            return False
+        return isinstance(answer, list)
+
     def get_compare_files(self, repo: str, base: str, head: str) -> CompareFiles:
         """The files that `head` changes since its merge base with `base`, and that merge base,
         from the compare endpoint.

@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final
 
+from devops_cli.config.constants import CONST_OPENSPEC_CONFIG_PATH, CONST_OPENSPEC_SPECS_DIR
 from devops_cli.exceptions import DevOpsCLIError
 
 if TYPE_CHECKING:
@@ -375,6 +376,21 @@ READS: Final[tuple[tuple[int, str], ...]] = (
     (12, "GET /repos/{repo}/hooks"),
     (13, "git fetch origin main; git rev-parse HEAD origin/main; git status --porcelain"),
     (15, "Qdrant count and scroll of the points of the repository"),
+    (
+        16,
+        f"GET /repos/{{repo}}/contents/{CONST_OPENSPEC_CONFIG_PATH}?ref=<default branch>",
+    ),
+    (16, f"GET /repos/{{repo}}/contents/{CONST_OPENSPEC_SPECS_DIR}?ref=<default branch>"),
+    (
+        16,
+        f"GET /repos/{{repo}}/contents/{CONST_OPENSPEC_CONFIG_PATH}"
+        "?ref=<head of the open template pull request>",
+    ),
+    (
+        16,
+        f"GET /repos/{{repo}}/contents/{CONST_OPENSPEC_SPECS_DIR}"
+        "?ref=<head of the open template pull request>",
+    ),
 )
 
 
