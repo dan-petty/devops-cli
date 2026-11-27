@@ -4,18 +4,40 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
 _MARKDOWN_CODEBLOCK_RE = re.compile(r"```(?:json)?\s*\n?([\s\S]*?)\n?\s*```")
 _JSON_UNSET = object()
 _JSONC_STRING_OR_COMMENT = re.compile(r'("(?:\\.|[^"\\])*")|//[^\n]*|/\*.*?\*/', re.DOTALL)
+_YAML_VALUE_TAG = "tag:yaml.org,2002:value"
+
+
+def _value_tag_as_string[LoaderT: (yaml.SafeLoader, yaml.CSafeLoader)](
+    base: type[LoaderT],
+) -> type[LoaderT]:
+    """A subclass of the PyYAML loader `base` that reads a plain `=` as the string `"="`.
+
+    PyYAML resolves a plain `=` to the YAML 1.1 tag `tag:yaml.org,2002:value` and has no
+    constructor for it (yaml/pyyaml#89). YAML 1.2, and so Kubernetes, reads it as a string: the
+    CRDs of prometheus-operator-crds hold the enum item `- =`. The constructor goes on a subclass,
+    so `yaml.SafeLoader` and `yaml.CSafeLoader` stay as PyYAML ships them.
+    """
+    loader = cast("type[LoaderT]", type(f"ValueAsString{base.__name__}", (base,), {}))
+    loader.add_constructor(_YAML_VALUE_TAG, _construct_value_as_string)
+    return loader
+
+
+def _construct_value_as_string(loader: yaml.SafeLoader | yaml.CSafeLoader, node: yaml.Node) -> str:
+    """The text of a scalar of the value tag, as PyYAML constructs a `!!str` scalar."""
+    return loader.construct_yaml_str(node)
+
 
 # libyaml's loader composes several times faster than the pure-Python one, with the same nodes and
 # line marks; PyYAML built without libyaml has only the latter.
-YAML_SAFE_LOADER: type[yaml.SafeLoader] | type[yaml.CSafeLoader] = getattr(
-    yaml, "CSafeLoader", yaml.SafeLoader
+YAML_SAFE_LOADER: type[yaml.SafeLoader] | type[yaml.CSafeLoader] = _value_tag_as_string(
+    getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 )
 
 

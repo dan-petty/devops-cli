@@ -484,6 +484,23 @@ def test_a_tree_with_no_k8s_argocd_passes(tmp_path: Path) -> None:
     assert built == []
 
 
+def test_a_path_build_that_holds_a_plain_equals_passes(tmp_path: Path) -> None:
+    """The upstream CRDs of prometheus-operator hold the plain enum item `=`, which Kubernetes
+    reads as the string `"="`. A path source that builds such a CRD passes the gate (#7380)."""
+    _write_app(tmp_path, "crds", path="k8s/crds")
+    crds = tmp_path / "k8s" / "crds"
+    crds.mkdir(parents=True)
+    (crds / "kustomization.yaml").write_text("resources:\n  - crd.yaml\n", encoding="utf-8")
+    (crds / "crd.yaml").write_text(
+        "apiVersion: apiextensions.k8s.io/v1\nkind: CustomResourceDefinition\n"
+        "metadata:\n  name: alertmanagerconfigs.monitoring.coreos.com\n"
+        "spec:\n  enum:\n    - =\n    - =~\n",
+        encoding="utf-8",
+    )
+
+    assert check_argocd_gate(_env(tmp_path)) == ["crds"]
+
+
 def test_a_missing_kubectl_fails_naming_its_install_page(tmp_path: Path) -> None:
     _write_app(tmp_path, "clean-app", path="k8s/clean-app")
     app_dir = tmp_path / "k8s" / "clean-app"

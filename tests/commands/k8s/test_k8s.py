@@ -892,6 +892,33 @@ def test_the_dry_run_build_loads_a_file_of_a_loopback_address(
     )
 
 
+def test_deploy_stack_dry_run_lists_a_build_that_holds_a_plain_equals(
+    cli: Callable[..., Any], process_fake: ProcessFake, tmp_path: Path
+) -> None:
+    """The upstream CRDs of prometheus-operator hold the plain enum item `=`, which Kubernetes
+    reads as the string `"="`. The dry run lists the objects of a build that holds one (#7380)."""
+    env = _path_source_tree(tmp_path / "env")
+    crd = (
+        "apiVersion: apiextensions.k8s.io/v1\nkind: CustomResourceDefinition\n"
+        "metadata:\n  name: examples.example.com\nspec:\n  enum:\n    - =\n    - =~\n"
+    )
+    process_fake.answer(
+        ("kubectl", "kustomize"), ProcessAnswer(stdout=f"{_LOKI_PERIMETER}---\n{crd}")
+    )
+
+    res = cli("k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", str(env), "--dry-run")
+
+    assert (res.exit_code, _dry_run_details(res.output)["path_sources"]) == (
+        0,
+        {
+            "logging: env/logging": [
+                "NetworkPolicy logging/loki-perimeter",
+                "CustomResourceDefinition examples.example.com",
+            ]
+        },
+    )
+
+
 def test_deploy_stack_applies_the_build_of_each_path_source_and_teardown_deletes_it(
     cluster: FakeCluster, process_fake: ProcessFake, tmp_path: Path
 ) -> None:

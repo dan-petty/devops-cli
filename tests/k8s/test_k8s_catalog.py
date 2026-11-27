@@ -12,6 +12,8 @@ import pytest
 import yaml
 
 from devops_cli.dry_run.state import set_dry_run
+from devops_cli.k8s.catalog import build_catalog
+from devops_cli.k8s.environment import EnvironmentTree
 from devops_cli.k8s.image_pins import application_renders
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
@@ -533,3 +535,27 @@ def test_k8s_catalog_covers_statefulset_cronjob_backup_and_error_branches(
     assert "No Sloth SLO specs defined." in min_md
     assert "No stores defined." in min_md
     assert "No cluster classes defined." in min_md
+
+
+def test_catalog_reads_a_chart_render_that_holds_a_plain_equals(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    """The CRDs of prometheus-operator-crds hold the plain enum item `=`, which Kubernetes reads as
+    the string `"="`. The catalog reads such a chart render and lists its workloads (#7380)."""
+    crd = (
+        "apiVersion: apiextensions.k8s.io/v1\nkind: CustomResourceDefinition\nmetadata:\n"
+        "  name: alertmanagerconfigs.monitoring.coreos.com\nspec:\n  versions:\n"
+        "    - name: v1alpha1\n      schema:\n        openAPIV3Schema:\n          properties:\n"
+        "            matchType:\n              type: string\n              enum:\n"
+        "                - '!='\n                - =\n                - =~\n                - '!~'\n"
+    )
+    chart = _chart_deployment_stream("metrics-store", "monitoring") + "---\n" + crd
+    k8s_dir = _seed_base_fixture(tmp_path, process_fake, chart_stream=chart)
+
+    catalog = build_catalog(EnvironmentTree(root=k8s_dir, repo=tmp_path), origin_url=_ORIGIN)
+
+    assert [(workload.application, workload.name) for workload in catalog.workloads] == [
+        ("devops", "roadmap-service"),
+        ("devops", "worker"),
+        ("metrics-store", "metrics-store"),
+    ]
