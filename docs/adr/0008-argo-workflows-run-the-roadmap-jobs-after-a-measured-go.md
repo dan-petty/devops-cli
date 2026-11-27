@@ -52,3 +52,4 @@ Amended on 2026-11-11 by [ADR 0021](0021-the-roadmap-service-is-a-webhook-router
 2026-11-12: Fact out of date: the pins and the replicas. `k8s/argocd/apps/argo-workflows.yaml` and `k8s/argo-workflows/values.yaml` hold them, and the owner recorded go on #1535 (#5225).
 
 - 2026-11-26: Living detail moved to `k8s/argo-workflows/` of dan-petty/homelab (#7290).
+- 2026-11-27: Fact out of date: the controller runs namespaced in `devops`, and the manifests use `schedules` and `mutexes` (#5289).

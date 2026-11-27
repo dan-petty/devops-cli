@@ -60,6 +60,20 @@ jobs:
         with:
           cache-suffix: fail-to-pass
 
+      # The replay runs the `k8s` row of a changed check module, and that row runs the offline
+      # lint of argo on the Argo objects of the product base (#5289). The next step puts the
+      # directory of the command first on PATH for the replay.
+      - name: Copy the tools of the devtools image
+        id: devtools
+        uses: ./.github/actions/devtools-commands
+        with:
+          commands: argo
+
+      - name: Put the tools of the devtools image on PATH
+        env:
+          BIN_DIR: ${{ steps.devtools.outputs.path }}
+        run: echo "$BIN_DIR" >> "$GITHUB_PATH"
+
       - name: Replay changed tests and gate checks against base
         env:
           BASE_REF: ${{ github.base_ref }}
