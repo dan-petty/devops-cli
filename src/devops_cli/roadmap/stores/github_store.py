@@ -124,11 +124,11 @@ from devops_cli.roadmap.stores.store import (
     as_utc,
     closed_body,
     decode_job_record,
-    encode_job_record,
     find_milestone,
     item_of,
     milestone_edits,
     milestone_order,
+    record_block,
     relabeled,
     require_milestone,
     require_unchanged,
@@ -137,6 +137,7 @@ from devops_cli.roadmap.stores.store import (
     select_items,
     split_record,
     with_record,
+    written_elsewhere,
 )
 from devops_cli.telemetry.instruments import (
     BRAIN_CACHE_TOTAL,
@@ -268,6 +269,9 @@ class _IssuePayload(BaseModel):
         return split_record(self.body or "", issue=f"#{self.number}")
 
     def record(self) -> IssueRecord:
+        """The issue as a record. The block of the body is read as the record of this issue: a
+        block that was written for another issue gives an empty job record and `foreign_record`
+        (#7347)."""
         body, held = self.split()
         return IssueRecord(
             id=self.id,
@@ -290,7 +294,8 @@ class _IssuePayload(BaseModel):
             sub_issues=self.sub_issues,
             parent=self.parent,
             blocked_by=self.blocked_by,
-            job_record=decode_job_record(held, issue=f"#{self.number}"),
+            job_record=decode_job_record(held, issue=f"#{self.number}", number=self.number),
+            foreign_record=written_elsewhere(held, number=self.number),
         )
 
 
@@ -1740,7 +1745,8 @@ class GitHubRoadmapStore(RoadmapStore):
         item: Item | None = None,
     ) -> None:
         """One `PATCH` of `issue`: `labels` when given, and its body with the record block it
-        holds, `changes` made. A lost mark is verified by read-back and repaired up to 2 times."""
+        holds, `changes` made. A lost mark is verified by read-back and repaired up to 2 times.
+        A block that was written for another issue is replaced (`record_block`, #7347)."""
         body, held = issue.split()
         # An earlier write from the same read can add the close of an open block (#6729).
         if (
@@ -1766,7 +1772,7 @@ class GitHubRoadmapStore(RoadmapStore):
         current_held = held
         current_body = body if text is None else text
         while True:
-            block = encode_job_record(current_held, changes) if current_held or changes else None
+            block = record_block(current_held, changes, number=issue.number)
             written = with_record(current_body, block)
             self._send_edit(issue.number, issue_edit(labels=labels, body=written))
             attempt += 1

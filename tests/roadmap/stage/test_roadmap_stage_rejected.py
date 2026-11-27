@@ -84,9 +84,14 @@ def service_app(config: Callable[..., object]) -> None:
 
 
 def _pull_state(
-    api: GitHubApiFake, pull: int, *, state: str = "closed", merged: bool = False
+    api: GitHubApiFake,
+    pull: int,
+    *,
+    state: str = "closed",
+    merged: bool = False,
+    head_ref: str = BRANCH,
 ) -> None:
-    """Answer the read of plan pull request `pull`."""
+    """Answer the read of plan pull request `pull`, whose head branch is `head_ref`."""
     api.route(
         "GET",
         f"/repos/{STAGE_REPO}/pulls/{pull}",
@@ -96,7 +101,7 @@ def _pull_state(
                 "merged": merged,
                 "draft": False,
                 "closed_at": CLOSED_AT.isoformat() if state == "closed" else None,
-                "head": {"sha": "abc", "ref": BRANCH},
+                "head": {"sha": "abc", "ref": head_ref},
             }
         ),
     )
@@ -692,9 +697,12 @@ def test_rejected_credentials_stop_the_run_at_the_read_of_a_plan_pull_request(
 def _staged_second(store: InMemoryRoadmapStore, api: GitHubApiFake) -> tuple[int, int]:
     """A second staged item, the one the first number's read does not reach."""
     number = seed_stageable(store, "fix(roadmap): the job drops a label")
-    pull = store.seed_pull("docs(spec): plan #3", head_ref="fix/3-the-job-drops-a-label")
-    store.set_marks(_item(store, number), {StageRecordKey.PR: str(pull)})
-    _pull_state(api, pull)
+    branch = "fix/3-the-job-drops-a-label"
+    pull = store.seed_pull("docs(spec): plan #3", head_ref=branch)
+    store.set_marks(
+        _item(store, number), {StageRecordKey.PR: str(pull), StageRecordKey.BRANCH: branch}
+    )
+    _pull_state(api, pull, head_ref=branch)
     return number, pull
 
 

@@ -176,6 +176,10 @@ These are all the keys of the job record, by the job that writes them:
 | Implement | `implement.continuations` | The count of the Jobs that the Service made to continue a run that ended with no result. It holds a count and no other data, and it stays after a clear |
 | Implement | `implement.digest_clears`, `implement.digest_clear_commented_at` | The clears of a stop by a new runner image (the class, the digest and the time of each), which stay after a clear, and the time of the last comment of such a clear |
 
+## The issue of a record
+
+A record is the record of the issue that a job wrote it for. An issue that a person transfers to another repository keeps its body, and its record then names the branches and the pull requests of the repository that it left. A job names each branch `<type>/<issue>-<slug>`, so a recorded branch tells the issue number that the record was written for. A read gives an empty record when a branch that the block names (`stage.branch`, `implement.branch`, the branch of `stage.pending`) names another issue number. The next record write of the issue replaces such a block, and each stage round replaces the blocks that it finds, so the item starts as a new item of its repository (#7347). The labels of the issue stay as the person moved them. The record of the issue reads as before, and a write gives the same block as before. A row also proves a recorded name before it writes for the item: a pull request is the plan of an item only when its head branch is `stage.branch`, and a recorded branch is the branch of an item only when it names the item.
+
 ## The stop and retry path
 
 The log comment, the suspension of a row and the other details are in [docs/CLUSTER.md](CLUSTER.md#roadmap-service), Roadmap service step 16, and Runner Jobs.

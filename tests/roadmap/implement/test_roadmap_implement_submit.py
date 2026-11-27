@@ -63,6 +63,7 @@ from tests.support.roadmap_implement import (
     NEEDS_FIX_DRAFT,
     PULL,
     TASKS,
+    branch_of,
     merge_plan,
     push_staged_branch,
     route_pull_status,
@@ -88,7 +89,7 @@ def store() -> InMemoryRoadmapStore:
 @pytest.fixture
 def api(github_api: GitHubApiFake) -> GitHubApiFake:
     route_pull_status(github_api)
-    route_pull_status(github_api, pull=SECOND_PULL)
+    route_pull_status(github_api, pull=SECOND_PULL, branch=branch_of(2))
     return github_api
 
 

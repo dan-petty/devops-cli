@@ -34,6 +34,7 @@ from tests.support.roadmap_implement import (
     OPEN_DRAFT,
     PROPOSAL,
     PULL,
+    branch_of,
     push_staged_branch,
     route_pull_status,
     seed_staged,
@@ -184,6 +185,7 @@ def test_an_item_whose_dependencies_are_closed_is_selected(
     )
     number = seed_staged(store, body=f"{BODY}\n## Dependencies\n\n#{blocker}\n")
     push_staged_branch(stage_repo, number=number)
+    route_pull_status(api, branch=branch_of(number))
 
     plan = _plan(store, stage_repo)
 
@@ -204,6 +206,7 @@ def test_an_item_whose_dependencies_name_its_parent_tracker_is_selected(
     number = seed_staged(store, body=f"{BODY}\n## Dependencies\n\n#{tracker}\n")
     store.add_sub_issue(tracker, number)
     push_staged_branch(stage_repo, number=number)
+    route_pull_status(api, branch=branch_of(number))
 
     plan = _plan(store, stage_repo)
 
@@ -224,6 +227,7 @@ def test_an_item_whose_plan_names_its_parent_tracker_is_selected(
         number=number,
         files={proposal: f"{PROPOSAL}\n## Dependencies\n\n- #{tracker}: the tracker\n"},
     )
+    route_pull_status(api, branch=branch_of(number))
 
     plan = _plan(store, stage_repo)
 
@@ -247,7 +251,7 @@ def test_the_highest_priority_goes_first_and_the_limit_caps_the_run(
 ) -> None:
     seed_staged(store)
     push_staged_branch(staged_repo, number=2)
-    route_pull_status(api, pull=6)
+    route_pull_status(api, pull=6, branch=branch_of(2))
     urgent = seed_staged(store, priority="P0-Critical", pull=6)
 
     plan = _plan(store, staged_repo)
@@ -694,7 +698,7 @@ def test_the_probe_past_the_limit_is_judged_and_the_plan_says_it_passes_every_ru
 ) -> None:
     first = seed_staged(store, priority="P0-Critical")
     push_staged_branch(staged_repo, number=2)
-    route_pull_status(api, pull=6)
+    route_pull_status(api, pull=6, branch=branch_of(2))
     second = seed_staged(store, pull=6)
 
     plain = _plan(store, staged_repo)
@@ -726,7 +730,7 @@ def test_a_low_effort_item_is_taken_before_a_medium_effort_item_of_a_higher_prio
 ) -> None:
     low = seed_staged(store, labels=("type/bug", "effort/low"), priority="P2-Medium")
     push_staged_branch(staged_repo, number=2)
-    route_pull_status(api, pull=6)
+    route_pull_status(api, pull=6, branch=branch_of(2))
     seed_staged(store, labels=("type/bug", "effort/medium"), priority="P0-Critical", pull=6)
 
     plan = _plan(store, staged_repo)
@@ -759,7 +763,7 @@ def test_a_claimed_low_effort_item_lets_the_fallback_pass_take_a_medium_effort_i
 ) -> None:
     claimed = seed_staged(store, labels=("type/bug", "effort/low", "owner/agent"))
     push_staged_branch(staged_repo, number=2)
-    route_pull_status(api, pull=6)
+    route_pull_status(api, pull=6, branch=branch_of(2))
     medium = seed_staged(store, labels=("type/bug", "effort/medium"), pull=6)
 
     plan = _plan(store, staged_repo)
@@ -895,4 +899,22 @@ def test_every_passing_plan_check_selects_the_item_and_reads_the_head_once(
     assert ([target.item.number for target in plan.selected], calls) == (
         [number],
         [(STAGE_REPO.split("/", 1)[0], STAGE_REPO.split("/", 1)[1], "head-sha")],
+    )
+
+
+def test_a_draft_whose_head_branch_is_not_the_branch_of_the_item_is_not_its_draft(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, github_api: GitHubApiFake
+) -> None:
+    """The record names the draft by its number, and the head branch of that pull request is not
+    the branch of the item (#7347): the job leaves the item out, as for a pull request that is no
+    open draft."""
+    other = {**OPEN_DRAFT, "head": {"ref": "feat/4107-add-the-rows", "sha": ""}}
+    route_pull_status(github_api, other)
+    number = seed_staged(store)
+
+    plan = _plan(store, staged_repo)
+
+    assert (plan.selected, _reasons(plan)) == (
+        (),
+        {number: f"Its pull request #{PULL} is not an open draft."},
     )

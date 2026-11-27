@@ -787,3 +787,55 @@ def test_open_requests_missing_non_author_reviewers(
             if req.url.path.endswith("/pulls/701/requested_reviewers")
         )
         assert json.loads(reviewer_call.content) == {"reviewers": ["dan-petty"]}
+
+
+@pytest.mark.parametrize(
+    ("head", "recorded"),
+    [("docs/{number}-plan-the-open-step", True), ("plan-branch", False)],
+    ids=["names-the-item", "names-no-item"],
+)
+def test_a_plan_records_its_head_branch_when_the_branch_names_the_item(
+    store: InMemoryRoadmapStore, github_api: GitHubApiFake, head: str, recorded: bool
+) -> None:
+    """The step records `stage.branch` in the write of `stage.pr` (#7347): a row takes a pull
+    request as the plan of an item by its number and its head branch (`recorded_plan`). A head
+    branch that does not name the item is not recorded."""
+    from devops_cli.roadmap.steps.open import OpenRequest, open_or_update
+    from devops_cli.roadmap.stores import store as record_store
+
+    number = store.seed_issue(
+        title="plan item", body="plan body", fields={ItemField.PRIORITY: "P1-High"}
+    )
+    branch = head.format(number=number)
+    github_api.route(
+        "GET", f"/repos/{REPO}/pulls?head=example:{branch}&state=open", github_json([])
+    )
+    github_api.route(
+        "POST",
+        f"/repos/{REPO}/pulls",
+        github_json({"number": 501, "html_url": f"https://github.com/{REPO}/pull/501"}, status=201),
+    )
+    writes = len(store.job_writes())
+
+    open_or_update(
+        OpenRequest(
+            repo=REPO,
+            head=branch,
+            base=BASE,
+            title="docs(roadmap): plan the open step",
+            body=_plan_body(number),
+            item=number,
+            kind="plan",
+            store=store,
+        )
+    )
+
+    item = store.item(number)
+    assert item is not None
+    plan = record_store.recorded_plan(item)
+    assert (item.job_record.get(StageRecordKey.BRANCH), plan and tuple(plan)) == (
+        (branch, (501, branch)) if recorded else (None, None)
+    )
+    assert [write.key for write in store.job_writes()[writes:]] == (
+        ["stage.pr", "stage.branch"] if recorded else ["stage.pr"]
+    )

@@ -46,7 +46,8 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 NOW = datetime(2026, 11, 4, 12, 0, tzinfo=UTC)
 LATER = NOW + timedelta(hours=2)
 BRANCH = "fix/1-the-job-drops-a-comment"
-OTHER_BRANCH = "fix/2-the-job-loses-a-label"
+# The second orphan of a test is issue #3: the draft of the first one is #2.
+OTHER_BRANCH = "fix/3-the-job-loses-a-label"
 PULLS = f"/repos/{STAGE_REPO}/pulls"
 OPENED = github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201)
 MARK_AGE = timedelta(hours=1)
@@ -104,7 +105,7 @@ def _orphan(
     assert item is not None
     marks = {StageRecordKey.PENDING: _mark(branch, marked)}
     if recorded_pull is not None:
-        marks[StageRecordKey.PR] = recorded_pull
+        marks |= {StageRecordKey.PR: recorded_pull, StageRecordKey.BRANCH: branch}
     store.set_marks(item, marks)
     if pushed:
         repo.push_branch(branch, author=author)

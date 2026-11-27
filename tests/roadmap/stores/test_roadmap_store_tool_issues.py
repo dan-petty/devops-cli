@@ -38,7 +38,8 @@ from tests.support.roadmap_intake import REPO, FakeModel, Roadmap
 
 RENOVATE = "dan-petty-renovate[bot]"
 NOW = datetime(2026, 11, 16, 20, 19, tzinfo=UTC)
-BRANCH = "fix/6038-dashboard"
+# The branch of the open row case names issue 2, the issue that the person opens in each test.
+BRANCH = "fix/2-dashboard"
 LONG_TITLE = "chore(deps): the dependency dashboard lists every update that waits for an approval"
 
 

@@ -370,7 +370,7 @@ class _Judge:
         why = (
             self._branch_reason(item, route.branch)
             or self._plan_reason(item, f"origin/{route.branch}")
-            or self._pull_reason(item, route.pull)
+            or self._pull_reason(item, route.pull, route.branch)
         )
         return why if why is not None else ImplementTarget(item, route.branch, route.pull, retry)
 
@@ -523,14 +523,18 @@ class _Judge:
             return texts.implement_left_foreign.format(author=other, bot=self._bot)
         return stray_branch_reason(self._source, branch, self._heads)
 
-    def _pull_reason(self, item: Item, pull: int) -> str | None:
-        """Why the job leaves out the draft `pull` of `item`, or None when it takes it. A draft
-        with the label `verdict/fix-plan` holds a plan with an open finding: the job leaves it out
-        until the label is gone, and keeps the item in `needs_fix`."""
+    def _pull_reason(self, item: Item, pull: int, branch: str) -> str | None:
+        """Why the job leaves out the draft `pull` of `item`, or None when it takes it. The
+        record names the draft by its number: it is the draft of the item only when its head
+        branch is `branch`, the branch of the route (#7347). A draft with the label
+        `verdict/fix-plan` holds a plan with an open finding: the job leaves it out until the
+        label is gone, and keeps the item in `needs_fix`."""
         texts = MESSAGES.roadmap
         try:
             status = self._pull_status(pull)
         except GitHubNotFoundError:
+            return texts.implement_left_pull.format(pull=pull)
+        if status.head_ref != branch:
             return texts.implement_left_pull.format(pull=pull)
         if not status.is_open_draft:
             plan = item.job_record.get(StageRecordKey.PR) == str(pull) or is_plan_title(

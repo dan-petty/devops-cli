@@ -23,6 +23,14 @@ which change no field. It is a JSON object in a hidden block at the end of the i
 write keeps the issue's block. A block that is not a JSON object reads as an empty record, and
 the next record write replaces it.
 
+**The issue of a record.** A record is the record of the issue that a job wrote it for (#7347). An
+issue that a person transfers to another repository keeps its body, so its record names the
+branches and the pull requests of the repository that it left. A read gives an empty record, and
+`foreign_record` on the Item, when a branch that the block names (`stage.branch`,
+`implement.branch`, the branch of `stage.pending`) names another issue number (`own_record`). The
+next record write of the issue replaces such a block: it merges into no key of it
+(`record_block`).
+
 **Changes.** A write never trusts what the store read: it reads the issue first, and a job's
 write of a field someone changed since the store read it raises `RoadmapItemChangedError` before
 it changes anything, unless the issue already holds the value it writes, so a job never reverts
@@ -38,7 +46,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Final, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Final, NamedTuple, Protocol, cast, runtime_checkable
 
 from markdown_it import MarkdownIt
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
@@ -599,6 +607,8 @@ class Item(BaseModel):
     sub-issues the issue has, as on `IssueRecord`: an Item with some is a tracker. `parent` is the
     number of the issue that has the Item as a sub-issue, as on `IssueRecord` (#6450). `updated_at`
     is when the issue last changed, and `comments` how many comments it holds, as on `IssueRecord`.
+    `foreign_record` says that the body holds a record that was written for another issue, as on
+    `IssueRecord`: `job_record` is then empty.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -623,6 +633,7 @@ class Item(BaseModel):
     effort: str | None = None
     owner: str | None = None
     job_record: JobRecord = Field(default_factory=dict)
+    foreign_record: bool = False
 
     def field_value(self, field: ItemField) -> str | None:
         """The Item's current value for `field`, to compare with its job record."""
@@ -729,7 +740,9 @@ class IssueRecord(BaseModel):
     of the same repository that has the issue as a sub-issue. `blocked_by` is how many issues
     GitHub records as blocking the issue, open or closed (#1127). `merged_at` is when a pull
     request merged, from `pull_request.merged_at` of the listing, and None for an issue and for a
-    pull request that did not merge (#4692).
+    pull request that did not merge (#4692). `foreign_record` says that the block of the body holds
+    a record that was written for another issue (`own_record`, #7347): `job_record` is then empty,
+    and the next record write of the issue replaces the block.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -755,6 +768,7 @@ class IssueRecord(BaseModel):
     parent: int | None = None
     blocked_by: int = 0
     job_record: JobRecord = Field(default_factory=dict)
+    foreign_record: bool = False
 
 
 class IssueComment(BaseModel):
@@ -1083,10 +1097,49 @@ def split_record(body: str, *, issue: str = "an issue") -> tuple[str, dict[str, 
     return rest, held
 
 
-def decode_job_record(held: Mapping[str, Any], *, issue: str = "an issue") -> JobRecord:
+def _recorded_branches(held: Mapping[str, Any]) -> Iterator[str]:
+    """Each branch that the record `held` names: `stage.branch`, `implement.branch` and the branch
+    of the intent mark `stage.pending`."""
+    for key in (StageRecordKey.BRANCH, ImplementRecordKey.BRANCH):
+        if isinstance(branch := held.get(key.value), str):
+            yield branch
+    pending = held.get(StageRecordKey.PENDING.value)
+    mark = _json_object(pending) if isinstance(pending, str) else None
+    if mark is not None and isinstance(branch := mark.get("branch"), str):
+        yield branch
+
+
+def written_elsewhere(held: Mapping[str, Any], *, number: int) -> bool:
+    """Whether the record `held`, which the body of issue `number` holds, was written for another
+    issue (#7347): a branch that it names is the branch of another issue number. A job names each
+    branch `<type>/<issue>-<slug>` (`branch_form`), so the branch of an issue that came from
+    another repository names the number that the issue had there. A branch that names no issue
+    number tells nothing, and so does a record that names no branch."""
+    # `git` loads its operations with the package, so the import waits for the first record.
+    from devops_cli.git.branch_form import issue_of_branch
+
+    named = (issue_of_branch(branch) for branch in _recorded_branches(held))
+    return any(issue is not None and issue != number for issue in named)
+
+
+def own_record(held: Mapping[str, Any], *, number: int) -> dict[str, Any]:
+    """The record `held` of the body of issue `number`, or an empty record when `held` was written
+    for another issue (`written_elsewhere`). Each read and each write of a record takes the block
+    through this function first, so no key of such a block reaches a row, and no write merges
+    into one."""
+    return {} if written_elsewhere(held, number=number) else dict(held)
+
+
+def decode_job_record(
+    held: Mapping[str, Any], *, issue: str = "an issue", number: int | None = None
+) -> JobRecord:
     """The keys of a record block this version knows. A key another version writes is left out
     here and kept by every write (`encode_job_record`); a known key whose value is not text or
-    null is left out, with a warning."""
+    null is left out, with a warning. With `number`, the block is the one of the body of issue
+    `number`, and a block that was written for another issue reads as an empty record
+    (`own_record`)."""
+    if number is not None:
+        held = own_record(held, number=number)
     converted = {
         key: str(value)
         if key == ImplementRecordKey.REPAIR_ROUNDS.value and isinstance(value, int)
@@ -1118,6 +1171,20 @@ def encode_job_record(held: Mapping[str, Any], changes: Mapping[Any, str | int |
     }
     text = json.dumps(merged, sort_keys=True).replace(">", "\\u003e")
     return f"<!-- {CONST_ROADMAP_RECORD_MARKER} {text} -->"
+
+
+def record_block(
+    held: Mapping[str, Any], changes: Mapping[Any, str | int | None], *, number: int
+) -> str | None:
+    """The record block that a write of `changes` leaves in the body of issue `number`, whose
+    block holds `held` now, or None when the body then holds no block.
+
+    The write merges `changes` into the record of the issue (`own_record`). A block that was
+    written for another issue gives an empty record, so one write replaces it: the new block holds
+    `changes` alone, and with no change the body holds no block (#7347). For the record of the
+    issue, the block is the one that `encode_job_record` gives."""
+    own = own_record(held, number=number)
+    return encode_job_record(own, changes) if own or changes else None
 
 
 def with_record(body: str, block: str | None) -> str:
@@ -1265,6 +1332,36 @@ def item_of(issue: IssueRecord) -> Item:
     held = issue.model_dump(exclude={"pull_request", "created_at"})
     held = {key: value for key, value in held.items() if key in Item.model_fields}
     return Item.model_validate(held | field_values(issue.labels, issue.job_record))
+
+
+class RecordedPlan(NamedTuple):
+    """The plan pull request that the record of an Item names, and the branch that the record
+    names for it."""
+
+    pull: int
+    branch: str
+
+    def is_pull(self, number: int, head_ref: str | None) -> bool:
+        """Whether pull request `number`, whose head branch is `head_ref`, is this plan."""
+        return number == self.pull and head_ref == self.branch
+
+
+def recorded_plan(item: Item) -> RecordedPlan | None:
+    """The plan pull request of `item` as its record names it: the number of `stage.pr` and the
+    branch of `stage.branch`. None when the record holds no number, or no branch that names the
+    item (`branch_form`).
+
+    A recorded number alone names no pull request of the item (#7347). A pull request is the plan
+    of the item only when its head branch is the recorded branch (`RecordedPlan.is_pull`), so a
+    row reads the pull request, or its entry in a listing, before it writes for the item."""
+    # `git` loads its operations with the package, so the import waits for the first call.
+    from devops_cli.git.branch_form import issue_of_branch
+
+    recorded = item.job_record.get(StageRecordKey.PR) or ""
+    branch = item.job_record.get(StageRecordKey.BRANCH) or ""
+    if not recorded.isdecimal() or issue_of_branch(branch) != item.number:
+        return None
+    return RecordedPlan(int(recorded), branch)
 
 
 def roadmap_issues(issues: Iterable[IssueRecord]) -> list[IssueRecord]:
@@ -1647,6 +1744,7 @@ __all__ = [
     "Milestone",
     "OwnerQuestionRecordKey",
     "PostedComment",
+    "RecordedPlan",
     "ReferenceFacts",
     "RefineRecordKey",
     "RepositoryFacts",
@@ -1668,6 +1766,9 @@ __all__ = [
     "item_of",
     "milestone_edits",
     "milestone_order",
+    "own_record",
+    "record_block",
+    "recorded_plan",
     "relabeled",
     "require_milestone",
     "require_unchanged",
@@ -1679,4 +1780,5 @@ __all__ = [
     "split_record",
     "with_marks",
     "with_record",
+    "written_elsewhere",
 ]

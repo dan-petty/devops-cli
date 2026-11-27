@@ -48,6 +48,7 @@ from devops_cli.roadmap.stores.store import (
     Item,
     RoadmapStore,
     StageRecordKey,
+    recorded_plan,
 )
 from devops_cli.roadmap.trust import trusted_replies
 from devops_cli.security.sanitizer import mask_secrets
@@ -205,19 +206,21 @@ def staged_plans(
     items: Iterable[Item], planned: PlannedChanges, item_number: int | None = None
 ) -> list[tuple[Item, int]]:
     """Each open New or Ready item that holds a staged pull request and whose plan is not on the
-    default branch, with that pull request. With `item_number` only that item."""
+    default branch, with that pull request. With `item_number` only that item. The record names
+    the pull request by its number and its branch (`recorded_plan`): a number with no branch that
+    names the item is no staged pull request (#7347)."""
     found: list[tuple[Item, int]] = []
     for item in items:
-        recorded = item.job_record.get(StageRecordKey.PR) or ""
+        plan = recorded_plan(item)
         if item_number is not None and item.number != item_number:
             continue
-        if item.state is not GitHubState.OPEN or not recorded.isdigit():
+        if item.state is not GitHubState.OPEN or plan is None:
             continue
         if item.status not in (CONST_ROADMAP_STATUS_NEW, CONST_ROADMAP_STATUS_READY):
             continue
         if item.number in planned.active or item.number in planned.archived:
             continue
-        found.append((item, int(recorded)))
+        found.append((item, plan.pull))
     return found
 
 
@@ -230,13 +233,17 @@ def closed_plans(
 ) -> ClosedPlans:
     """Read each staged pull request in `staged`, and the comments of each one that closed with no
     merge. A read that fails stops that item only, and a failure of a class in `stop` stops the
-    run."""
+    run. A pull request whose head branch is not the recorded branch is not the plan of the item,
+    so its close is no rejection (#7347)."""
     closed: list[ClosedPlan] = []
     failures: list[ReadFailure] = []
     service = load_settings().service.github_app.bot_login
     for item, pull in staged:
         try:
             status = get_github_session().client.get_pull_status(repo, pull)
+            plan = recorded_plan(item)
+            if plan is None or not plan.is_pull(pull, status.head_ref):
+                continue
             if status.state != "closed" or status.merged:
                 continue
             reason = reason_comment(store.comments_on(pull), service_login=service)

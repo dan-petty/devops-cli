@@ -93,12 +93,18 @@ def github_api(github_api_and_gh: tuple[GitHubApiFake, ProcessFake]) -> GitHubAp
     return api
 
 
+def _plan_branch(pull: int) -> str:
+    """The branch of the plan draft `pull`. The tests stage the draft 42 for issue #1 and the
+    draft 43 for issue #2, and the branch of a plan names its issue."""
+    return f"feat/{pull - 41}-plan"
+
+
 def _staged_draft(store: InMemoryRoadmapStore, pull: int) -> int:
     """An open Item of `store` whose record names the staged draft `pull`."""
     issue = store.seed_issue(f"Plan {pull}", fields={ItemField.PRIORITY: "P1-High"})
     item = store.item(issue)
     assert item is not None
-    store.set_marks(item, {StageRecordKey.PR: str(pull)})
+    store.set_marks(item, {StageRecordKey.PR: str(pull), StageRecordKey.BRANCH: _plan_branch(pull)})
     return issue
 
 
@@ -115,7 +121,7 @@ def _route_open_draft(api: GitHubApiFake, pull: int) -> None:
                 "merged": False,
                 "draft": True,
                 "body": f"The plan of pull {pull}.",
-                "head": {"sha": _HEAD, "ref": f"feat/{pull}-plan"},
+                "head": {"sha": _HEAD, "ref": _plan_branch(pull)},
                 "base": {"ref": "main", "repo": {"default_branch": "main"}},
             }
         ),
