@@ -41,6 +41,7 @@ from devops_cli.config.constants import (
     CONST_GH_ISSUE_STATE_REASON_REOPENED,
     CONST_ROADMAP_JOB_COMMENT_MARKERS,
 )
+from devops_cli.exceptions import git as git_errors
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.roadmap.stores.store import (
     Candidate,
@@ -224,6 +225,19 @@ class _Roadmap:
     code_hits: dict[str, list[Any]] = field(default_factory=dict)
     found_repositories: dict[str, list[Any]] = field(default_factory=dict)
     reference_facts: dict[str, Any] = field(default_factory=dict)
+
+
+def _not_an_issue(repo: str, number: int, operation: str) -> GitHubOperationError:
+    """The error of a number that is no issue of `repo`, as the GitHub store raises it:
+    `GitHubNotAnIssueError` (#7337). A replay of the tests on a source tree from before that
+    class gets the `GitHubOperationError` that the store of that tree raises, so the module reads
+    the class from the module of the errors and imports no name that such a tree lacks."""
+    typed = getattr(git_errors, "GitHubNotAnIssueError", None)
+    if typed is not None:
+        return cast("GitHubOperationError", typed(repo, number, operation=operation))
+    return GitHubOperationError(
+        f"#{number} is not an issue of {repo}.", operation=operation, details={"number": number}
+    )
 
 
 class InMemoryRoadmapStore(RoadmapStore):
@@ -1179,11 +1193,7 @@ class InMemoryRoadmapStore(RoadmapStore):
     ) -> IssueRecord:
         issue = self._roadmap.issues.get(number)
         if issue is None or (issue.pull_request and not pull_request):
-            raise GitHubOperationError(
-                f"#{number} is not an issue of {self._roadmap.repo}.",
-                operation=operation,
-                details={"number": number},
-            )
+            raise _not_an_issue(self._roadmap.repo, number, operation)
         return issue
 
     def _log_body(self, number: int, body: str | None) -> None:

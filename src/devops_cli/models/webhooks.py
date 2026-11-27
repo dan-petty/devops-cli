@@ -3,8 +3,22 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Final
 
 from pydantic import BaseModel, ConfigDict
+
+# The event of an issue, and its actions after which the issue is no issue of the repository:
+# GitHub sends `transferred` when "an issue was transferred to another repository" and `deleted`
+# when "an issue was deleted" (webhook events and payloads, event `issues`). Both payloads hold
+# `issue` and `repository`, and the Service reads no other field of them.
+_ISSUES_EVENT: Final = "issues"
+_ISSUE_LEFT_ACTIONS: Final = frozenset({"transferred", "deleted"})
+
+
+def issue_left(event: str, action: str | None) -> bool:
+    """Whether a delivery of `event` with `action` says that its issue left the repository: a
+    person transferred the issue to another repository or deleted it (#7337)."""
+    return event == _ISSUES_EVENT and action in _ISSUE_LEFT_ACTIONS
 
 
 class WebhookRepository(BaseModel):
@@ -122,6 +136,16 @@ class GitHubWebhookPayload(BaseModel):
     check_suite: WebhookCheckSuite | None = None
     comment: WebhookComment | None = None
     release: WebhookRelease | None = None
+
+    @property
+    def says_issue_left(self) -> bool:
+        """Whether this is the payload of an `issues` delivery that says that its issue left the
+        repository (`issue_left`), for a reader that has no event name: it holds an issue and no
+        comment, and its action is `transferred` or `deleted`. The delivery of a deleted comment
+        holds its comment."""
+        return (
+            self.issue is not None and self.comment is None and self.action in _ISSUE_LEFT_ACTIONS
+        )
 
     @property
     def delivery_numbers(self) -> tuple[int, ...]:

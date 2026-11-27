@@ -62,6 +62,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `GatewayTuneError` | `DEVOPS_CLI_ERROR` | `1` | Ai | Raised when the gateway's deployments cannot be discovered or measured. |
 | `GitHubApiAccessRefusedError` | `GITHUB_API_ACCESS_REFUSED` | `1` | Git | Raised when an agent caller attempts a protected mutating `devops gh api` request (#5316). |
 | `GitHubFileNotFoundError` | `GITHUB_FILE_NOT_FOUND` | `1` | Git | Raised when a repository file GitHub was asked for does not exist on that ref. |
+| `GitHubNotAnIssueError` | `GITHUB_NOT_AN_ISSUE` | `1` | Git | Raised when a number is no issue of the repository that was asked for it: GitHub holds no issue with that number there, redirects its read, or answers with another issue (#7337). `number` is that number, so a caller that works on many items can leave the one item out. |
 | `GitHubNotFoundError` | `GITHUB_NOT_FOUND` | `1` | Git | Raised when GitHub answers that what it was asked for does not exist (HTTP 404). |
 | `GitHubOperationError` | `GITHUB_OPERATION_FAILED` | `1` | Git | Exception raised for GitHub API or CLI automation failures. |
 | `GitHubRateLimitError` | `GITHUB_RATE_LIMIT_UNKNOWN` | `1` | Git | Exception raised when GitHub rate limit quota state is broken or unknown and cannot be resolved. |

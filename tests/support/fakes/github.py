@@ -551,6 +551,39 @@ def github_api_and_gh(
     return github_api, process_fake
 
 
+def _nothing_at(path: str, said: str) -> Exception | None:
+    """The error of the real session for a listing that GitHub answers with a status that says
+    that the path holds nothing now, with that status in its details, or None when `said`, the
+    stderr of the reply, names another status. The real session raises `GitHubNotFoundError` for
+    404, the error of a refused request for 410, and the unread error for a 301 that it did not
+    follow (`classify_http_error`)."""
+    from http import HTTPStatus
+
+    from devops_cli.exceptions.git import (
+        GitHubNotFoundError,
+        GitHubOperationError,
+        GitHubUnreadError,
+    )
+    from devops_cli.github.error_classifier import gh_http_status
+
+    status = gh_http_status(said)
+    details = {"path": path, "page": 1, "status": status}
+    request = f"GET {path} (page 1)"
+    if status == HTTPStatus.NOT_FOUND:
+        return GitHubNotFoundError(f"GitHub has nothing at {request} (HTTP 404)", details=details)
+    if status == HTTPStatus.GONE:
+        return GitHubOperationError(
+            f"GitHub refused {request} (HTTP 410): {said}",
+            operation="github_request",
+            details=details,
+        )
+    if status == HTTPStatus.MOVED_PERMANENTLY:
+        return GitHubUnreadError(
+            f"GitHub gave no readable answer to {request} (HTTP 301)", details=details
+        )
+    return None
+
+
 class RunnerSession:
     """A GitHub session whose REST listings a scripted gh runner answers, for the roadmap store
     tests that script gh for the board as well (#983).
@@ -558,10 +591,11 @@ class RunnerSession:
     `paginate` asks the runner with the listing's URL as its one argument, so a reply keyed by
     the listing's path answers it, the runner records the read beside the gh commands, and a
     read the store sends through gh instead is told apart. A reply holding a list is the whole
-    listing; a failed one raises the class the gh classifier makes of its stderr, else the
-    unread error; anything else fails closed through the session's own `listed_items`. Paging,
-    a failed page, the page cap and the class each HTTP failure raises are the real session's,
-    and are tested only over `GitHubApiFake`.
+    listing; a failed one raises the class the gh classifier makes of its stderr, else the error
+    that the real session raises for the status 404, 410 or 301, with the status in its details,
+    else the unread error; anything else fails closed through the session's own `listed_items`.
+    Paging, a failed page, the page cap and the class each other HTTP failure raises are the real
+    session's, and are tested only over `GitHubApiFake`.
     """
 
     def __init__(self, runner: Callable[..., subprocess.CompletedProcess[str]]) -> None:
@@ -575,10 +609,12 @@ class RunnerSession:
         reply = self._runner([f"{API}{path}"], check=False, quiet=True, use_cache=False)
         if reply.returncode != 0:
             said = (reply.stderr or reply.stdout or "").strip()[:256]
-            raise classify_gh_failure(
-                reply.stderr or "", exit_code=reply.returncode
-            ) or GitHubUnreadError(
-                f"GitHub gave no readable answer to GET {path}: {said}", details={"path": path}
+            raise (
+                classify_gh_failure(reply.stderr or "", exit_code=reply.returncode)
+                or _nothing_at(path, reply.stderr or "")
+                or GitHubUnreadError(
+                    f"GitHub gave no readable answer to GET {path}: {said}", details={"path": path}
+                )
             )
         try:
             answer = json.loads(reply.stdout or "null")

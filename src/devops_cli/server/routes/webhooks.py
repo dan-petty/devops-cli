@@ -62,7 +62,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.settings import load_settings
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.lang import MESSAGES
-from devops_cli.models.webhooks import GitHubWebhookPayload, WebhookComment
+from devops_cli.models.webhooks import GitHubWebhookPayload, WebhookComment, issue_left
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 
 if TYPE_CHECKING:
@@ -427,11 +427,34 @@ def _remember_delivery_issue(repo: str, payload: GitHubWebhookPayload | None) ->
         )
 
 
+def _forget_delivery_issue(repo: str, payload: GitHubWebhookPayload) -> None:
+    """Remove the entry of the issue of a delivery that says that the issue left the repository
+    (`issue_left`, #7337). The payload still holds the issue, and no entry is written from it. The
+    removal takes the visibility as `_remember_delivery_issue` does, and sends no GitHub read."""
+    if payload.issue is not None and payload.issue.number is not None:
+        from devops_cli.roadmap.stores.brain_issues import forget_issue
+
+        forget_issue(repo, payload.issue.number, private=payload.repository.private)
+
+
+def _keep_delivery_issue(
+    repo: str, event: str, action: str, payload: GitHubWebhookPayload | None
+) -> None:
+    """Bring the brain entry of the issue of a delivery up to date before the lanes wake: remove
+    it when the delivery says that the issue left the repository, else write it."""
+    if payload is not None and issue_left(event, action):
+        _forget_delivery_issue(repo, payload)
+    else:
+        _remember_delivery_issue(repo, payload)
+
+
 def _remember_own_delivery_issue(repo: str, payload: GitHubWebhookPayload) -> None:
     """Refresh the cached issue from an App bot `issues` webhook only when its `updated_at` time
     is strictly newer than the stored entry, so stale or same-second hooks cannot replace newer
     writes (#7063). The read and the write take the visibility as `_remember_delivery_issue`
-    does, so the issue of a private repository stays out of the shared tier (#7292)."""
+    does, so the issue of a private repository stays out of the shared tier (#7292). A payload
+    that says that the issue left the repository writes no entry: the route removes the entry of
+    the number (#7337)."""
     issue = payload.issue
     if (
         payload.comment is not None
@@ -439,6 +462,9 @@ def _remember_own_delivery_issue(repo: str, payload: GitHubWebhookPayload) -> No
         or issue.number is None
         or issue.pull_request is not None
     ):
+        return
+    if payload.says_issue_left:
+        _forget_delivery_issue(repo, payload)
         return
     from devops_cli.roadmap.stores.brain_issues import (
         cached_issue,
@@ -473,7 +499,9 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
     write access created it on an issue (#4415), and it runs the row that its text wakes: the
     `implement` row for a retry command and the `refine` row for another comment. A release
     delivery is taken only when it is a published release that carries its publication time
-    (#4416). The handler only adds to the queues of the lanes and returns."""
+    (#4416). An `issues` delivery with the action `transferred` or `deleted` removes the brain
+    entry of its issue, and its trigger names the number as one that left, so the round of each
+    lane drops the record (#7337). The handler only adds to the queues of the lanes and returns."""
 
     def deliver(
         repo: str,
@@ -497,7 +525,7 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
         from devops_cli.roadmap.stores.listing_snapshot import intake_listing
         from devops_cli.roadmap.stores.store import get_roadmap_store
 
-        _remember_delivery_issue(repo, payload)
+        _keep_delivery_issue(repo, event, action, payload)
         delivery, subject = _build_delivery_and_subject(repo, event, action, payload)
         scoped = scoped_update_of(delivery)
         # A delivery that names no issue number and no pull request number stays a whole-round

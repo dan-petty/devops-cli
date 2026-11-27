@@ -119,6 +119,106 @@ def test_an_issue_that_does_not_exist_raises_the_not_found_error(
         _client().get_issue(_REPO, 7)
 
 
+ANOTHER_ISSUE = [
+    pytest.param({"number": 12}, id="another-number"),
+    pytest.param(
+        {"number": 7, "repository_url": "https://api.github.com/repos/example/other"},
+        id="another-repository",
+    ),
+    pytest.param(
+        {"number": 7, "html_url": "https://github.com/example/other/issues/7"},
+        id="another-repository-in-the-page-url",
+    ),
+]
+
+
+@pytest.mark.parametrize("named", ANOTHER_ISSUE)
+def test_an_answer_that_names_another_issue_raises_the_error_of_no_issue(
+    github_api: GitHubApiFake, named: dict[str, object]
+) -> None:
+    """The session follows the redirect of a transferred issue, so the answer is the issue at its
+    new place (#7337). The client gives no such answer as the issue that it was asked for."""
+    github_api.route(
+        "GET", _ISSUE, github_json({"title": "moved", "state": "closed", "body": "Other.", **named})
+    )
+
+    with pytest.raises(GitHubNotFoundError) as refused:
+        _client().get_issue(_REPO, 7)
+
+    assert (type(refused.value).__name__, refused.value.error_code, str(refused.value)) == (
+        "GitHubNotAnIssueError",
+        "GITHUB_NOT_AN_ISSUE",
+        f"#7 is not an issue of {_REPO}.",
+    )
+
+
+NO_ISSUE_STATUSES = [
+    pytest.param(github_json({"message": "This issue was deleted"}, status=410), id="deleted-410"),
+    pytest.param(github_json(None, status=301), id="redirect-not-followed-301"),
+]
+
+
+@pytest.mark.parametrize("answer", NO_ISSUE_STATUSES)
+def test_a_status_that_says_that_the_issue_left_raises_the_error_of_no_issue(
+    github_api: GitHubApiFake, answer: Any
+) -> None:
+    """GitHub answers 410 for a deleted issue, and a redirect that the session does not follow
+    ends with 301 (#7337). Each is no issue of the repository, as a 404 is."""
+    github_api.route("GET", _ISSUE, answer)
+
+    with pytest.raises(GitHubNotFoundError) as refused:
+        _client().get_issue(_REPO, 7)
+
+    assert (type(refused.value).__name__, refused.value.error_code, str(refused.value)) == (
+        "GitHubNotAnIssueError",
+        "GITHUB_NOT_AN_ISSUE",
+        f"#7 is not an issue of {_REPO}.",
+    )
+
+
+def _renamed_answer() -> Any:
+    return github_json(
+        {
+            "number": 7,
+            "title": "feat: a thing",
+            "state": "open",
+            "repository_url": "https://api.github.com/repos/octocat/Hello-Again",
+        }
+    )
+
+
+def test_an_answer_under_the_old_name_of_a_renamed_repository_is_the_issue(
+    github_api: GitHubApiFake,
+) -> None:
+    """GitHub redirects each route of a renamed repository, so the answer holds the requested
+    number and the new name of the same repository. The client reads the name of the repository
+    one time and takes each such answer."""
+    github_api.route("GET", _ISSUE, _renamed_answer())
+    github_api.route("GET", f"/repos/{_REPO}", github_json({"full_name": "octocat/Hello-Again"}))
+    client = _client()
+
+    read = [client.get_issue(_REPO, 7).number, client.get_issue(_REPO, 7).number]
+
+    assert read == [7, 7]
+    assert [sent for sent in github_api.requested if sent.endswith(f"/repos/{_REPO}")] == [
+        f"GET https://api.github.com/repos/{_REPO}"
+    ]
+
+
+def test_an_answer_with_the_number_and_the_name_of_another_repository_is_refused(
+    github_api: GitHubApiFake,
+) -> None:
+    """A transferred issue can keep its number. The repository of the client keeps its name, so
+    the answer is the issue at another place."""
+    github_api.route("GET", _ISSUE, _renamed_answer())
+    github_api.route("GET", f"/repos/{_REPO}", github_json({"full_name": _REPO}))
+
+    with pytest.raises(GitHubNotFoundError) as refused:
+        _client().get_issue(_REPO, 7)
+
+    assert refused.value.error_code == "GITHUB_NOT_AN_ISSUE"
+
+
 def test_the_last_comments_come_from_the_last_page(github_api: GitHubApiFake) -> None:
     github_api.route("GET", _comments_path(3), _comments(range(201, 251)))
 

@@ -2360,10 +2360,22 @@ def service_job(
     round (#3672); that read counts under the row `idle_check` (#6012). The clone rows work in
     the clone of the lane, `lanes/<lane>`, so no two lanes share a working tree (#5553). The store reads every issue through `listing` when one is
     given, else the whole listing. The store reads no repository file: a repository needs no
-    roadmap configuration (ADR 0016)."""
+    roadmap configuration (ADR 0016). Before any row runs, `listing` drops the record of each
+    number that a delivery of the batch says left the repository (`TriggerBatch.left`), with no
+    GitHub read, so no row of the lane selects it (#7337)."""
     from devops_cli.roadmap.stores import store as roadmap_store
 
     repo = batch.repo
+    if listing is not None:
+        for number in sorted(batch.left):
+            listing.drop(repo, number)
+            logger.warning(
+                "#%d is no issue of %s now: a delivery says that it left. The lane %s leaves it "
+                "out.",
+                number,
+                repo,
+                lane,
+            )
     store = roadmap_store.get_roadmap_store(repo, listing=listing)
     run_due_jobs(
         repo,

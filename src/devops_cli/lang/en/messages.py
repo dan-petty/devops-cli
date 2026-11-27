@@ -5654,6 +5654,10 @@ class RoadmapMessages:
     plan_drift_failed: str = (
         "The plan drift row of {repo} labelled pull request #{pull} with {problems} problem(s)."
     )
+    plan_drift_no_issue: str = (
+        "Plan pull request #{pull} of {repo} plans #{issue}, which is no issue of the repository "
+        "now. The plan drift row leaves the pull request out."
+    )
     stage_problem_eval_live: str = (
         "Group {group} changes the stage prompt `{path}`, so a task must run the live score "
         "`{command} <n>` with the words score, before and after."

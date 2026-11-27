@@ -270,6 +270,7 @@ def test_a_release_delivery_comments_its_closed_issue_once(
         f"repos/{REPO}/issues/21",
         stdout=json.dumps(
             {
+                "number": 21,
                 "state": "closed",
                 "body": "Closes #123",
                 "pull_request": {"url": f"https://api.github.com/repos/{REPO}/pulls/21"},
@@ -280,7 +281,7 @@ def test_a_release_delivery_comments_its_closed_issue_once(
         gh_edge,
         "api",
         f"repos/{REPO}/issues/123",
-        stdout=json.dumps({"state": "closed", "body": "the item"}),
+        stdout=json.dumps({"number": 123, "state": "closed", "body": "the item"}),
     )
     delivery = WebhookDelivery(
         repo=REPO,

@@ -7,6 +7,7 @@ import binascii
 import json
 from collections.abc import Mapping, Sequence
 from datetime import datetime
+from functools import partial
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Final, NamedTuple
 from urllib.parse import quote, urlencode
@@ -36,7 +37,18 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_REST_PER_PAGE,
     DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS,
 )
-from devops_cli.exceptions.git import GitHubNotFoundError, GitHubOperationError, GitHubUnreadError
+from devops_cli.exceptions.git import (
+    GitHubNotAnIssueError,
+    GitHubNotFoundError,
+    GitHubOperationError,
+    GitHubUnreadError,
+)
+from devops_cli.github.issue_answer import (
+    CurrentName,
+    answered_repository,
+    answers_request,
+    says_no_issue,
+)
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.workflow_triggers import PullRequestChange, starts_on_pull_request
 
@@ -273,6 +285,15 @@ class _IssueSearchPage(BaseModel):
     items: list[IssueSearchHit]
 
 
+_ISSUE_READ: Final = "github_issue_read"
+
+
+class _RepositoryName(BaseModel):
+    """The name that `repos/<owner>/<name>` gives for the repository now."""
+
+    full_name: str
+
+
 class IssueView(BaseModel):
     """One issue or pull request as the issues endpoint reads it (#3238): its state and title, its
     labels, its body (null when empty), how many comments it holds, and the `pull_request` object
@@ -292,11 +313,25 @@ class IssueView(BaseModel):
     pull_request: dict[str, Any] | None = None
     author_association: str | None = None
     author_login: str | None = Field(default=None, validation_alias=AliasPath("user", "login"))
+    repository_url: str | None = None
+    url: str | None = None
+    html_url: str | None = None
 
     @property
     def label_names(self) -> list[str]:
         """The names of the labels."""
         return [label.name for label in self.labels]
+
+    def answers(self, number: int, current: CurrentName) -> bool:
+        """Whether this is the answer for number `number` of the repository of `current`, and not
+        the issue at another place that GitHub gives for a transferred issue (`issue_answer`,
+        #7337)."""
+        named = answered_repository(
+            repository_url=self.repository_url, url=self.url, html_url=self.html_url
+        )
+        return answers_request(
+            current.repo, number, answered=self.number, named=named, current=current
+        )
 
     @property
     def is_pull_request(self) -> bool:
@@ -525,6 +560,8 @@ class GitHubClient:
 
     def __init__(self, session: GitHubSession) -> None:
         self._session = session
+        # The check of the current name of each repository whose issue this client read.
+        self._names: dict[str, CurrentName] = {}
 
     def get_org_repos(
         self,
@@ -887,9 +924,40 @@ class GitHubClient:
     # ── Issue reads of the stage planner (#3238) ──────────────────────────────
 
     def get_issue(self, repo: str, number: int) -> IssueView:
-        """The issue or pull request `number`, raising `GitHubNotFoundError` when `repo` has none."""
+        """The issue or pull request `number`, raising `GitHubNotFoundError` when `repo` has none.
+        The session follows the redirect of a transferred issue, so an answer can name the issue
+        at its new place: that answer raises `GitHubNotAnIssueError`, a `GitHubNotFoundError`.
+        So do the status 410 of a deleted issue and a 301 that the session does not follow. An
+        answer under the old name of a renamed repository is taken (`CurrentName`)."""
         path = _repo_path(repo, f"issues/{number}")
-        return _read_as(IssueView, self._session.rest("GET", path), path=path)
+        try:
+            answer = self._session.rest("GET", path)
+        except GitHubNotFoundError:
+            raise
+        except GitHubOperationError as failed:
+            if says_no_issue(failed):
+                raise GitHubNotAnIssueError(repo, number, operation=_ISSUE_READ) from failed
+            raise
+        found = _read_as(IssueView, answer, path=path)
+        if not found.answers(number, self._current_name(repo)):
+            raise GitHubNotAnIssueError(repo, number, operation=_ISSUE_READ)
+        return found
+
+    def _current_name(self, repo: str) -> CurrentName:
+        """The check of the name that GitHub gives `repo` now, one for each repository in the
+        life of the client, so the name is read at most one time."""
+        if repo not in self._names:
+            self._names[repo] = CurrentName(repo, partial(self._full_name, repo))
+        return self._names[repo]
+
+    def _full_name(self, repo: str) -> str | None:
+        """The `full_name` of `repos/<repo>` now, or None when GitHub has no such repository."""
+        path = _repo_path(repo, "").rstrip("/")
+        try:
+            answer = self._session.rest("GET", path)
+        except GitHubNotFoundError:
+            return None
+        return _read_as(_RepositoryName, answer, path=path).full_name
 
     def list_open_issues(self, repo: str, *, limit: int) -> list[IssueView]:
         """At most `limit` open issues of `repo` from the issues listing, skipping pull requests."""

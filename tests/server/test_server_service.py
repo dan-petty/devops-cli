@@ -1042,6 +1042,40 @@ def test_a_batch_holds_the_subjects_of_the_triggers_that_it_coalesces() -> None:
     ) == (True, True, True, [frozenset({12, 14}), frozenset()])
 
 
+def test_a_batch_holds_the_numbers_that_a_delivery_says_left_the_repository() -> None:
+    """A delivery `issues` with the action `transferred` or `deleted` says that its issue is no
+    issue of the repository now (#7337). The batch names each such number apart from its other
+    subjects, so the round of the lane drops the record of that number and of no other."""
+    batches: list[TriggerBatch] = []
+    worker = RepoWorker(
+        repo="example-org/repo1",
+        lane="refine",
+        job_func=batches.append,
+        clock=lambda: datetime.now(UTC),
+    )
+    worker.enqueue("webhook", "issues", "transferred", subject=12)
+    worker.enqueue("webhook", "issues", "labeled", subject=14)
+    worker.enqueue("webhook", "issues", "deleted", subject=15)
+    worker.enqueue("webhook", "pull_request", "deleted", subject=16)
+    worker.start()
+    first_ended = worker.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
+    worker.enqueue("webhook", "issues", "edited", subject=12)
+    second_ended = worker.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
+    worker.stop()
+
+    assert (
+        first_ended,
+        second_ended,
+        worker.join(THREAD_HANDOFF_BOUND_SECONDS),
+        [(batch.subjects, batch.left) for batch in batches],
+    ) == (
+        True,
+        True,
+        True,
+        [(frozenset({12, 14, 15, 16}), frozenset({12, 15})), (frozenset({12}), frozenset())],
+    )
+
+
 def test_a_worker_sets_its_lanes_job_start_to_its_own_start_before_its_first_job() -> None:
     """A worker sets the job start of its lane to the time that it starts. A lane of a new pod
     then has a series before its first job, so `RoadmapServiceLaneStalled` fires when the lane

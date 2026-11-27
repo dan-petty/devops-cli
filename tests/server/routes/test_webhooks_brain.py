@@ -394,12 +394,19 @@ def _issue_writes(otlp: FakeCollector) -> dict[str, float]:
     return counted
 
 
-def _deliver(service: _Service, repository: Mapping[str, Any], *, sender: str = "alice") -> int:
-    """Send one signed `issues` delivery about issue 42 of `repository`, and give the status."""
+def _deliver(
+    service: _Service,
+    repository: Mapping[str, Any],
+    *,
+    sender: str = "alice",
+    action: str = "labeled",
+) -> int:
+    """Send one signed `issues` delivery with `action` about issue 42 of `repository`, and give
+    the status."""
     body = json.dumps(
         {
             "repository": repository,
-            "action": "labeled",
+            "action": action,
             "sender": {"login": sender},
             "issue": {
                 "number": 42,
@@ -418,7 +425,7 @@ def _deliver(service: _Service, repository: Mapping[str, Any], *, sender: str = 
             headers={
                 "Content-Type": "application/json",
                 CONST_GH_WEBHOOK_EVENT_HEADER: "issues",
-                CONST_GH_WEBHOOK_DELIVERY_HEADER: f"delivery-of-{sender}",
+                CONST_GH_WEBHOOK_DELIVERY_HEADER: f"delivery-of-{sender}-{action}",
                 CONST_GH_WEBHOOK_SIGNATURE_HEADER: _sign(body, SECRET),
             },
         )
@@ -482,3 +489,50 @@ def test_a_delivery_with_no_visibility_uses_the_answer_that_the_process_holds(
         (202, ["valkey:roadmap:v1:issue:owner/repo:42"]),
         {"unknown": 1.0, "shared": 1.0},
     )
+
+
+@pytest.mark.parametrize("action", ["transferred", "deleted"])
+def test_a_delivery_of_an_issue_that_left_removes_its_entry_and_wakes_each_lane(
+    shared_valkey: ValkeyCacheTier, action: str
+) -> None:
+    """GitHub sends an `issues` delivery with the action `transferred` or `deleted` for an issue
+    that is no issue of the repository now (#7337). The route writes no entry from that payload:
+    it removes the entry of the number before it wakes the lanes, and the trigger names the
+    number, so each lane drops its record."""
+    service = _Service()
+    public = {"full_name": REPO, "private": False}
+    written = _deliver(service, public)
+    held = cached_issue(REPO, 42, private=False)
+
+    removed = _deliver(service, public, action=action)
+
+    assert held is not None
+    assert (written, removed, cached_issue(REPO, 42, private=False)) == (202, 202, None)
+    assert (service.triggers, service.cache_at_wake[42]) == (
+        [(REPO, "issues", "labeled", 42), (REPO, "issues", action, 42)],
+        None,
+    )
+
+
+@pytest.mark.parametrize("action", ["transferred", "deleted"])
+def test_a_delivery_of_the_app_for_an_issue_that_left_writes_no_entry(
+    shared_valkey: ValkeyCacheTier, action: str
+) -> None:
+    """The route refuses a delivery whose sender is the bot of the App, and it brings the entry
+    of the issue up to date from such a payload. For the action `transferred` or `deleted` the
+    issue is no issue of the repository now: the route writes no entry from the payload, removes
+    the entry that the tier holds, and wakes no lane."""
+    public = {"full_name": REPO, "private": False}
+    own = _Service()
+    bot = own.bot_login or ""
+
+    with_no_entry = _deliver(own, public, sender=bot, action=action)
+    after_the_first = cached_issue(REPO, 42, private=False)
+    _deliver(_Service(), public)
+    held = cached_issue(REPO, 42, private=False)
+    again = _Service()
+    with_an_entry = _deliver(again, public, sender=bot, action=action)
+
+    assert held is not None
+    assert (with_no_entry, with_an_entry, after_the_first) == (200, 200, None)
+    assert (cached_issue(REPO, 42, private=False), own.triggers, again.triggers) == (None, [], [])

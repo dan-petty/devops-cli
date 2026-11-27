@@ -17,6 +17,7 @@ import pytest
 
 from devops_cli.ai.client.models import AIClientError, StructuredOutputValidationError
 from devops_cli.exceptions import GitHubOperationError
+from devops_cli.exceptions import git as git_errors
 from devops_cli.exceptions.roadmap import RoadmapItemChangedError
 from devops_cli.roadmap import failure as failure_module
 from devops_cli.roadmap.failure import FailureClass
@@ -90,6 +91,29 @@ class _Counting(InMemoryRoadmapStore):
 
     def set_marks(self, item: Any, marks: Mapping[Any, str | None], **kwargs: Any) -> None:
         self.mark_calls.append({key.value: value for key, value in marks.items()})
+        super().set_marks(item, marks, **kwargs)
+
+
+class _ItemLeft(InMemoryRoadmapStore):
+    """A store whose listing still holds issue `left`, which is no issue of the repository now,
+    as the snapshot of a lane holds a transferred issue: the read of its comments and a mark
+    write for it raise the error of no issue, as the GitHub store raises it (#7337). The class of
+    the error is read from its module when the store raises, so the tests of this file that use
+    no such store need no source tree that has the class."""
+
+    left = 0
+
+    def _no_issue(self, number: int) -> Exception:
+        return git_errors.GitHubNotAnIssueError(STAGE_REPO, number)
+
+    def comments_on(self, number: int) -> Any:
+        if number == self.left:
+            raise self._no_issue(number)
+        return super().comments_on(number)
+
+    def set_marks(self, item: Any, marks: Mapping[Any, str | None], **kwargs: Any) -> None:
+        if item.number == self.left:
+            raise self._no_issue(item.number)
         super().set_marks(item, marks, **kwargs)
 
 
@@ -191,6 +215,27 @@ def test_a_model_error_in_the_plan_records_its_class_and_the_step_plan(
 
     assert _failure_of(store, 1) == (*expected, failure_module.StepName.PLAN.value)
     assert _failure_of(store, 2) == (None, None, None)
+
+
+def test_an_item_that_is_no_issue_of_the_repository_gets_no_failure_and_the_round_goes_on(
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    openspec_fake: OpenSpecFake,
+) -> None:
+    """Item 1 left the repository after the listing was read. The planner reads the comments of
+    each item first, and the read of item 1 raises the error of no issue. The round leaves item 1
+    out: it records no failure, no failure class and no failure mark for it, and it stages
+    item 2."""
+    store = _ItemLeft(repo=STAGE_REPO)
+    _two_items(store, openspec_fake, github_api)
+    store.left = 1
+    _plan_answers(model_fake)
+
+    applied = _round(store, stage_repo)
+
+    assert (applied.staged, applied.failed) == ((2,), ())
+    assert (_failure_of(store, 1), _failure_of(store, 2)) == ((None,) * 3, (None,) * 3)
 
 
 def test_a_plan_that_breaks_a_rule_of_the_job_records_the_class_plan_defect(

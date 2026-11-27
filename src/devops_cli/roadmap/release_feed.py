@@ -11,13 +11,18 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from http import HTTPStatus
 
 from pydantic import BaseModel, TypeAdapter
 from pydantic import ValidationError as MalformedPayloadError
 
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.error_classifier import classify_gh_failure, gh_http_status
+from devops_cli.github.issue_answer import (
+    NO_ISSUE_STATUSES,
+    CurrentName,
+    answered_repository,
+    answers_request,
+)
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.roadmap.stores.github_store import GhRunner
 
@@ -61,13 +66,33 @@ class _ReleasePayload(BaseModel):
 
 
 class _IssuePayload(BaseModel):
+    number: int
     state: str
     body: str | None = None
     pull_request: dict[str, object] | None = None
+    repository_url: str | None = None
+    url: str | None = None
+    html_url: str | None = None
+
+    def answers(self, number: int, current: CurrentName) -> bool:
+        """Whether the payload is the answer for number `number` of the repository of `current`,
+        and not the issue at another place that GitHub gives for a transferred issue
+        (`issue_answer`)."""
+        named = answered_repository(
+            repository_url=self.repository_url, url=self.url, html_url=self.html_url
+        )
+        return answers_request(
+            current.repo, number, answered=self.number, named=named, current=current
+        )
+
+
+class _RepositoryPayload(BaseModel):
+    full_name: str
 
 
 _RELEASES = TypeAdapter(list[_ReleasePayload])
 _ISSUE = TypeAdapter(_IssuePayload)
+_REPOSITORY = TypeAdapter(_RepositoryPayload)
 
 
 def _unique(numbers: list[int]) -> tuple[int, ...]:
@@ -91,6 +116,7 @@ class GitHubReleaseFeed:
     def __init__(self, repo: str, runner: GhRunner = run_gh) -> None:
         self._repo = repo
         self._runner = runner
+        self._name = CurrentName(repo, self._full_name)
 
     def releases(self, limit: int) -> tuple[ReleaseInfo, ...]:
         """The published releases among the `limit` newest ones, newest first. A release with no
@@ -105,7 +131,9 @@ class GitHubReleaseFeed:
     def closed_issues(self, release: ReleaseInfo) -> tuple[int, ...]:
         """The closed issues that the pull requests of `release` close, once each, in ascending
         order. A number that names a pull request or an open issue is left out, and so is one
-        that GitHub answers 404 for. Raises GitHubOperationError for any other failure."""
+        that is no issue of the repository now: GitHub answers 404, 301 or 410 for it, or
+        answers with the issue at another place (#7337). Raises GitHubOperationError for any
+        other failure."""
         numbers: list[int] = []
         for pull in pull_numbers(release.body):
             payload = self._issue(pull)
@@ -119,16 +147,24 @@ class GitHubReleaseFeed:
         return tuple(sorted(closed))
 
     def _issue(self, number: int) -> _IssuePayload | None:
+        """The issue or the pull request `number` of the repository, or None when the repository
+        holds none now."""
         text = self._read(f"repos/{self._repo}/issues/{number}", f"#{number}", absent_ok=True)
         if text is None:
             return None
-        return self._validate(_ISSUE, text, f"#{number}")
+        payload = self._validate(_ISSUE, text, f"#{number}")
+        return payload if payload.answers(number, self._name) else None
+
+    def _full_name(self) -> str | None:
+        """The name that GitHub gives the repository now, or None when it gives none."""
+        text = self._read(f"repos/{self._repo}", "the repository", absent_ok=True)
+        return None if text is None else self._validate(_REPOSITORY, text, "repository").full_name
 
     def _read(self, path: str, what: str, *, absent_ok: bool = False) -> str | None:
         proc = self._runner(["api", path], input=None, check=False, quiet=True, use_cache=False)
         if proc.returncode == 0:
             return proc.stdout or ""
-        if absent_ok and gh_http_status(proc.stderr or "") == HTTPStatus.NOT_FOUND:
+        if absent_ok and gh_http_status(proc.stderr or "") in NO_ISSUE_STATUSES:
             return None
         classified = classify_gh_failure(
             proc.stderr or "", exit_code=proc.returncode, operation=_OPERATION

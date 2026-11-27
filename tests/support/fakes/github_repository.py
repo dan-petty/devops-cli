@@ -91,6 +91,12 @@ class GitHubFake:
         self.issues: dict[int, dict[str, Any]] = {}
         # The issues that left the repository, by the number they had here (`move_issue`).
         self.moved: dict[int, dict[str, Any]] = {}
+        # The numbers of `moved` whose request `gh` answers with the status 301 of GitHub.
+        self.unfollowed: set[int] = set()
+        # The numbers of the issues that a person deleted (`delete_issue`).
+        self.deleted: set[int] = set()
+        # The name that GitHub gives the repository now (`rename_repository`).
+        self.full_name = repo
         self.pulls: dict[int, dict[str, Any]] = {}
         self.label_catalog: list[dict[str, Any]] = []
         self.comments: dict[int, list[str]] = {}
@@ -182,19 +188,39 @@ class GitHubFake:
                 "html_url": f"https://github.com/{self.repo}/pull/{number}",
             }
 
-    def move_issue(self, number: int, *, to: str, as_number: int) -> None:
+    def move_issue(self, number: int, *, to: str, as_number: int, followed: bool = True) -> None:
         """Transfer issue `number` to the repository `to`, where it is issue `as_number`. The
         listings of this repository give it no more. A request of the issue by the number it had
         here answers with the issue at its new place and writes nothing, as `gh` follows the
-        redirect of GitHub with a read. Its comments and its events answer 404, and so does each
-        other request below that number in this fake."""
+        redirect of GitHub with a read. With `followed` false, `gh` does not follow the redirect:
+        the request fails with the status 301, as it did in a runner Job (#7337). Its comments and
+        its events answer 404, and so does each other request below that number in this fake."""
         issue = self.issues.pop(number)
+        if not followed:
+            self.unfollowed.add(number)
         self.moved[number] = {
             **issue,
             "number": as_number,
             "html_url": f"https://github.com/{to}/issues/{as_number}",
             "repository_url": f"https://api.github.com/repos/{to}",
         }
+
+    def delete_issue(self, number: int) -> None:
+        """Delete issue `number`. The listings of the repository give it no more. A request of
+        the issue by its number, and each request below that number, answers 410, as GitHub
+        answers for a deleted issue (#7337)."""
+        del self.issues[number]
+        self.deleted.add(number)
+
+    def rename_repository(self, to: str) -> None:
+        """Rename the repository to `to`, or move it to another owner. GitHub redirects each route
+        of the old name, and `gh` follows it, so this fake answers the routes of its name as
+        before. Each issue and the repository itself then name `to` (#7337)."""
+        for issue in self.issues.values():
+            for key in ("html_url", "repository_url", "url"):
+                if isinstance(issue.get(key), str):
+                    issue[key] = issue[key].replace(f"/{self.full_name}", f"/{to}")
+        self.full_name = to
 
     def block(self, blocked: int, blocker: int) -> None:
         """Issue `blocker` blocks issue `blocked`. GitHub counts it in the `blocked_by` summary
@@ -458,7 +484,12 @@ class GitHubFake:
             return other
         if url.path == f"repos/{self.repo}":
             open_issues = sum(issue["state"] == "open" for issue in self.issues.values())
-            return {"stargazers_count": 0, "forks_count": 0, "open_issues_count": open_issues}
+            return {
+                "full_name": self.full_name,
+                "stargazers_count": 0,
+                "forks_count": 0,
+                "open_issues_count": open_issues,
+            }
         if url.path == f"repos/{self.repo}/dependency-graph/sbom":
             return self._sbom()
         parts = url.path.removeprefix(f"repos/{self.repo}/").split("/")
@@ -678,8 +709,12 @@ class GitHubFake:
         page: int,
         stdin: str | None,
     ) -> Any:
+        if number in self.deleted:
+            return (1, "gh: This issue was deleted (HTTP 410)")
         if number in self.moved:
-            return (1, "gh: Not Found (HTTP 404)") if rest else self.moved[number]
+            if rest:
+                return (1, "gh: Not Found (HTTP 404)")
+            return (1, "gh: HTTP 301") if number in self.unfollowed else self.moved[number]
         listings = {"events": self._issue_events, "dependencies/blocked_by": self._blockers_page}
         if (
             method == "GET"

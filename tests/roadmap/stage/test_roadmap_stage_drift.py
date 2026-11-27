@@ -3,11 +3,13 @@ removes only the label `verdict/fix-plan` that it added (#5884)."""
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
 
+from devops_cli.exceptions.git import GitHubNotFoundError
 from devops_cli.github.client import CommitRef, IssueComment, IssueView, PullRequest
 from devops_cli.roadmap.plan_check import PlanProblem, PullFacts
 from devops_cli.roadmap.stage import plan_drift
@@ -23,6 +25,7 @@ from devops_cli.roadmap.stores.store import IssueComment as ItemComment
 from devops_cli.roadmap.stores.store import OpenPull
 from tests.support.builders import make_stage_proposal
 from tests.support.roadmap_fix_plan import finding, stage_comment
+from tests.support.roadmap_implement import TASKS, write_change
 from tests.support.roadmap_stage import StageRepo
 
 REPO = "example/roadmap"
@@ -417,6 +420,46 @@ def test_a_plan_head_without_a_change_folder_is_a_problem(stage_repo: StageRepo)
     )
 
     assert [problem.rule for problem in problems] == ["change-folder"]
+
+
+class _NoIssue(_Reads):
+    """The reads of the row for a repository where issue `ISSUE` is no issue now: the client
+    raises a `GitHubNotFoundError` for its number."""
+
+    def get_issue(self, repo: str, number: int) -> IssueView:
+        if number == ISSUE:
+            raise GitHubNotFoundError(f"#{number} is not an issue of {repo}.")
+        return super().get_issue(repo, number)
+
+
+def test_the_row_leaves_out_a_plan_whose_issue_left_the_repository(
+    stage_repo: StageRepo, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Plan pull request #7 plans issue #1, which a person transferred to another repository
+    (#7337). The row writes no label and no comment for it, logs one warning, and does not fail,
+    so it goes on with the other pull requests."""
+    stage_repo.git("switch", "-q", "-c", BRANCH)
+    write_change(stage_repo.clone, TASKS, ISSUE, slug="keep-the-last-comment")
+    stage_repo.git("add", "-A")
+    stage_repo.git("commit", "-q", "-m", "docs(spec): plan #1")
+    stage_repo.git("push", "-q", "origin", BRANCH)
+    sha = stage_repo.origin_git("rev-parse", BRANCH)
+    stage_repo.origin_git("update-ref", f"refs/pull/{PULL}/head", sha)
+    stage_repo.git("switch", "-q", "main")
+    reads = _NoIssue(
+        {PULL: _pull(TITLE)},
+        {PULL: IssueView(number=PULL, state="open", title=TITLE, body="Plans #1")},
+    )
+    store = _Store([_open(PULL, TITLE)])
+
+    with caplog.at_level(logging.WARNING):
+        run = run_plan_drift(store, repo=REPO, source=stage_repo.clone, reads=reads)
+
+    assert (run.checked, run.failing, store.added, reads.created) == ((), (), [], [])
+    assert [log.getMessage() for log in caplog.records if "plans #1" in log.getMessage()] == [
+        f"Plan pull request #{PULL} of {REPO} plans #1, which is no issue of the repository now. "
+        "The plan drift row leaves the pull request out."
+    ]
 
 
 def test_the_adapter_runs_the_round_on_the_job_clone(

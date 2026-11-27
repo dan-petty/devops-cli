@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Final, Protocol
 
 from devops_cli.config.settings import load_settings
+from devops_cli.exceptions.git import GitHubNotFoundError
 from devops_cli.github.client import IssueComment
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.clone_git import checkout_at, default_branch, git
@@ -229,7 +230,8 @@ def run_plan_drift(
     reads: DriftReads | None = None,
 ) -> PlanDriftRun:
     """Check each open plan pull request of `repo` against the default branch, and label, comment
-    or clear it (#3968)."""
+    or clear it (#3968). A plan whose issue is no issue of the repository now is left out with a
+    warning, and the round goes on with the next pull request (#7337)."""
     if reads is None:
         from devops_cli.github.session import get_github_session
 
@@ -246,16 +248,25 @@ def run_plan_drift(
         issue = issue_number(facts.body)
         if issue is None:
             continue
+        try:
+            problems = plan_drift_problems(
+                source,
+                repo=repo,
+                number=pull.number,
+                facts=facts,
+                issue=issue,
+                reads=reads,
+                branch=branch,
+            )
+        except GitHubNotFoundError:
+            # The one GitHub read of the check is the read of the issue that the plan names.
+            logger.warning(
+                MESSAGES.roadmap.plan_drift_no_issue.format(
+                    pull=pull.number, issue=issue, repo=repo
+                )
+            )
+            continue
         checked.append(pull.number)
-        problems = plan_drift_problems(
-            source,
-            repo=repo,
-            number=pull.number,
-            facts=facts,
-            issue=issue,
-            reads=reads,
-            branch=branch,
-        )
         comment = _drift_comment_of(reads, repo, pull.number)
         if not problems:
             _clear(store, reads, repo=repo, pull=pull.number, issue=issue, comment=comment)

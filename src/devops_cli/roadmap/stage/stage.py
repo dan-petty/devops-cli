@@ -142,6 +142,7 @@ from devops_cli.core import clock
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import (
     DevOpsCLIError,
+    GitHubNotAnIssueError,
     GitHubOperationError,
     GitHubRateLimitError,
     GitHubUnauthenticatedError,
@@ -3023,6 +3024,14 @@ def _call_reason(exc: AIClientError) -> str:
 ITEM_ERRORS: Final = (AIClientError, GitHubOperationError, RoadmapStageError, ToolExecutionError)
 
 
+def item_left(exc: Exception, item: Item) -> bool:
+    """Whether `exc` says that `item` is no issue of the repository now (#7337): the store raised
+    `GitHubNotAnIssueError` for its number, dropped its record and logged it. The job leaves such
+    an item out with no failure, no failure class and no failure mark. An error for another
+    number is an error of the item."""
+    return isinstance(exc, GitHubNotAnIssueError) and exc.number == item.number
+
+
 def item_failure(
     target: StageTarget,
     exc: AIClientError | GitHubOperationError | RoadmapStageError | ToolExecutionError,
@@ -3057,7 +3066,8 @@ def _plan_each(
 ]:
     """Plan each target in order. With a `writer`, the result of a target is written as soon as the
     target is done, before the next target is planned (#4034). Once the Service stops, no next
-    target starts, and the stop ends the round (#4485)."""
+    target starts, and the stop ends the round (#4485). A target that is no issue of the
+    repository now has no result, and the next target is planned (`item_left`, #7337)."""
     ready: list[StagedChange] = []
     stopped: list[OverBudget] = []
     failed: list[StageFailure] = []
@@ -3073,6 +3083,8 @@ def _plan_each(
         except AICredentialsError:
             raise
         except ITEM_ERRORS as exc:
+            if item_left(exc, target.item):
+                continue
             result = _failure_of(
                 target,
                 exc,
@@ -4294,13 +4306,18 @@ def write_each(
 ) -> None:
     """Run each write. A write that fails adds a `StageFailure` and the next write still runs.
     Rejected GitHub credentials and the stop of the Service stop the run (#2753), and so does
-    each class in `also_stop`. The row `stage_ready` runs its pull requests the same way (#2865)."""
+    each class in `also_stop`. The row `stage_ready` runs its pull requests the same way (#2865).
+    An item that is no issue of the repository now is left out: its write is neither done nor
+    failed, and the store dropped its record and logged it (#7337)."""
     stop = (*_STOP_THE_RUN, *also_stop)
     for item, write in writes:
         try:
             write()
         except stop:
             raise
+        except GitHubNotAnIssueError as gone:
+            if gone.number != item.number:
+                failed.append(_write_failure(item, gone))
         except DevOpsCLIError as exc:
             failed.append(_write_failure(item, exc))
         else:
@@ -4913,6 +4930,7 @@ __all__ = [
     "dry_run_stage",
     "emit_stage_results",
     "item_failure",
+    "item_left",
     "job_time_decision",
     "log_stage_attempts",
     "named_items",

@@ -10,10 +10,11 @@ writes the state file, the issue listing and the inputs of the agent.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx2
 import pytest
@@ -27,6 +28,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_ISSUES_FILE,
 )
 from devops_cli.exceptions import GitHubOperationError
+from devops_cli.exceptions import git as git_errors
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap.failure import FailureClass, StepName
 from devops_cli.roadmap.phases.files import RunFolders
@@ -37,10 +39,13 @@ from devops_cli.roadmap.stage.stage_job_phases import (
     StageState,
     prepare_stage_job,
 )
+from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.stores.store import GitHubState, ItemField, RefineRecordKey
 from tests.support.builders import make_stage_proposal
-from tests.support.fakes.github import github_json
+from tests.support.fakes.github import RunnerSession, github_json
+from tests.support.fakes.github_repository import GitHubFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.roadmap_implement import merge_plan
 from tests.support.roadmap_stage import STAGE_NAME, STAGE_REPO, StageRepo, seed_stageable
 
 if TYPE_CHECKING:
@@ -206,6 +211,35 @@ def test_a_failed_read_of_the_comments_fails_the_item_with_ci_infra(
     assert not (folders.work / CONST_ROADMAP_PHASE_INPUT_FILE).exists()
 
 
+class _ItemLeft(InMemoryRoadmapStore):
+    """A store whose read of the comments raises the error of no issue for each number, as the
+    GitHub store raises it for an item that left the repository after the Job read it (#7337).
+    The class of the error is read from its module when the store raises."""
+
+    def comments_on(self, number: int) -> Any:
+        raise git_errors.GitHubNotAnIssueError(STAGE_REPO, number)
+
+
+def test_prepare_ends_with_no_failure_when_its_item_is_no_issue_of_the_repository(
+    stage_repo: StageRepo, folders: RunFolders
+) -> None:
+    """The item of the Job left the repository after `prepare` selected it. `prepare` ends the
+    run with no result of the item: it records no failure class and no failure mark, and it
+    writes no inputs for the agent."""
+    store = _ItemLeft(repo=STAGE_REPO)
+    number = seed_stageable(store)
+
+    run = _prepare(store, stage_repo, folders, number)
+
+    item = store.item(number)
+    assert run is not None
+    assert item is not None
+    record = {str(key): value for key, value in item.job_record.items() if value is not None}
+    assert [key for key in record if key.startswith("stage.failed")] == []
+    assert _state(folders).ended is True
+    assert not (folders.work / CONST_ROADMAP_PHASE_INPUT_FILE).exists()
+
+
 def _slow_job_runs(api: GitHubApiFake) -> None:
     """Each completed run of the CI workflow ran `Tests & Coverage` for 400 s."""
     started = NOW - timedelta(hours=1)
@@ -312,3 +346,54 @@ def test_a_blocker_of_an_open_plan_returns_the_item_in_prepare(
     assert item.status == "New"
     assert item.job_record.get(RefineRecordKey.BLOCKED_BY) == str(blocker)
     assert not (folders.work / CONST_ROADMAP_PHASE_INPUT_FILE).exists()
+
+
+LEFT_FOLDER_ANSWERS = [
+    pytest.param(False, "", id="status-301"),
+    pytest.param(True, ": GitHub answers with example/other#9", id="the-issue-at-its-new-place"),
+]
+
+
+@pytest.mark.parametrize(("followed", "place"), LEFT_FOLDER_ANSWERS)
+def test_prepare_goes_on_when_the_issue_of_an_active_change_folder_left_the_repository(
+    stage_repo: StageRepo,
+    folders: RunFolders,
+    caplog: pytest.LogCaptureFixture,
+    followed: bool,
+    place: str,
+) -> None:
+    """The default branch holds the active change folder of #5, and #5 was transferred to another
+    repository (#7337). `prepare` reads the issue of each active change folder for the blockers of
+    the item and for the issue listing of the agent. The read of #5 answers 301 when `gh` does not
+    follow the redirect, else it answers with the issue at its new place. Both are no issue of the
+    repository: the folder of #5 names no open plan and gives no record in the listing, and
+    `prepare` goes on with item #6 and with the folder of the open item #4. The store of a Job
+    read no listing, and it logs the number that it leaves out one time."""
+    labels = ("type/bug", "priority/p1-high")
+    github = GitHubFake(STAGE_REPO)
+    github.seed_issue(4, "fix(roadmap): the open item", labels=(*labels, "status/planned"))
+    github.seed_issue(5, "fix(roadmap): the item that left", labels=(*labels, "status/planned"))
+    github.seed_issue(
+        6,
+        "fix(roadmap): the job drops a comment",
+        labels=(*labels, "status/ready"),
+        body="The job drops the last comment of a thread.",
+        author_association="OWNER",
+    )
+    merge_plan(stage_repo, 4, slug="the-open-item")
+    merge_plan(stage_repo, 5, slug="the-item-that-left")
+    github.move_issue(5, to="example/other", as_number=9, followed=followed)
+    store = GitHubRoadmapStore(STAGE_REPO, runner=github, session=RunnerSession(github))
+
+    with caplog.at_level(logging.WARNING):
+        run = prepare_stage_job(
+            store, folders, repo=STAGE_REPO, item=6, source=stage_repo.clone, now=NOW
+        )
+
+    listing = json.loads((folders.work / CONST_ROADMAP_STAGE_ISSUES_FILE).read_text("utf-8"))
+    assert [text for log in caplog.records if "#5 " in (text := log.getMessage())] == [
+        f"#5 is no issue of {STAGE_REPO} now{place}. The store leaves it out."
+    ]
+    assert run is None
+    assert (_state(folders).item, _state(folders).ended) == (6, False)
+    assert [record["number"] for record in listing] == [6, 4]
