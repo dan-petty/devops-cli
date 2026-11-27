@@ -26,8 +26,6 @@ Kind: other. Reads: `src/devops_cli/github/onboard/service_rows.py`, `docs/repos
 
 - [ ] 3.1 Rewrite the row 12 cell of the table in `docs/repos/onboard.md`: the state `person` with a step that names `service.webhook_url` when the setting holds its default value and no request to a hooks route; and a new secret to an existing hook only in a run that does row 13 with its deploy and passes its checks, else the difference with no write and a step that names the reason
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 3.2 Edit `docs/repos/onboard.md` to state the two rules of row 12
-  - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
 
