@@ -4,9 +4,9 @@
 
 Kind: other. Reads: `k8s/devops/cronworkflow-infra-drift.yaml`, `k8s/devops/workflowtemplate-infra-drift.yaml`, `k8s/devops/serviceaccount.yaml`, `docs/SERVICE_PATTERNS.md`. Changes: `k8s/devops/cronworkflow-infra-drift.yaml`, `k8s/devops/workflowtemplate-infra-drift.yaml`.
 
-- [ ] 1.1 In `k8s/devops/cronworkflow-infra-drift.yaml`, replace `spec.schedule` with the list `spec.schedules` that holds the same cron expression `"0 6 * * *"`. Keep each other field
+- [x] 1.1 In `k8s/devops/cronworkflow-infra-drift.yaml`, replace `spec.schedule` with the list `spec.schedules` that holds the same cron expression `"0 6 * * *"`. Keep each other field
   - Verification: `$ uv run devops ci --check --only k8s` passes
-- [ ] 1.2 In `k8s/devops/workflowtemplate-infra-drift.yaml`, replace `spec.synchronization.mutex` with the list `spec.synchronization.mutexes` that holds the mutex `infra-drift`, and add `spec.executor.serviceAccountName: argo-executor`. Keep `serviceAccountName: devops-cli` for the pod
+- [x] 1.2 In `k8s/devops/workflowtemplate-infra-drift.yaml`, replace `spec.synchronization.mutex` with the list `spec.synchronization.mutexes` that holds the mutex `infra-drift`, and add `spec.executor.serviceAccountName: argo-executor`. Keep `serviceAccountName: devops-cli` for the pod
   - Verification: `$ uv run devops ci --check --only k8s` passes
 
 ## 2. Let each Workflow pod reach the API server on TCP 6443

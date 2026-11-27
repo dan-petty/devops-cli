@@ -10,9 +10,15 @@ metadata:
 spec:
   entrypoint: drift
   synchronization:
-    mutex:
-      name: infra-drift
+    mutexes:
+      - name: infra-drift
   serviceAccountName: devops-cli
+  # The pod runs as devops-cli, which mounts no token. The executor writes the task results
+  # through the API server with the account argo-executor, which the environment repository
+  # makes with its Role. Policy argo-workflow-egress (networkpolicy.yaml) lets it reach the API
+  # server.
+  executor:
+    serviceAccountName: argo-executor
   activeDeadlineSeconds: 7200
   ttlStrategy:
     secondsAfterCompletion: 3600
