@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.228.0](https://github.com/dan-petty/devops-cli/compare/v0.227.0...v0.228.0) (2026-11-27)
+
+
+### Features
+
+* **infra:** let an agent apply a no-drain restart on the control plane ([#7443](https://github.com/dan-petty/devops-cli/issues/7443)) ([5e34994](https://github.com/dan-petty/devops-cli/commit/5e34994246c4b1218df8ab81d6b6ed73df0c479d))
+
+
+### Bug Fixes
+
+* **k8s:** skip ended pods in the volume move plan ([#7433](https://github.com/dan-petty/devops-cli/issues/7433)) ([2a48b11](https://github.com/dan-petty/devops-cli/commit/2a48b11af2632bd7b29fa75b1ad11f372b10d98f))
+
 ## [0.227.0](https://github.com/dan-petty/devops-cli/compare/v0.226.1...v0.227.0) (2026-11-27)
 
 
