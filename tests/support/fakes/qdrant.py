@@ -286,6 +286,40 @@ class FakeQdrantClient(QdrantProtocol):
             formatted.append(item)
         return formatted
 
+    def scroll_payloads(
+        self,
+        name: str,
+        filter_payload: dict[str, Any] | None = None,
+        *,
+        keys: Sequence[str],
+        page_size: int,
+    ) -> Iterator[dict[str, Any]]:
+        """Yield the named payload keys of each matching point, one recorded call per page, as
+        the native client reads one page for each request."""
+        if self.refusing:
+            raise QdrantClientError("Server is unreachable")
+        pts = [
+            p
+            for p in self.collections.get(name, [])
+            if _matches_fake_filter(p.get("payload", {}), filter_payload)
+        ]
+        start = 0
+        while True:
+            self._record(
+                "scroll_payloads",
+                name,
+                filter_payload=filter_payload,
+                keys=list(keys),
+                page_size=page_size,
+                offset=start,
+            )
+            for p in pts[start : start + page_size]:
+                payload = p.get("payload", {})
+                yield {key: payload[key] for key in keys if key in payload}
+            start += page_size
+            if start >= len(pts):
+                return
+
     def set_payload(
         self,
         name: str,

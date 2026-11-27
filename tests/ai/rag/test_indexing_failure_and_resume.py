@@ -412,6 +412,21 @@ def test_a_failed_batch_inside_a_file_leaves_that_file_for_resume(
     assert (len(expected) > 1, expected - _stored(qdrant)) == (True, set())
 
 
+def test_a_resume_with_no_cache_file_embeds_the_partly_stored_file_and_skips_the_others(
+    tmp_path: Path, qdrant: Any, embedder: Any
+) -> None:
+    """The store, not a cache file, shows that big.py lacks a chunk, as in a new ingest pod."""
+    big, _ = _interrupted_index(tmp_path, qdrant, embedder)
+    embedded = len(embedder.calls)
+
+    resumed = _resume(tmp_path, qdrant, embedder, tmp_path / ".new-pod-cache")
+
+    texts = sorted(text for batch, _ in embedder.calls[embedded:] for text in batch)
+    big_chunks = resumed.chunker.chunk_file(big, relative_to=tmp_path.resolve(), project_name="p")
+    assert texts == sorted(chunk.content for chunk in big_chunks)
+    assert _chunk_ids(resumed, big, tmp_path) - _stored(qdrant) == set()
+
+
 def test_a_partly_stored_file_deleted_before_the_resume_leaves_no_points(
     tmp_path: Path, qdrant: Any, embedder: Any
 ) -> None:
