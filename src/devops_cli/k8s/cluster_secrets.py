@@ -659,6 +659,25 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         restarts=(Workload("deployment", "mcp-server"),),
         labels={"app.kubernetes.io/name": "mcp-server"},
     ),
+    # The SSH key of the Ansible runs of WorkflowTemplate `infra-drift` (#5129, #7428). The pod
+    # mounts the Secret read-only at /secrets/ssh and reads key `id_ed25519`. A person stores the
+    # private key with `devops config set infra.ssh_private_key --from-file`, which keeps its last
+    # newline: OpenSSH refuses a key without it. Each Workflow pod mounts the Secret at its start,
+    # so no workload restarts. A push with no key skips it, and it writes the other Secrets of
+    # the stack.
+    ClusterSecret(
+        namespace="devops",
+        name="infra-ssh-key",
+        stack="devops",
+        entries=(
+            SecretEntry(
+                "id_ed25519",
+                KeyringSource.for_credential("infra.ssh_private_key"),
+                required=False,
+            ),
+        ),
+        labels={"app.kubernetes.io/name": "infra-drift"},
+    ),
     # The GitHub App that self-hosted Renovate acts as (#4905). The keys are the variables of the
     # settings, so the token init container of CronJob `renovate` takes the Secret with `envFrom`
     # and `devops gh app-token --app renovate` reads it. Each run reads the Secret at its start,

@@ -386,6 +386,7 @@ _VARIABLES_OF_LATER_SETTINGS = frozenset(
         "DEVOPS_CLI_ROADMAP_STATE_URL",  # #7294
         "DEVOPS_CLI_ROADMAP_STATE_USER",  # #7294
         "DEVOPS_CLI_ROADMAP_STATE_PASSWORD",  # #7294
+        "DEVOPS_CLI_INFRA_SSH_PRIVATE_KEY",  # #7428
     }
 )
 
@@ -431,6 +432,7 @@ _KEYRING_OF_LATER_CREDENTIALS = {
     "store.secret_access_key": "store_secret_access_key",  # #4761
     "tf.github_reader.private_key": "tf_github_reader_private_key",  # #5320
     "roadmap.state.password": "roadmap_state_password",  # #7294
+    "infra.ssh_private_key": "infra_ssh_private_key",  # #7428
 }
 
 

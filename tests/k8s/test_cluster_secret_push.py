@@ -96,6 +96,11 @@ NOTIFIER_PEM = "-----BEGIN TEST KEY-----\nnotifier-key-body-0001\n-----END TEST 
 NOTIFIER_APP_ID = "123456"
 NOTIFIER_INSTALLATION_ID = "7890123"
 
+INFRA_SSH_KEY = "devops/infra-ssh-key"
+INFRA_SSH_KEYRING = "infra_ssh_private_key"
+# OpenSSH refuses a private key whose last line has no newline, so the push keeps it.
+INFRA_SSH_PEM = "-----BEGIN TEST KEY-----\ninfra-ssh-key-body-0001\n-----END TEST KEY-----\n"
+
 DB_KEY = "example_db_password"
 DB_USER = "app/user"
 DSN_TEMPLATE = "postgres://{user}:{password}@db.example.com:5432/app?sslmode=require"
@@ -207,6 +212,36 @@ def test_the_notifier_secret_gets_the_ids_and_the_pem_key_byte_for_byte(
         [],
         [],
     ), result.output
+
+
+def test_the_infra_ssh_key_secret_gets_the_private_key_byte_for_byte_and_restarts_nothing(
+    cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch, keyring_store: FakeKeyring
+) -> None:
+    _install(
+        monkeypatch,
+        cluster,
+        keyring_store,
+        values={**FULL_KEYRING, INFRA_SSH_KEYRING: INFRA_SSH_PEM},
+    )
+    result = _push("--only", INFRA_SSH_KEY)
+    assert (
+        result.exit_code,
+        cluster.live_data("devops", "infra-ssh-key"),
+        cluster.commands("kubectl", "rollout"),
+        INFRA_SSH_PEM.splitlines()[1] in result.output,
+    ) == (0, {"id_ed25519": INFRA_SSH_PEM}, [], False), result.output
+
+
+def test_with_no_infra_ssh_key_the_push_skips_it_and_names_the_command(
+    cluster: FakeCluster, stub_keyring: FakeKeyring
+) -> None:
+    result = _push("--only", INFRA_SSH_KEY)
+    output = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        "devops config set infra.ssh_private_key" in output,
+        ("devops", "infra-ssh-key") in cluster.secrets,
+    ) == (0, True, False), result.output
 
 
 def test_with_no_notifier_value_the_push_writes_nothing_and_names_the_commands(
@@ -621,6 +656,7 @@ def test_stack_devops_reads_the_app_key_gateway_key_and_webhook_secrets_and_runs
             "searxng_secret_key",
             "searxng_metrics_password",
             "mcp_token",
+            "infra_ssh_private_key",
             "renovate_github_app_private_key",
             "qdrant_api_key",
             "qdrant_read_only_api_key",

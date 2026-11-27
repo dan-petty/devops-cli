@@ -89,6 +89,10 @@ NOTIFIER_PEM = "-----BEGIN TEST KEY-----\nnotifier-key-body-0001\n-----END TEST 
 NOTIFIER_APP_ID = "123456"
 NOTIFIER_INSTALLATION_ID = "7890123"
 
+INFRA_SSH_KEY = "devops/infra-ssh-key"
+INFRA_SSH_KEYRING = "infra_ssh_private_key"
+INFRA_SSH_PEM = "-----BEGIN TEST KEY-----\ninfra-ssh-key-body-0001\n-----END TEST KEY-----\n"
+
 DB_KEY = "example_db_password"
 DB_USER = "app/user"
 DSN_TEMPLATE = "postgres://{user}:{password}@db.example.com:5432/app?sslmode=require"
@@ -512,6 +516,7 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             None,
             ("deployment/mcp-server",),
         ),
+        ("devops/infra-ssh-key", "id_ed25519", "devops", False, None, None, ()),
         ("devops/renovate", "DEVOPS_CLI_RENOVATE_GITHUB_APP_ID", "devops", False, None, None, ()),
         (
             "devops/renovate",
@@ -941,6 +946,58 @@ def test_the_mcp_token_is_one_managed_credential_for_three_keys() -> None:
         ("DEVOPS_CLI_MCP_TOKEN",),
         "DEVOPS_CLI_MCP_TOKEN",
     )
+
+
+def test_the_infra_ssh_key_is_one_typed_managed_credential_that_restarts_nothing() -> None:
+    """The `infra-drift` Workflow mounts key `id_ed25519` of Secret devops/infra-ssh-key as its
+    Ansible SSH key (#7428). A person stores the private key with `devops config set
+    infra.ssh_private_key --from-file`, so the push makes none. Each Workflow pod mounts the
+    Secret at its start, so no workload restarts. A push with no key skips the Secret and does
+    not stop the push of the other Secrets of the stack."""
+    (row,) = [secret for secret in CLUSTER_SECRETS if secret.ref == INFRA_SSH_KEY]
+    assert (
+        (row.stack, row.restarts, row.secret_type),
+        [(e.key, e.source, e.required, e.generator, e.adopt_from) for e in row.entries],
+        "infra.ssh_private_key" in secret_keys(),
+        keyring_names()["infra.ssh_private_key"],
+        option_env_vars()["infra.ssh_private_key"],
+    ) == (
+        ("devops", (), "Opaque"),
+        [
+            (
+                "id_ed25519",
+                KeyringSource(INFRA_SSH_KEYRING, "infra.ssh_private_key"),
+                False,
+                None,
+                None,
+            )
+        ],
+        True,
+        INFRA_SSH_KEYRING,
+        "DEVOPS_CLI_INFRA_SSH_PRIVATE_KEY",
+    )
+
+
+def test_the_infra_ssh_key_plan_names_the_secret_and_its_key_and_writes_nothing(
+    cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch, keyring_store: FakeKeyring
+) -> None:
+    backend = _install(
+        monkeypatch,
+        cluster,
+        keyring_store,
+        values={**FULL_KEYRING, INFRA_SSH_KEYRING: INFRA_SSH_PEM},
+    )
+    result = _push("--only", INFRA_SSH_KEY, "--plan")
+    output = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        f"{INFRA_SSH_KEY}: id_ed25519 (keyring {INFRA_SSH_KEYRING}) would create; would restart: "
+        "none" in output,
+        "wrote nothing" in output,
+        INFRA_SSH_PEM.splitlines()[1] in result.output,
+        {tuple(c[:2]) for c in (call.argv for call in cluster.calls)},
+        backend.writes,
+    ) == (0, True, True, False, {("kubectl", "get")}, {}), result.output
 
 
 def test_the_gitea_dry_run_lists_its_secret_and_restart_with_no_value() -> None:
