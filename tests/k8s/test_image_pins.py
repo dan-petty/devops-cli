@@ -18,6 +18,7 @@ from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
 from devops_cli.k8s.environment import EnvironmentTree
 from devops_cli.k8s.image_pins import (
+    ImagePins,
     collect_image_pins,
     collect_kustomization_pins,
     image_values,
@@ -41,6 +42,7 @@ _CRAWL4AI = "unclecode/crawl4ai"
 _CRAWL4AI_DIGEST = "sha256:0b05666882bfb67f45d559a5b827839c54127b74aedd723f8ab338a3571b5fc9"
 _SEARXNG = "searxng/searxng"
 _SEARXNG_DIGEST = "sha256:aecad882e86eeb022b76351c8dce4eb48d0cbb16a5f1691f77ea32c96d317502"
+_K3S_UPGRADE = "rancher/k3s-upgrade"
 
 _PATH_APPLICATION = """apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -220,6 +222,83 @@ spec:
   version: 11.7.11
 """
     assert image_values(rendered) == ["mattermost/mattermost-team-edition:11.7.11"]
+
+
+def _plan(*, prepare: str, upgrade: str, source: str) -> str:
+    """A Plan of system-upgrade-controller in the form of the k3s document "Automated Upgrades".
+    `source` is the `version` or the `channel` line of its spec, which comes after its images."""
+    return f"""apiVersion: upgrade.cattle.io/v1
+kind: Plan
+metadata:
+  name: agent-plan
+  namespace: system-upgrade
+spec:
+  concurrency: 1
+  prepare:
+    args:
+      - prepare
+      - server-plan
+    image: {prepare}
+  serviceAccountName: system-upgrade
+  upgrade:
+    image: {upgrade}
+  {source}
+"""
+
+
+def _plan_folder(root: Path, source: str) -> Path:
+    """A kustomization folder of one Plan whose two images name no tag."""
+    folder = root / "k8s" / "system-upgrade"
+    folder.mkdir(parents=True)
+    (folder / "kustomization.yaml").write_text("resources:\n- plans.yaml\n", encoding="utf-8")
+    (folder / "plans.yaml").write_text(
+        _plan(prepare=_K3S_UPGRADE, upgrade=_K3S_UPGRADE, source=source), encoding="utf-8"
+    )
+    return folder
+
+
+def test_the_command_resolves_the_untagged_image_of_a_plan_by_the_version_of_the_plan(
+    tmp_path: Path, web: WebFake, cli: Callable[..., Any]
+) -> None:
+    """system-upgrade-controller pulls the untagged `upgrade` and `prepare` images of a Plan with
+    the tag `spec.version`, each `+` replaced by `-` (#7455)."""
+    folder = _plan_folder(tmp_path, "version: v1.37.2+k3s1")
+    pin = f"{_K3S_UPGRADE}:v1.37.2-k3s1"
+    web.serve(RegistryFake({f"{_HUB}/{pin}": _DIGEST}, host=_HUB))
+
+    result = cli("k8s", "image-pins", str(folder))
+
+    assert (result.exit_code, collect_kustomization_pins(folder)) == (
+        0,
+        ImagePins(pinned={pin: (str(folder),)}, managed=(), local={}, latest={}),
+    )
+
+
+def test_the_command_refuses_the_untagged_image_of_a_plan_that_follows_a_channel(
+    tmp_path: Path, web: WebFake, cli: Callable[..., Any]
+) -> None:
+    """A Plan with a channel and no version takes the tag that the channel names when it runs, so
+    its untagged images name `latest`."""
+    folder = _plan_folder(tmp_path, "channel: https://update.k3s.io/v1-release/channels/stable")
+
+    result = cli("k8s", "image-pins", str(folder))
+
+    assert (result.exit_code, web.sent, collect_kustomization_pins(folder)) == (
+        1,
+        [],
+        ImagePins(pinned={}, managed=(), local={}, latest={_K3S_UPGRADE: (str(folder),)}),
+    )
+
+
+def test_an_image_of_a_plan_with_its_own_tag_or_digest_keeps_it() -> None:
+    """The controller gives the version of the Plan only to an image that names no tag and no
+    digest."""
+    tagged = f"{_K3S_UPGRADE}:v1.36.9-k3s1"
+    digested = f"{_K3S_UPGRADE}@{_DIGEST}"
+
+    rendered = _plan(prepare=tagged, upgrade=digested, source="version: v1.37.2+k3s1")
+
+    assert image_values(rendered) == [tagged, digested]
 
 
 @pytest.mark.parametrize(
