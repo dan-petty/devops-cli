@@ -8,6 +8,8 @@ it into a temporary folder, with no `--trust`, because the template has no tasks
 `github/repository.yaml` is the settings baseline. It must match the schema
 `templates/github-repository.schema.json` of the template at the same ref. The rendered files and
 the agent files of `devops ai agents --template` are the content of the template pull request.
+`read_repository_settings` reads the `github/repository.yaml` that the repository holds on its
+default branch and checks it against the same schema (#7423).
 """
 
 from __future__ import annotations
@@ -22,9 +24,11 @@ from typing import TYPE_CHECKING, Any, Final
 import yaml
 
 from devops_cli.config.constants import CONST_MAX_ERROR_DETAIL_LENGTH
+from devops_cli.config.yaml_errors import load_yaml, parse_config_yaml
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.github.onboard.model import DOC_COPIER, PersonStep
+from devops_cli.lang import ERRORS
 from devops_cli.security.sanitizer import mask_secrets
 
 if TYPE_CHECKING:
@@ -62,13 +66,14 @@ class AnswerFlagError(DevOpsCLIError):
 
 @dataclass(frozen=True)
 class Baseline:
-    """The rendered template: its ref, the answers of the render, each file by path, and the
-    settings of `github/repository.yaml`."""
+    """The rendered template: its ref, the answers of the render, each file by path, the
+    settings of `github/repository.yaml`, and the text of the schema of the settings at the ref."""
 
     ref: str
     answers: dict[str, Any]
     files: dict[str, str]
     settings: dict[str, Any]
+    schema_text: str
 
     @property
     def release_flow(self) -> bool:
@@ -182,22 +187,40 @@ def _read_tree(root: Path) -> dict[str, str]:
     return files
 
 
-def _validated_settings(text: str, schema_text: str | None, ref: str) -> dict[str, Any]:
-    """The settings of `github/repository.yaml`, checked against the schema of the template."""
+def _checked_settings(settings: Any, schema_text: str, name: str) -> dict[str, Any]:
+    """`settings`, the content of the settings file `name`, checked against the schema of the
+    template."""
     # jsonschema ships no type information.
     from jsonschema.validators import validator_for  # type: ignore[import-untyped]
 
-    if schema_text is None:
-        raise BaselineUnreadableError(f"The template at {ref} holds no {_SCHEMA_PATH}.")
-    settings = yaml.safe_load(text)
     schema = json.loads(schema_text)
     errors = sorted(validator_for(schema)(schema).iter_errors(settings), key=str)
     if errors:
         detail = errors[0].message[:CONST_MAX_ERROR_DETAIL_LENGTH]
-        raise BaselineUnreadableError(f"{SETTINGS_FILE} does not match {_SCHEMA_PATH}: {detail}")
+        raise BaselineUnreadableError(f"{name} does not match {_SCHEMA_PATH}: {detail}")
     if not isinstance(settings, dict):
-        raise BaselineUnreadableError(f"{SETTINGS_FILE} holds no mapping of settings.")
+        raise BaselineUnreadableError(f"{name} holds no mapping of settings.")
     return settings
+
+
+def read_repository_settings(
+    session: GitHubSession, repo: str, branch: str, baseline: Baseline
+) -> dict[str, Any] | None:
+    """The settings of the `github/repository.yaml` that `repo` holds on `branch`, checked against
+    the schema of the baseline, or None when the branch holds no such file (#7423).
+
+    A person can change the file after the render, so a file that is not YAML raises
+    `ConfigurationError` with no text of the file, and a file that the schema refuses raises
+    `BaselineUnreadableError`.
+    """
+    text = session.client.get_file_at(repo, SETTINGS_FILE, branch)
+    if text is None:
+        return None
+    name = f"{SETTINGS_FILE} of {repo} on {branch}"
+    settings = load_yaml(
+        lambda: parse_config_yaml(text), name=name, action=ERRORS.config.not_yaml_read
+    )
+    return _checked_settings(settings, baseline.schema_text, name)
 
 
 def render_baseline(
@@ -240,8 +263,12 @@ def render_baseline(
     if SETTINGS_FILE not in files:
         raise BaselineUnreadableError(f"The template at {ref} renders no {SETTINGS_FILE}.")
     schema_text = session.client.get_file_at(template, _SCHEMA_PATH, ref)
-    settings = _validated_settings(files[SETTINGS_FILE], schema_text, ref)
-    return Baseline(ref=ref, answers=answers, files=files, settings=settings)
+    if schema_text is None:
+        raise BaselineUnreadableError(f"The template at {ref} holds no {_SCHEMA_PATH}.")
+    settings = _checked_settings(yaml.safe_load(files[SETTINGS_FILE]), schema_text, SETTINGS_FILE)
+    return Baseline(
+        ref=ref, answers=answers, files=files, settings=settings, schema_text=schema_text
+    )
 
 
 __all__ = [
@@ -253,6 +280,7 @@ __all__ = [
     "BaselineUnreadableError",
     "check_answer_flags",
     "read_answers",
+    "read_repository_settings",
     "render_answers",
     "render_baseline",
     "resolve_ref",

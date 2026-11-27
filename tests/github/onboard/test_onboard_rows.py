@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import shutil
@@ -32,13 +33,19 @@ from tests.support.github_repository import (
     RELEASE_KEY,
     REPO,
     REPOSITORY_SETTINGS,
+    RULESET,
     TEMPLATE_BRANCH,
     TEMPLATE_TAG,
     WEBHOOK_URL,
     OnboardHarness,
+    baseline_settings,
+    serve_template,
 )
 
 P = RowState.PRESENT
+# The settings file of a repository, and the App ID of GitHub Actions in a required check.
+_SETTINGS_FILE = "github/repository.yaml"
+_ACTIONS = 15368
 
 
 def _run(harness: OnboardHarness, *, confirm: bool = False, **options: Any) -> OnboardReport:
@@ -777,4 +784,110 @@ def test_a_ruleset_reply_without_bypass_actors_makes_row_10_not_readable(
     assert "bypass_actors" in str(row.reason)
     assert [step.document for step in row.steps] == [model.DOC_GET_RULESET]
     assert "write access to the ruleset" in row.steps[0].text
+    assert onboard_github.writes() == []
+
+
+def _declare_checks(harness: OnboardHarness, checks: list[str], **parameters: Any) -> None:
+    """The `github/repository.yaml` of the default branch of REPO with a ruleset `main` that
+    requires `checks` and sets `parameters`, as a repository declares its own checks in git."""
+    settings = baseline_settings(release_flow=True)
+    rule = settings["rulesets"][0]["rules"][2]
+    rule["parameters"].update(
+        parameters,
+        required_status_checks=[{"context": name, "integration_id": _ACTIONS} for name in checks],
+    )
+    harness.state.commits[harness.state.refs["main"]][_SETTINGS_FILE] = yaml.safe_dump(settings)
+
+
+def test_the_plan_names_the_required_checks_of_the_repository_file(
+    onboard_github: OnboardHarness, config: Any
+) -> None:
+    _onboarded(onboard_github, config)
+    _declare_checks(onboard_github, ["K8s", "Lint"])
+
+    report = _run(onboard_github, only=frozenset({10}))
+
+    row = _row(report, 10)
+    assert (row.state, row.changes) == (
+        RowState.PENDING,
+        (f"ruleset main: required checks K8s, Lint, {CHECK_NAME}",),
+    ), render_report(report)
+    assert onboard_github.writes() == []
+
+
+def test_a_confirmed_run_requires_the_checks_of_the_repository_file(
+    onboard_github: OnboardHarness, config: Any
+) -> None:
+    # The live ruleset requires CHECK_NAME, which the file does not name: the check stays.
+    _onboarded(onboard_github, config)
+    _declare_checks(onboard_github, ["K8s", "Lint"], strict_required_status_checks_policy=True)
+
+    _run(onboard_github, confirm=True, only=frozenset({10}))
+
+    assert onboard_github.writes() == ["PUT /repos/example-org/app/rulesets/7"]
+    assert onboard_github.state.rulesets[0]["rules"][2] == {
+        "type": "required_status_checks",
+        "parameters": {
+            "do_not_enforce_on_create": True,
+            "required_status_checks": [
+                {"context": "K8s", "integration_id": _ACTIONS},
+                {"context": "Lint", "integration_id": _ACTIONS},
+                {"context": CHECK_NAME, "integration_id": _ACTIONS},
+            ],
+            "strict_required_status_checks_policy": True,
+        },
+    }
+    onboard_github.api.sent.clear()
+
+    second = _run(onboard_github, confirm=True, only=frozenset({10}))
+
+    assert (_row(second, 10).state, onboard_github.writes()) == (P, [])
+
+
+def test_a_baseline_ruleset_with_no_checks_rule_gets_the_rule_of_the_repository_file(
+    onboard_github: OnboardHarness, config: Any
+) -> None:
+    _onboarded(onboard_github, config)
+    _declare_checks(onboard_github, ["K8s"])
+    ruleset = copy.deepcopy(RULESET)
+    ruleset["rules"] = ruleset["rules"][:2]
+    serve_template(onboard_github.processes, extra={"rulesets": [ruleset]})
+
+    report = _run(onboard_github, only=frozenset({10}))
+
+    row = _row(report, 10)
+    assert (row.state, row.changes) == (
+        RowState.PENDING,
+        (f"ruleset main: required checks K8s, {CHECK_NAME}",),
+    ), render_report(report)
+    assert onboard_github.writes() == []
+
+
+@pytest.mark.parametrize(
+    ("text", "reason"),
+    [
+        (
+            "rulesets: [\n",
+            f"Cannot read the config file: {_SETTINGS_FILE} of {REPO} on main is not valid YAML "
+            "(ParserError) at line 2, column 1.",
+        ),
+        (
+            "unknown: true\n",
+            f"{_SETTINGS_FILE} of {REPO} on main does not match "
+            "templates/github-repository.schema.json: Additional properties are not allowed "
+            "('unknown' was unexpected)",
+        ),
+    ],
+    ids=["no-yaml", "schema-refuses"],
+)
+def test_a_repository_file_that_cannot_be_read_makes_row_10_not_readable(
+    onboard_github: OnboardHarness, config: Any, text: str, reason: str
+) -> None:
+    _onboarded(onboard_github, config)
+    onboard_github.state.commits[onboard_github.state.refs["main"]][_SETTINGS_FILE] = text
+
+    report = _run(onboard_github, confirm=True, only=frozenset({10}))
+
+    row = _row(report, 10)
+    assert (row.state, row.reason) == (RowState.NOT_READABLE, reason), render_report(report)
     assert onboard_github.writes() == []

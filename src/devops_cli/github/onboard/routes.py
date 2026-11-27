@@ -370,6 +370,7 @@ READS: Final[tuple[tuple[int, str], ...]] = (
     (9, "GET /repos/{repo}/git/ref/heads/<branch>"),
     (9, "GET /repos/{repo}/git/commits/<parent>"),
     (9, "GET /repos/{repo}/commits/<head>/check-runs"),
+    (10, "GET /repos/{repo}/contents/github/repository.yaml?ref=<default branch>"),
     (10, "GET /repos/{repo}/rulesets/{ruleset}"),
     (11, "GET /repos/{repo}/pulls/{pull}"),
     (11, "POST /graphql mergeStateStatus (a read that --confirm sends after the ready mark)"),
