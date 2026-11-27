@@ -4,11 +4,11 @@
 
 Kind: other. Reads: `tests/gate/k8s.py`, `tests/gate/k8s_render.py`, `tests/gate/k8s_checks/network_policies.py`, `tests/gate/k8s_checks/rag_ingest.py`. Changes: `tests/gate/k8s_checks/argo_workflows.py`.
 
-- [ ] 1.1 In `tests/gate/k8s_checks/argo_workflows.py`, add the cases that give the rule `singular_field_problems` one small Argo object for each singular field: `spec.schedule` of a CronWorkflow, `spec.synchronization.mutex` and `spec.templates[main].synchronization.mutex` of a WorkflowTemplate, `spec.synchronization.semaphore` of a Workflow and `spec.workflowSpec.synchronization.semaphore` of a CronWorkflow. Each case expects one finding that names the field. Add the case that gives the rule the plural fields and a CronJob with `spec.schedule`, and expects no finding. Run the cases before the rule exists, and see them fail
+- [x] 1.1 In `tests/gate/k8s_checks/argo_workflows.py`, add the cases that give the rule `singular_field_problems` one small Argo object for each singular field: `spec.schedule` of a CronWorkflow, `spec.synchronization.mutex` and `spec.templates[main].synchronization.mutex` of a WorkflowTemplate, `spec.synchronization.semaphore` of a Workflow and `spec.workflowSpec.synchronization.semaphore` of a CronWorkflow. Each case expects one finding that names the field. Add the case that gives the rule the plural fields and a CronJob with `spec.schedule`, and expects no finding. Run the cases before the rule exists, and see them fail
   - Verification: `$ uv run devops ci --check --only k8s` fails on the new cases
-- [ ] 1.2 Add the rule `singular_field_problems`. It reads each object whose `apiVersion` starts with `argoproj.io/`, and gives one line for each singular field, with the kind, the namespace, the name, the path of the field and the plural field to use
+- [x] 1.2 Add the rule `singular_field_problems`. It reads each object whose `apiVersion` starts with `argoproj.io/`, and gives one line for each singular field, with the kind, the namespace, the name, the path of the field and the plural field to use
   - Verification: `$ uv run devops ci --check --only k8s` passes the cases of the rule
-- [ ] 1.3 Add the check `check_no_argo_object_of_the_product_base_sets_a_singular_field`, which gives the rule each object of `applied_documents(DEVOPS_DIR)`
+- [x] 1.3 Add the check `check_no_argo_object_of_the_product_base_sets_a_singular_field`, which gives the rule each object of `applied_documents(DEVOPS_DIR)`
   - Verification: `$ uv run devops ci --check --only k8s` fails on the base, and names `spec.schedule` of CronWorkflow `devops/rag-ingest` and `spec.synchronization.mutex` of WorkflowTemplate `devops/rag-ingest`
 
 ## 2. Move the rag-ingest manifests to the fields of controller v4
