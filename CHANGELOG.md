@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.228.1](https://github.com/dan-petty/devops-cli/compare/v0.228.0...v0.228.1) (2026-11-27)
+
+
+### Bug Fixes
+
+* **infra:** add the push-secrets row of the infra-drift SSH key ([#7434](https://github.com/dan-petty/devops-cli/issues/7434)) ([c78b3cd](https://github.com/dan-petty/devops-cli/commit/c78b3cda54efe2cdfbc010404991e5110eaceba6))
+* **repos:** onboard requires the checks of github/repository.yaml ([#7446](https://github.com/dan-petty/devops-cli/issues/7446)) ([3067d6c](https://github.com/dan-petty/devops-cli/commit/3067d6c73b4dd2d6c3753f6bcb67773ba1b3387f))
+
 ## [0.228.0](https://github.com/dan-petty/devops-cli/compare/v0.227.0...v0.228.0) (2026-11-27)
 
 
