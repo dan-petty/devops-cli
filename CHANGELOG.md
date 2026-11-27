@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.230.0](https://github.com/dan-petty/devops-cli/compare/v0.229.5...v0.230.0) (2026-11-27)
+
+
+### Features
+
+* **repos:** onboard renders the template of github-workflows ([#7487](https://github.com/dan-petty/devops-cli/issues/7487)) ([51f7860](https://github.com/dan-petty/devops-cli/commit/51f78605b23bb9bedf251134e32b4f14c8bc6948))
+
 ## [0.229.5](https://github.com/dan-petty/devops-cli/compare/v0.229.4...v0.229.5) (2026-11-27)
 
 
