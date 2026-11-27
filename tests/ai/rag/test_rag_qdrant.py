@@ -238,6 +238,50 @@ def test_a_scroll_ordered_by_indexed_at_gives_the_newest_point_first(
     ) == ([new], [old, new])
 
 
+def test_a_payload_scroll_reads_each_matching_point_page_by_page_with_only_the_named_keys(
+    contract_client: QdrantProtocol,
+) -> None:
+    """Five points of one project come back over pages of two, with only the keys asked for."""
+    contract_client.ensure_collection("code", vector_size=4)
+    contract_client.upsert_points(
+        "code",
+        [
+            {
+                "id": f"{project}-{n}",
+                "vector": [1.0, float(n), 0.0, 0.0],
+                "payload": {
+                    "file_path": f"{project}/f{n}.py",
+                    "project_name": project,
+                    "content": "def f(): pass",
+                    **({"file_hash": f"h{n}"} if n % 2 else {}),
+                },
+            }
+            for project in ("app", "other")
+            for n in range(5)
+        ],
+    )
+
+    payloads = contract_client.scroll_payloads(
+        "code", {"project_name": "app"}, keys=("file_path", "file_hash"), page_size=2
+    )
+
+    assert sorted(payloads, key=lambda payload: payload["file_path"]) == [
+        {"file_path": "app/f0.py"},
+        {"file_path": "app/f1.py", "file_hash": "h1"},
+        {"file_path": "app/f2.py"},
+        {"file_path": "app/f3.py", "file_hash": "h3"},
+        {"file_path": "app/f4.py"},
+    ]
+
+
+def test_a_payload_scroll_of_a_missing_collection_reads_no_point(
+    contract_client: QdrantProtocol,
+) -> None:
+    payloads = contract_client.scroll_payloads("missing", keys=("file_path",), page_size=2)
+
+    assert list(payloads) == []
+
+
 def test_qdrant_must_not_list_filter(memory_qdrant_client: QdrantClient) -> None:
     memory_qdrant_client.ensure_collection("filter_col", vector_size=4)
     p1 = {

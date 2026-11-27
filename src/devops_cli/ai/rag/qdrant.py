@@ -7,7 +7,7 @@ import math
 import threading
 import urllib.parse
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from http import HTTPStatus
 from typing import Any, Final, Protocol, runtime_checkable
 
@@ -282,6 +282,16 @@ def _error_text(exc: BaseException) -> str:
     return CONST_URL_CANDIDATE_RE.sub(lambda match: qdrant_server_label(match.group(0)), str(exc))
 
 
+def _scroll_error(name: str, exc: Exception) -> QdrantClientError | None:
+    """The error that a failed scroll of collection `name` raises, or None when the collection
+    does not exist, which holds no point."""
+    err_str = str(exc).lower()
+    if "not found" in err_str or "404" in err_str:
+        return None
+    logger.debug("Error scrolling points in collection %s: %s", name, _error_text(exc))
+    return QdrantClientError(f"Scroll failed in '{name}': {_error_text(exc)}")
+
+
 def _validate_qdrant_url(url: str, *, allow_private: bool) -> None:
     """Validate Qdrant URL before initializing the native client.
 
@@ -353,6 +363,15 @@ class QdrantProtocol(Protocol):
         order_by: str | None = None,
         descending: bool = False,
     ) -> list[dict[str, Any]]: ...
+
+    def scroll_payloads(
+        self,
+        name: str,
+        filter_payload: dict[str, Any] | None = None,
+        *,
+        keys: Sequence[str],
+        page_size: int,
+    ) -> Iterator[dict[str, Any]]: ...
 
     def delete_points_by_files(
         self,
@@ -928,11 +947,52 @@ class QdrantClient:
                 for r in records
             ]
         except Exception as exc:
-            err_str = str(exc).lower()
-            if "not found" in err_str or "404" in err_str:
+            error = _scroll_error(name, exc)
+            if error is None:
                 return []
-            logger.debug("Error scrolling points in collection %s: %s", name, _error_text(exc))
-            raise QdrantClientError(f"Scroll failed in '{name}': {_error_text(exc)}") from exc
+            raise error from exc
+
+    def scroll_payloads(
+        self,
+        name: str,
+        filter_payload: dict[str, Any] | None = None,
+        *,
+        keys: Sequence[str],
+        page_size: int,
+    ) -> Iterator[dict[str, Any]]:
+        """Yield the payload `keys` of each point of a collection that matches the filter.
+
+        Each request reads one page of at most `page_size` points, with no vector, and waits at
+        most the timeout of the client. The next request starts at the offset that Qdrant returns
+        with the page, so the read ends at the page with no next offset and holds one page in
+        memory. A collection that does not exist holds no point.
+        """
+        query_filter = _build_payload_filter(filter_payload)
+        selected = list(keys)
+        offset: Any = None
+        while True:
+
+            def _page_op(c: NativeQdrantClient, start: Any = offset) -> Any:
+                return c.scroll(
+                    collection_name=name,
+                    scroll_filter=query_filter,
+                    limit=page_size,
+                    offset=start,
+                    with_payload=selected,
+                    with_vectors=False,
+                )
+
+            try:
+                records, offset = self._execute_with_retry(_page_op, "scroll_payloads", name)
+            except Exception as exc:
+                error = _scroll_error(name, exc)
+                if error is None:
+                    return
+                raise error from exc
+            for record in records:
+                yield getattr(record, "payload", None) or {}
+            if offset is None:
+                return
 
     def delete_points_by_files(
         self,

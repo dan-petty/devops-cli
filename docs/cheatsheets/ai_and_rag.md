@@ -28,6 +28,8 @@ devops ai rag ingest --dry-run
    - The command checks the remote `HEAD` commit using `git ls-remote --symref`.
    - If the remote `HEAD` matches the recorded commit and points are intact, the command skips re-indexing.
    - When a commit changes, the command updates a shallow checkout and indexes changed files.
+   - The command finds the changed files with no local cache. Each point in Qdrant holds the content hash of its file (`file_hash`) and the count of the chunks of that file (`file_chunks`). When the local cache does not hold a file, the command reads these keys of the project from Qdrant and skips each file that Qdrant holds whole with its current hash. So a new pod of the `rag-ingest` Workflow embeds only the changed files.
+   - Points that a release before `file_hash` wrote hold no file hash. The first run after the update embeds each such file once.
 4. **Collection Refill**:
    - If `devops ai rag clear` empties a collection, the next ingestion pass detects missing points and refills all configured repositories.
 

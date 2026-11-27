@@ -304,6 +304,20 @@ def test_each_failed_call_names_the_server_and_holds_no_url(
     _assert_no_url(raised, caplog)
 
 
+def test_a_failed_payload_scroll_names_the_server_and_holds_no_url(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = QdrantClient(
+        _HTTP_URL, client=_FailingNative(), allow_private_network=True, timeout=5.0
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="devops_cli.ai.rag.qdrant"):
+        with pytest.raises(QdrantClientError) as raised:
+            list(client.scroll_payloads("col", keys=("file_path",), page_size=2))
+
+    _assert_no_url(raised, caplog)
+
+
 def test_a_collection_that_cannot_be_created_holds_no_url(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
