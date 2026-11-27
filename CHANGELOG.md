@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.225.1](https://github.com/dan-petty/devops-cli/compare/v0.225.0...v0.225.1) (2026-11-27)
+
+
+### Bug Fixes
+
+* **k8s:** leave lost+found out of the volume move compare ([#7415](https://github.com/dan-petty/devops-cli/issues/7415)) ([a25ccaf](https://github.com/dan-petty/devops-cli/commit/a25ccaf178b9f470827e170b0e1c65077b047385))
+
 ## [0.225.0](https://github.com/dan-petty/devops-cli/compare/v0.224.3...v0.225.0) (2026-11-27)
 
 
