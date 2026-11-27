@@ -56,7 +56,7 @@ sequenceDiagram
     Maintainer->>Git: Approve & squash-merge PR into main
     Rel->>Git: Open or update the release pull request (version, CHANGELOG.md)
     Maintainer->>Git: Merge the release pull request early, or hold it with the label hold-release
-    Rel->>Rel: Create the tag and a draft release, attach the packages, publish it, and publish the images
+    Rel->>Rel: Create the tag and a draft release, publish the images, attach the packages, and then publish the release
 ```
 
 ---
