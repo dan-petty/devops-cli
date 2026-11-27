@@ -4877,6 +4877,9 @@ CONST_K8S_RECLAIM_DELETE: Final[str] = "Delete"
 CONST_K8S_RETENTION_DELETE: Final[str] = "Delete"
 CONST_K8S_CLAIM_PHASE_BOUND: Final[str] = "Bound"
 CONST_K8S_POD_PHASE_RUNNING: Final[str] = "Running"
+# The phases of an Argo CD sync operation that still runs. A pause of automated sync does not stop
+# such an operation, and it can make a deleted claim again from git (#7464).
+CONST_ARGOCD_OPERATION_PHASES_RUNNING: Final[frozenset[str]] = frozenset({"Running", "Terminating"})
 # The access modes that a PersistentVolumeClaim can name (#7459).
 CONST_K8S_ACCESS_MODES: Final[tuple[str, ...]] = (
     "ReadWriteOnce",
