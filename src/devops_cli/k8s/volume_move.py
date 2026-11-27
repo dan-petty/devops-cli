@@ -648,6 +648,18 @@ def _claim_pods(namespace: str, claim: str, context: str | None) -> list[dict[st
     ]
 
 
+def _ended_claim_pods(namespace: str, claim: str, context: str | None) -> list[str]:
+    """The names of the pods that name the claim and have ended. They hold no data, but the
+    claim protection still counts them, so the delete of the claim waits for them (#7465)."""
+    items = _read_json(["get", "pods", "-n", namespace, "-o", "json"], context).get("items") or []
+    return [
+        (pod.get("metadata") or {}).get("name", "")
+        for pod in items
+        if _mounts(pod, claim)
+        and (pod.get("status") or {}).get("phase") in CONST_K8S_POD_PHASES_ENDED
+    ]
+
+
 def _controller(item: dict[str, Any]) -> tuple[str, str] | None:
     for owner in (item.get("metadata") or {}).get("ownerReferences") or []:
         if owner.get("controller"):
@@ -1269,6 +1281,9 @@ class _MoveRun:
                 namespace=plan.namespace, claim=plan.claim, path=self.saved_claim
             )
         )
+        ended = _ended_claim_pods(plan.namespace, plan.claim, self.context)
+        if ended:
+            self._delete("pod", *ended, missing_ok=True)
         self.past_point_of_no_return = True
         self._delete("pvc", plan.claim)
 
@@ -1690,6 +1705,13 @@ def _dry_run_writes(plan: VolumeMovePlan, context: str | None) -> list[PlannedRe
             ["get", "pvc", claim, "-n", ns, "-o", "json"],
             context,
             f"claim {ns}/{claim}, saved to a file",
+        ),
+        _planned(["get", "pods", "-n", ns, "-o", "json"], context, "the pods that have ended"),
+        _planned(
+            _delete_args("pod", ("<ended pod>",), ns, missing_ok=True),
+            context,
+            "the pods that name the claim and have ended",
+            condition="a pod of the claim has ended",
         ),
         _planned(
             _delete_args("pvc", (claim,), ns, missing_ok=False),
