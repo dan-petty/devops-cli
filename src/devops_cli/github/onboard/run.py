@@ -34,6 +34,7 @@ from devops_cli.github.onboard.routes import READS, ROUTES, RouteWriteError, Rou
 from devops_cli.github.onboard.service_rows import (
     app_row,
     cluster_row,
+    deploy_plan,
     labels_row,
     rag_row,
     service_row,
@@ -240,8 +241,9 @@ def onboard_repository(
     _preflight(run, lambda: preflight_row(session, ctx, run.baseline, scopes=scopes, probe=probe))
     _settings_rows(run)
     _pull_rows(run, template)
-    run.put(12, lambda: webhook_row(session, writer, ctx, settings))
-    run.put(13, lambda: service_row(writer, ctx, settings))
+    deploy = deploy_plan(settings, ctx, wanted=run.wanted)
+    run.put(12, lambda: webhook_row(session, writer, ctx, settings, deploy=deploy))
+    run.put(13, lambda: service_row(writer, ctx, settings, deploy=deploy))
     run.put(14, lambda: cluster_row(ctx))
     run.put(15, lambda: rag_row(writer, ctx, settings))
     return _report(run)

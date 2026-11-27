@@ -213,6 +213,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SERVICE_MODEL_CALL_CONCURRENCY,
     DEFAULT_SERVICE_POLL_INTERVAL_IDLE_SECONDS,
     DEFAULT_SERVICE_POLL_INTERVAL_SECONDS,
+    DEFAULT_SERVICE_WEBHOOK_URL,
     DEFAULT_SSH_KEY_DIR,
     DEFAULT_SSH_KEY_PREFIX,
     DEFAULT_SSH_ROTATION_DAYS,
@@ -1857,7 +1858,7 @@ class ServiceConfig(BaseModel):
     )
     webhook_url: Annotated[str, Variable()] = Field(
         description="Public URL of the Service's GitHub webhook route, which onboarding compares with the repository hooks",
-        default="https://hooks.example.com/webhooks/github",
+        default=DEFAULT_SERVICE_WEBHOOK_URL,
     )
     github_requests_per_hour: Annotated[int, Variable()] = Field(
         description="The most GitHub requests the Service sends in one hour, not counting those that GitHub answers with 304, as GitHub does not count them against its rate limit; a request that the last hour has no room for waits. The alert RoadmapServiceGitHubRequestsHigh follows this limit",

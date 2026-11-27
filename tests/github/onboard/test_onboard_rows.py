@@ -66,6 +66,12 @@ def _store_hook_secret(harness: OnboardHarness) -> None:
     harness.keyring.values["service_webhook_secrets"] = json.dumps({REPO: "stored-secret"})
 
 
+def _forget_hook_secret(harness: OnboardHarness) -> None:
+    """The keyring map with no secret of REPO, as a workstation that holds no cluster values has
+    it."""
+    harness.keyring.values["service_webhook_secrets"] = json.dumps({})
+
+
 def _onboarded(harness: OnboardHarness, config: Any) -> None:
     """REPO as a confirmed run leaves it, with its template pull request merged."""
     harness.state.onboard(release_flow=True)
@@ -323,6 +329,11 @@ def _in_infra(infra_checkout: Path, *prefix: str) -> Any:
     return lambda call: call.cwd == infra_checkout.parent and call.argv[: len(prefix)] == prefix
 
 
+def _in_workdir(harness: OnboardHarness, *prefix: str) -> Any:
+    """A matcher of the git commands that run in the checkout of devops-cli."""
+    return lambda call: call.cwd == harness.workdir and call.argv[: len(prefix)] == prefix
+
+
 @pytest.mark.parametrize(
     ("command", "answer", "reason"),
     [
@@ -392,6 +403,94 @@ def test_a_new_hook_keeps_its_secret_in_the_keyring_only(onboard_github: Onboard
     assert onboard_github.state.hooks[0]["config"]["secret"] == secret
     assert len(secret) == 64
     assert secret not in render_report(report)
+
+
+def test_a_secret_write_needs_the_service_row(onboard_github: OnboardHarness, config: Any) -> None:
+    _onboarded(onboard_github, config)
+    _forget_hook_secret(onboard_github)
+
+    report = _run(onboard_github, confirm=True, only=frozenset({12}))
+
+    row = _row(report, 12)
+    assert row.state is RowState.PENDING, render_report(report)
+    assert any("secret" in change for change in row.changes)
+    assert f"PATCH /repos/{REPO}/hooks/9" not in onboard_github.writes()
+    assert json.loads(onboard_github.keyring.values["service_webhook_secrets"]) == {}
+
+
+def test_a_no_deploy_run_writes_no_hook_secret(onboard_github: OnboardHarness, config: Any) -> None:
+    _onboarded(onboard_github, config)
+    _forget_hook_secret(onboard_github)
+
+    report = _run(onboard_github, confirm=True, only=frozenset({12, 13}), deploy=False)
+
+    assert _row(report, 12).state is RowState.PENDING
+    assert f"PATCH /repos/{REPO}/hooks/9" not in onboard_github.writes()
+    assert json.loads(onboard_github.keyring.values["service_webhook_secrets"]) == {}
+    assert any("--no-deploy" in step.text for step in report.person_steps)
+
+
+def test_a_refused_service_row_writes_no_hook_secret(
+    onboard_github: OnboardHarness, config: Any
+) -> None:
+    _onboarded(onboard_github, config)
+    _forget_hook_secret(onboard_github)
+    onboard_github.processes.answer(
+        _in_workdir(onboard_github, "git", "status"), ProcessAnswer(stdout=" M src/a.py\n")
+    )
+
+    report = _run(onboard_github, confirm=True, only=frozenset({12, 13}))
+
+    assert _row(report, 12).state is RowState.PENDING
+    assert _row(report, 13).state is RowState.PRESENT
+    assert f"PATCH /repos/{REPO}/hooks/9" not in onboard_github.writes()
+    assert any("changed files" in step.text for step in report.person_steps)
+    assert onboard_github.calls("deploy-stack") == []
+
+
+def test_the_service_row_writes_the_secret(onboard_github: OnboardHarness, config: Any) -> None:
+    _onboarded(onboard_github, config)
+    _forget_hook_secret(onboard_github)
+
+    report = _run(onboard_github, confirm=True, only=frozenset({12, 13}))
+
+    secret = json.loads(onboard_github.keyring.values["service_webhook_secrets"])[REPO]
+    assert len(secret) == 64
+    assert onboard_github.state.hooks[0]["config"]["secret"] == secret
+    assert [write for write in onboard_github.writes() if "hooks" in write] == [
+        f"PATCH /repos/{REPO}/hooks/9"
+    ]
+    assert _row(report, 12).state is RowState.APPLIED
+
+
+def test_the_deploy_plan_reads_the_checkout_once(
+    onboard_github: OnboardHarness, config: Any
+) -> None:
+    _onboarded(onboard_github, config)
+    _forget_hook_secret(onboard_github)
+
+    _run(onboard_github, confirm=True, only=frozenset({12, 13}))
+
+    fetches = [
+        call
+        for call in onboard_github.processes.calls
+        if call.argv[:2] == ("git", "fetch") and call.cwd == onboard_github.workdir
+    ]
+    assert len(fetches) == 1
+
+
+def test_a_confirm_with_nothing_to_change_starts_no_git(
+    onboard_github: OnboardHarness, config: Any
+) -> None:
+    _onboarded(onboard_github, config)
+    _forget_hook_secret(onboard_github)
+    _run(onboard_github, confirm=True, only=frozenset({12, 13}))
+    onboard_github.processes.calls.clear()
+
+    report = _run(onboard_github, confirm=True)
+
+    assert (_row(report, 12).state, _row(report, 13).state) == (P, P)
+    assert [call.argv for call in onboard_github.processes.calls if call.argv[:1] == ("git",)] == []
 
 
 def test_a_differing_label_is_kept(onboard_github: OnboardHarness) -> None:
@@ -519,12 +618,12 @@ def test_a_drifted_repository_gets_one_write_for_each_difference(
         "PUT /repos/example-org/app/actions/permissions/workflow",
         "PATCH /repos/example-org/app/environments/release/variables/RELEASE_APP_CLIENT_ID",
         "PUT /repos/example-org/app/rulesets/7",
-        "PATCH /repos/example-org/app/hooks/9",
     ]
     assert state.rulesets[0]["enforcement"] == "active"
-    assert _row(report, 13).state is RowState.APPLIED
+    assert _row(report, 12).state is RowState.PENDING
+    assert _row(report, 13).state is RowState.PRESENT
     assert onboard_github.calls("deploy-stack") == []
-    assert any("deploy-stack" in step.text for step in report.person_steps)
+    assert not any("deploy-stack" in step.text for step in report.person_steps)
 
 
 def test_a_stale_template_pull_request_gets_a_new_commit(onboard_github: OnboardHarness) -> None:

@@ -46,7 +46,7 @@ TEMPLATE_TAG = "v0.3.0"
 TEMPLATE_BRANCH = "ci/repository-template"
 SCHEMA_PATH = "templates/github-repository.schema.json"
 CHECK_NAME = "PR title / Semantic PR title"
-WEBHOOK_URL = "https://hooks.example.com/webhooks/github"
+WEBHOOK_URL = "https://webhooks.example.com/github"
 CLIENT_ID = "Iv23example"
 # The prefix of an installation token of a GitHub App.
 _INSTALLATION_TOKEN = "ghs_"

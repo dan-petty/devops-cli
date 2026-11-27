@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 import secrets
 import sys
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
 
 import yaml
@@ -51,6 +53,7 @@ if TYPE_CHECKING:
     from devops_cli.k8s.environment import EnvironmentTree
 
 _WEBHOOK_SECRETS: Final[str] = "service.webhook_secrets"
+_WEBHOOK_URL: Final[str] = "service.webhook_url"
 _ALL_EVENTS: Final[str] = "*"
 _SERVICE_SECRET: Final[str] = "devops/devops-cli"
 _SERVICE_STACK: Final[str] = "devops"
@@ -177,6 +180,39 @@ def webhook_step(settings: Settings) -> PersonStep:
     )
 
 
+def webhook_url_step() -> PersonStep:
+    """The step for a person that sets `service.webhook_url` to the URL that the cluster holds. A
+    workstation that holds no cluster values has the default, so the row reads and writes no
+    hook (#7308)."""
+    return PersonStep(
+        f"Set `{_WEBHOOK_URL}` to the public URL of the Service webhook route, as the cluster "
+        f"holds it, with `devops config set {_WEBHOOK_URL} <url>`, then run "
+        f"`devops repos onboard <repo> --confirm` again. The setting still holds the default "
+        f"value of the field, so no repository hook was read or written.",
+        DOC_WEBHOOKS,
+    )
+
+
+def webhook_secret_step(repo: str, withheld: str) -> PersonStep:
+    """The step for a person that writes a withheld hook secret. The run that writes the secret
+    must also do row 13 and its deploy, so that the cluster gets the secret in the same run
+    (#7308)."""
+    return PersonStep(
+        f"From a clean checkout of origin/main, run `devops repos onboard {repo} --confirm --only "
+        f"12,13`, so that the run which writes the new secret of the hook of {repo} also pushes it "
+        f"to the cluster. This run wrote no secret: {withheld}.",
+        DOC_WEBHOOKS,
+    )
+
+
+def _webhook_url_is_default(settings: Settings) -> bool:
+    """Whether `service.webhook_url` still holds the default of its settings field, which is the
+    value of a workstation that holds no cluster values (#7308)."""
+    from devops_cli.config.settings import setting_default
+
+    return settings.service.webhook_url == str(setting_default(_WEBHOOK_URL))
+
+
 def _sends_events(hook: RepositoryHook) -> bool:
     """Whether the hook sends each event that the Service takes; `*` sends every event (#6662)."""
     return _ALL_EVENTS in hook.events or set(CONST_ROADMAP_WEBHOOK_EVENTS) <= set(hook.events)
@@ -233,12 +269,27 @@ def _store_secret(settings: Settings, repo: str, secret: str) -> None:
 
 
 def webhook_row(
-    session: GitHubSession, writer: RouteWriter, ctx: RowContext, settings: Settings
+    session: GitHubSession,
+    writer: RouteWriter,
+    ctx: RowContext,
+    settings: Settings,
+    *,
+    deploy: Callable[[], DeployPlan],
 ) -> Row:
     """Row 12: the repository webhook of the Service, until #4417. A missing hook gets `POST`, and
     a wrong hook or a hook whose secret the keyring map lacks gets `PATCH`, each with a new secret
-    that goes into the keyring map and into no output."""
+    that goes into the keyring map and into no output. A `service.webhook_url` that still holds its
+    default is a person step, and the row reads and writes no hook (#7308). A new secret of an
+    existing hook is withheld unless the same run deploys it (#7308)."""
     name = "Webhook"
+    if _webhook_url_is_default(settings):
+        return Row(
+            12,
+            name,
+            RowState.PERSON,
+            reason=f"{_WEBHOOK_URL} holds its default",
+            steps=(webhook_url_step(),),
+        )
     try:
         hooks = session.client.get_repository_hooks(ctx.repo)
     except DevOpsCLIError as exc:
@@ -255,11 +306,21 @@ def webhook_row(
         writer.rest("hook-create", f"/repos/{ctx.repo}/hooks", _hook_body(settings, secret))
         change = f"create the hook of {url}"
     else:
+        fields = _wrong_fields(hook) or ["secret"]
+        change = f"update the hook of {url}: {', '.join(fields)}"
+        plan = deploy()
+        if not plan.deploy:
+            return Row(
+                12,
+                name,
+                RowState.PENDING,
+                reason=plan.withheld,
+                changes=(change, f"secret in {_WEBHOOK_SECRETS}"),
+                steps=(webhook_secret_step(ctx.repo, plan.withheld),),
+            )
         writer.rest(
             "hook-update", f"/repos/{ctx.repo}/hooks/{hook.id}", _hook_body(settings, secret)
         )
-        fields = _wrong_fields(hook) or ["secret"]
-        change = f"update the hook of {url}: {', '.join(fields)}"
     writer.run("webhook-secret", lambda: _store_secret(settings, ctx.repo, secret))
     ctx.service_changed = True
     return Row(12, name, _write_state(writer), changes=(change, f"secret in {_WEBHOOK_SECRETS}"))
@@ -321,6 +382,59 @@ def _deploy_tree(settings: Settings, workdir: Path) -> tuple[EnvironmentTree | N
     return env, None
 
 
+_NOT_WANTED: Final[str] = "row 13 is not in --only"
+_NO_DEPLOY: Final[str] = "--no-deploy is set"
+
+
+@dataclass(frozen=True, slots=True)
+class DeployPlan:
+    """What the deploy of row 13 gives, and whether row 12 may write a hook secret: the refusal of
+    the clean-checkout checks, the environment tree, whether the run deploys, and the text of why
+    row 12 writes no secret."""
+
+    reason: str | None = None
+    tree: EnvironmentTree | None = None
+    deploy: bool = False
+    withheld: str = ""
+
+
+def _read_deploy_plan(
+    settings: Settings, ctx: RowContext, *, wanted: Callable[[int], bool]
+) -> DeployPlan:
+    """The plan of the deploy of row 13, as the two rows read it. A `--plan` run reads no checkout,
+    and only a refusal of the checks makes row 13 refuse."""
+    if not wanted(13):
+        return DeployPlan(withheld=_NOT_WANTED)
+    if not ctx.options.deploy:
+        return DeployPlan(withheld=_NO_DEPLOY)
+    if not ctx.options.confirm:
+        return DeployPlan(deploy=True)
+    reason = clean_main_reason(ctx.options.workdir)
+    if reason is not None:
+        return DeployPlan(reason=reason, withheld=reason)
+    tree, tree_reason = _deploy_tree(settings, ctx.options.workdir)
+    if tree_reason is not None:
+        return DeployPlan(reason=tree_reason, withheld=tree_reason)
+    return DeployPlan(tree=tree, deploy=True)
+
+
+def deploy_plan(
+    settings: Settings, ctx: RowContext, *, wanted: Callable[[int], bool]
+) -> Callable[[], DeployPlan]:
+    """The callable that gives the plan of the deploy of row 13, which rows 12 and 13 share. The
+    checkout is read at the first call and at no later call, so a run that needs no deploy starts
+    no git, and a run whose two rows need the plan reads the checkout once."""
+    plan: DeployPlan | None = None
+
+    def read() -> DeployPlan:
+        nonlocal plan
+        if plan is None:
+            plan = _read_deploy_plan(settings, ctx, wanted=wanted)
+        return plan
+
+    return read
+
+
 def _run_devops(workdir: Path, *args: str) -> None:
     """Run one devops command as a child of the person, or raise naming it."""
     argv = [sys.executable, "-P", "-m", CONST_DEVOPS_CLI_ENTRY_MODULE, *args]
@@ -348,10 +462,17 @@ _DEPLOY_STEP: Final[str] = (
 )
 
 
-def service_row(writer: RouteWriter, ctx: RowContext, settings: Settings) -> Row:
+def service_row(
+    writer: RouteWriter,
+    ctx: RowContext,
+    settings: Settings,
+    *,
+    deploy: Callable[[], DeployPlan],
+) -> Row:
     """Row 13 (D4): the repository in `service.repos`, then push-secrets and deploy-stack, only
     from a clean checkout of `origin/main` of devops-cli, with an environment tree whose checkout
-    is clean at its `origin/main` (#7290)."""
+    is clean at its `origin/main` (#7290). The plan of the deploy comes from `deploy`, which row 12
+    shares."""
     name = "Service"
     listed = ctx.repo in settings.service.repos
     if listed and not ctx.service_changed:
@@ -364,23 +485,20 @@ def service_row(writer: RouteWriter, ctx: RowContext, settings: Settings) -> Row
     deploy_step = PersonStep(_DEPLOY_STEP, DOC_DEPLOY)
     if not writer.confirm:
         return Row(13, name, RowState.PENDING, changes=tuple(changes))
-    reason = clean_main_reason(ctx.options.workdir)
-    env: EnvironmentTree | None = None
-    if reason is None and ctx.options.deploy:
-        env, reason = _deploy_tree(settings, ctx.options.workdir)
-    if reason is not None:
+    plan = deploy()
+    if plan.reason is not None:
         step = PersonStep(
             f"Add {ctx.repo} to service.repos with `devops config set service.repos`, then: "
             f"{_DEPLOY_STEP}",
             DOC_DEPLOY,
         )
-        return Row(13, name, RowState.REFUSED, reason=reason, steps=(step,))
+        return Row(13, name, RowState.REFUSED, reason=plan.reason, steps=(step,))
     if not listed:
         writer.run("service-repos", lambda: _add_to_service_repos(settings, ctx.repo))
-    if env is None:
+    if plan.tree is None:
         return Row(13, name, RowState.APPLIED, changes=tuple(changes), steps=(deploy_step,))
     # The child commands read the tree that the check read.
-    tree = ("--k8s-dir", str(env.root))
+    tree = ("--k8s-dir", str(plan.tree.root))
     writer.run("push-secrets", lambda: _run_devops(ctx.options.workdir, *_PUSH_ARGS, *tree))
     writer.run("deploy-stack", lambda: _run_devops(ctx.options.workdir, *_DEPLOY_ARGS, *tree))
     return Row(13, name, RowState.APPLIED, changes=tuple(changes))
@@ -493,13 +611,17 @@ def rag_row(writer: RouteWriter, ctx: RowContext, settings: Settings) -> Row:
 
 
 __all__ = [
+    "DeployPlan",
     "app_row",
     "clean_main_reason",
     "cluster_row",
     "configured_apps",
+    "deploy_plan",
     "labels_row",
     "rag_row",
     "service_row",
     "webhook_row",
+    "webhook_secret_step",
     "webhook_step",
+    "webhook_url_step",
 ]
