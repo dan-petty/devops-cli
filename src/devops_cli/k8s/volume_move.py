@@ -8,7 +8,7 @@ whose CSINode lists that driver.
 their workloads, the leftovers of an earlier move and the Argo CD Applications. It refuses a move
 that cannot run safely, and returns the plan with the real names. `run_volume_move` runs the steps
 that `describe_volume_move` names, the procedure of `k8s/README.md` (Local-Path Volume Placement):
-it pauses Argo CD from the top down, copies the data with GNU tar through the API server, compares
+it pauses Argo CD from the top down, copies the data with GNU tar from pod to pod, compares
 the two sides, and binds the claim to the new volume.
 
 Until the run sends the delete of the old claim, a failure undoes each change the run made, in
@@ -50,10 +50,16 @@ from devops_cli.config.constants import (
     CONST_K8S_SUBDOMAIN_RE,
     CONST_K8S_UNSCHEDULABLE_TAINT,
     CONST_K8S_VOLUME_MOVE_CLAIM_SUFFIX,
+    CONST_K8S_VOLUME_MOVE_COPY_PORT,
     CONST_K8S_VOLUME_MOVE_DESTINATION_DIR,
     CONST_K8S_VOLUME_MOVE_DESTINATION_SUFFIX,
     CONST_K8S_VOLUME_MOVE_DIGEST_SCRIPT,
     CONST_K8S_VOLUME_MOVE_LABELS,
+    CONST_K8S_VOLUME_MOVE_LISTEN_SCRIPT,
+    CONST_K8S_VOLUME_MOVE_LISTENER,
+    CONST_K8S_VOLUME_MOVE_POLICY_SUFFIX,
+    CONST_K8S_VOLUME_MOVE_RESULT_SCRIPT,
+    CONST_K8S_VOLUME_MOVE_SEND_SCRIPT,
     CONST_K8S_VOLUME_MOVE_SOURCE_DIR,
     CONST_K8S_VOLUME_MOVE_SOURCE_SUFFIX,
 )
@@ -61,6 +67,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ARGOCD_NAMESPACE,
     DEFAULT_K8S_VOLUME_MOVE_COPY_TIMEOUT_SECONDS,
     DEFAULT_K8S_VOLUME_MOVE_DETAIL_CHARS,
+    DEFAULT_K8S_VOLUME_MOVE_EXTRACT_WAIT_SECONDS,
     DEFAULT_K8S_VOLUME_MOVE_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_K8S_VOLUME_MOVE_ROLLOUT_SECONDS,
     DEFAULT_K8S_VOLUME_MOVE_WAIT_SECONDS,
@@ -139,6 +146,11 @@ class VolumeMovePlan:
     def source_pod(self) -> str:
         """The copy pod that mounts the old claim read-only."""
         return f"{self.claim}{CONST_K8S_VOLUME_MOVE_SOURCE_SUFFIX}"
+
+    @property
+    def copy_policy(self) -> str:
+        """The temporary NetworkPolicy that lets the source copy pod reach the destination."""
+        return f"{self.claim}{CONST_K8S_VOLUME_MOVE_POLICY_SUFFIX}"
 
     @property
     def destination_pod(self) -> str:
@@ -345,64 +357,47 @@ def empty_args(pod: str, namespace: str) -> list[str]:
 def copy_argv(
     namespace: str, source_pod: str, destination_pod: str, context: str | None
 ) -> list[str]:
-    """One pipe between two exec streams through the API server, which reach each pod's node.
+    """The copy as one bash script: GNU tar from pod to pod over the pod network (#7408).
 
-    `run_subprocess` starts one program, so bash holds the pipe; `pipefail` fails the copy when
-    either side fails, and `shlex.join` quotes every word of the two kubectl commands.
-
-    The end of the source's stdout loses the data that still waits on the path to a slower
-    destination (#3695), so the source keeps its stdout open until the destination has ended. GNU
-    tar ends the extract at the end-of-archive marker with its stdin still open. A named pipe joins
-    the destination's stdout to the source's stdin: when the destination ends, `cat` gets the end
-    of its input and the source ends. When the source's tar fails, the source ends at once, so the
-    destination gets the end of its input and fails too.
+    The stdout of an exec stream through the API server lost data at full speed, so no data goes
+    through an exec stream. The script reads the IP address of the destination pod, starts a
+    listener in that pod that gives one connection to `tar -x`, lets the source pod send `tar -c`
+    to it, and waits for the exit code of the extract. Each exec stream carries only a script and
+    its result. `run_subprocess` starts one program, so bash runs the four requests; `set -eu`
+    stops at the first one that fails, and `shlex.join` quotes every word of each request.
     """
-    source = build_kubectl_cmd(
-        [
-            "exec",
-            "-i",
-            source_pod,
-            "-n",
-            namespace,
-            "--",
-            "bash",
-            "-c",
-            shlex.join(
-                [
-                    "tar",
-                    "-C",
-                    CONST_K8S_VOLUME_MOVE_SOURCE_DIR,
-                    "--numeric-owner",
-                    "--sparse",
-                    "-cpf",
-                    "-",
-                    ".",
-                ]
-            )
-            + " && exec cat",
-        ],
-        context,
+    port = str(CONST_K8S_VOLUME_MOVE_COPY_PORT)
+
+    def kubectl(*args: str) -> str:
+        return shlex.join(build_kubectl_cmd(list(args), context))
+
+    def exec_in(pod: str, script: str, name: str, *args: str) -> str:
+        return kubectl("exec", pod, "-n", namespace, "--", "bash", "-c", script, name, *args)
+
+    pod_ip = kubectl(
+        "get", "pod", destination_pod, "-n", namespace, "-o", "jsonpath={.status.podIP}"
     )
-    destination = build_kubectl_cmd(
-        [
-            "exec",
-            "-i",
+    script = [
+        "set -eu",
+        f"ip=$({pod_ip})",
+        exec_in(
             destination_pod,
-            "-n",
-            namespace,
-            "--",
-            "tar",
-            "-C",
+            CONST_K8S_VOLUME_MOVE_LISTEN_SCRIPT,
+            "volume-move-listen",
+            CONST_K8S_VOLUME_MOVE_LISTENER,
+            port,
             CONST_K8S_VOLUME_MOVE_DESTINATION_DIR,
-            "--numeric-owner",
-            "-xpf",
-            "-",
-        ],
-        context,
-    )
-    hold = """hold=$(mktemp -d) && trap 'rm -rf "$hold"' EXIT && mkfifo "$hold/end" && """
-    pipe = f'{shlex.join(source)} <"$hold/end" | {shlex.join(destination)} >"$hold/end"'
-    return [BIN_BASH, "-o", "pipefail", "-c", hold + pipe]
+        ),
+        exec_in(source_pod, CONST_K8S_VOLUME_MOVE_SEND_SCRIPT, "volume-move-send")
+        + f' "$ip" {port} {CONST_K8S_VOLUME_MOVE_SOURCE_DIR}',
+        exec_in(
+            destination_pod,
+            CONST_K8S_VOLUME_MOVE_RESULT_SCRIPT,
+            "volume-move-result",
+            str(DEFAULT_K8S_VOLUME_MOVE_EXTRACT_WAIT_SECONDS),
+        ),
+    ]
+    return [BIN_BASH, "-o", "pipefail", "-c", "\n".join(script)]
 
 
 def delete_old_volume_command(plan: VolumeMovePlan, context: str | None) -> str:
@@ -428,6 +423,31 @@ def _move_claim_manifest(plan: VolumeMovePlan) -> dict[str, Any]:
             "storageClassName": plan.new_storage_class,
             "volumeMode": plan.volume_mode,
             "resources": {"requests": {"storage": plan.size}},
+        },
+    }
+
+
+def _copy_policy_manifest(plan: VolumeMovePlan) -> dict[str, Any]:
+    """A NetworkPolicy that lets the copy pods reach each other on the copy port, and no more.
+
+    A namespace that refuses traffic by default still lets the source reach the listener. The
+    policy allows both directions: a pod that a policy selects for egress needs an egress rule too.
+    """
+    peers = [{"podSelector": {"matchLabels": dict(CONST_K8S_VOLUME_MOVE_LABELS)}}]
+    ports = [{"protocol": "TCP", "port": CONST_K8S_VOLUME_MOVE_COPY_PORT}]
+    return {
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "NetworkPolicy",
+        "metadata": {
+            "name": plan.copy_policy,
+            "namespace": plan.namespace,
+            "labels": dict(CONST_K8S_VOLUME_MOVE_LABELS),
+        },
+        "spec": {
+            "podSelector": {"matchLabels": dict(CONST_K8S_VOLUME_MOVE_LABELS)},
+            "policyTypes": ["Ingress", "Egress"],
+            "ingress": [{"from": peers, "ports": ports}],
+            "egress": [{"to": peers, "ports": ports}],
         },
     }
 
@@ -675,6 +695,7 @@ def _leftover_problems(namespace: str, claim: str, context: str | None) -> list[
         f"pod/{claim}{CONST_K8S_VOLUME_MOVE_SOURCE_SUFFIX}",
         f"pod/{claim}{CONST_K8S_VOLUME_MOVE_DESTINATION_SUFFIX}",
         f"pvc/{claim}{CONST_K8S_VOLUME_MOVE_CLAIM_SUFFIX}",
+        f"networkpolicy/{claim}{CONST_K8S_VOLUME_MOVE_POLICY_SUFFIX}",
     ]
     found = _kubectl(
         ["get", *names, "-n", namespace, "--ignore-not-found", "-o", "name"], context
@@ -915,6 +936,8 @@ def describe_volume_move(plan: VolumeMovePlan) -> tuple[str, ...]:
             claim=plan.move_claim,
             size=plan.size,
             storage_class=plan.new_storage_class,
+            policy=plan.copy_policy,
+            port=CONST_K8S_VOLUME_MOVE_COPY_PORT,
             pod=plan.destination_pod,
             node=plan.target_node,
         ),
@@ -922,11 +945,15 @@ def describe_volume_move(plan: VolumeMovePlan) -> tuple[str, ...]:
         m.volume_move_step_source.format(
             pod=plan.source_pod, claim=plan.claim, node=plan.source_node
         ),
-        m.volume_move_step_copy.format(source=plan.source_pod, destination=plan.destination_pod),
+        m.volume_move_step_copy.format(
+            source=plan.source_pod,
+            destination=plan.destination_pod,
+            port=CONST_K8S_VOLUME_MOVE_COPY_PORT,
+        ),
         m.volume_move_step_compare,
         m.volume_move_step_retain.format(claim=plan.move_claim, volume=plan.old_volume),
         m.volume_move_step_delete_pods.format(
-            source=plan.source_pod, destination=plan.destination_pod
+            source=plan.source_pod, destination=plan.destination_pod, policy=plan.copy_policy
         ),
         m.volume_move_step_delete_claim.format(namespace=plan.namespace, claim=plan.claim),
         m.volume_move_step_rebind.format(
@@ -1060,6 +1087,8 @@ class _MoveRun:
         plan = self.plan
         self._undo_delete("pvc", plan.move_claim, "claim")
         self._create(_move_claim_manifest(plan))
+        self._undo_delete("networkpolicy", plan.copy_policy, "NetworkPolicy")
+        self._create(_copy_policy_manifest(plan))
         self._undo_delete("pod", plan.destination_pod, "pod")
         self._create(_copy_pod_manifest(plan, destination=True))
         self._wait(
@@ -1165,6 +1194,7 @@ class _MoveRun:
 
     def delete_copy_pods(self) -> None:
         self._delete("pod", self.plan.source_pod, self.plan.destination_pod)
+        self._delete("networkpolicy", self.plan.copy_policy)
 
     def delete_old_claim(self) -> None:
         """Save the claim as it is now, then delete it: the point of no return."""
@@ -1408,7 +1438,12 @@ def _dry_run_reads(
 ) -> list[PlannedRequest]:
     ns, claim = plan.namespace, plan.claim
     node = to_node or "<worker-node>"
-    leftovers = [f"pod/{plan.source_pod}", f"pod/{plan.destination_pod}", f"pvc/{plan.move_claim}"]
+    leftovers = [
+        f"pod/{plan.source_pod}",
+        f"pod/{plan.destination_pod}",
+        f"pvc/{plan.move_claim}",
+        f"networkpolicy/{plan.copy_policy}",
+    ]
     nodes = "for each worker node that is Ready and schedulable" + (
         " and can attach a volume of the class" if plan.changes_class else ""
     )
@@ -1520,6 +1555,12 @@ def _dry_run_writes(plan: VolumeMovePlan, context: str | None) -> list[PlannedRe
         _planned(
             ["create", "-f", "-", "-o", "name"],
             context,
+            f"NetworkPolicy {plan.copy_policy}",
+            stdin=_copy_policy_manifest(plan),
+        ),
+        _planned(
+            ["create", "-f", "-", "-o", "name"],
+            context,
             f"pod {plan.destination_pod}",
             stdin=_copy_pod_manifest(plan, destination=True),
         ),
@@ -1573,6 +1614,11 @@ def _dry_run_writes(plan: VolumeMovePlan, context: str | None) -> list[PlannedRe
             _delete_args("pod", (plan.source_pod, plan.destination_pod), ns, missing_ok=False),
             context,
             "the copy pods",
+        ),
+        _planned(
+            _delete_args("networkpolicy", (plan.copy_policy,), ns, missing_ok=False),
+            context,
+            f"NetworkPolicy {plan.copy_policy}",
         ),
         _planned(
             ["get", "pvc", claim, "-n", ns, "-o", "json"],

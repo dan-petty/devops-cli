@@ -1352,6 +1352,9 @@ DEFAULT_K8S_VOLUME_MOVE_WAIT_SECONDS: int = 300
 DEFAULT_K8S_VOLUME_MOVE_ROLLOUT_SECONDS: int = 600
 # The bound of one copy and of one side's digest, which read every byte of the volume.
 DEFAULT_K8S_VOLUME_MOVE_COPY_TIMEOUT_SECONDS: float = 3600.0
+# How long the copy waits for the extract in the destination copy pod after the source has sent
+# the whole archive: the extract then only writes the last of its input.
+DEFAULT_K8S_VOLUME_MOVE_EXTRACT_WAIT_SECONDS: int = 300
 # The characters of kubectl's error output that a failure message keeps.
 DEFAULT_K8S_VOLUME_MOVE_DETAIL_CHARS: int = 400
 

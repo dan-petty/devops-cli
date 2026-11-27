@@ -4879,6 +4879,66 @@ CONST_K8S_POD_PHASE_RUNNING: Final[str] = "Running"
 # The taint that a cordon adds. The source copy pod must tolerate it: the usual reason to move a
 # claim off a node is that the node is cordoned (#5305).
 CONST_K8S_UNSCHEDULABLE_TAINT: Final[str] = "node.kubernetes.io/unschedulable"
+# The copy of a volume move goes from pod to pod over the pod network, not through the API server:
+# the stdout of an exec stream loses data at full speed (#7408). The destination copy pod listens
+# on this port once, and the NetworkPolicy `<claim>-copy` lets the copy pods reach it.
+CONST_K8S_VOLUME_MOVE_COPY_PORT: Final[int] = 7373
+CONST_K8S_VOLUME_MOVE_POLICY_SUFFIX: Final[str] = "-copy"
+CONST_K8S_VOLUME_MOVE_LISTENER: Final[str] = (
+    "use IO::Socket::INET;\n"
+    "my ($port, $dir) = @ARGV;\n"
+    "my $server = IO::Socket::INET->new(LocalPort => $port, Listen => 1, ReuseAddr => 1)\n"
+    '  or die "listen on port $port: $!\\n";\n'
+    'open(my $ready, ">", "/tmp/volume-move.ready") or die "ready: $!\\n";\n'
+    "close($ready);\n"
+    'my $client = $server->accept() or die "accept: $!\\n";\n'
+    "close($server);\n"
+    'open(STDIN, "<&", $client) or die "stdin: $!\\n";\n'
+    'my $status = system("tar", "-C", $dir, "--numeric-owner", "-xpf", "-");\n'
+    "my $code = $status == -1 ? 127 : ($status & 127) ? 128 + ($status & 127) : $status >> 8;\n"
+    "1 while sysread($client, my $rest, 65536);\n"
+    'open(my $out, ">", "/tmp/volume-move.status.part") or die "status: $!\\n";\n'
+    'print $out "$code\\n";\n'
+    "close($out);\n"
+    'rename("/tmp/volume-move.status.part", "/tmp/volume-move.status") or die "rename: $!\\n";\n'
+)
+"""The Perl program of the listener in the destination copy pod, with the port and the directory
+as its arguments. It takes one connection, gives it to GNU tar as stdin, reads the rest of the
+stream after the end of the archive, and writes the exit code of tar to `/tmp/volume-move.status`.
+Perl and its `IO::Socket::INET` are in the copy image; bash cannot listen on a port.
+"""
+CONST_K8S_VOLUME_MOVE_LISTEN_SCRIPT: Final[str] = (
+    'pid=$(cat /tmp/volume-move.pid 2>/dev/null) && kill -- "-$pid" 2>/dev/null\n'
+    'while [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; do sleep 0.2; done\n'
+    "rm -f /tmp/volume-move.ready /tmp/volume-move.status /tmp/volume-move.log\n"
+    'setsid perl -e "$1" "$2" "$3" </dev/null >/tmp/volume-move.log 2>&1 &\n'
+    "echo $! >/tmp/volume-move.pid\n"
+    "for _ in $(seq 1 30); do [ -f /tmp/volume-move.ready ] && exit 0; sleep 1; done\n"
+    "cat /tmp/volume-move.log >&2\n"
+    "exit 1"
+)
+"""The bash script that starts the listener in the background in the destination copy pod, with
+the listener, the port and the directory as `$1` to `$3`. It stops the listener of an earlier copy
+first, and ends when the new listener listens, so that the exec stream carries no data."""
+CONST_K8S_VOLUME_MOVE_SEND_SCRIPT: Final[str] = (
+    'exec 3>"/dev/tcp/$1/$2" && tar -C "$3" --numeric-owner --sparse -cpf - . >&3'
+)
+"""The bash script of the source copy pod, with the IP address of the destination pod, the port
+and the directory as `$1` to `$3`: it sends the archive to the listener over the pod network."""
+CONST_K8S_VOLUME_MOVE_RESULT_SCRIPT: Final[str] = (
+    'for _ in $(seq 1 "$1"); do\n'
+    "  if [ -f /tmp/volume-move.status ]; then\n"
+    "    code=$(cat /tmp/volume-move.status)\n"
+    '    [ "$code" = 0 ] || cat /tmp/volume-move.log >&2\n'
+    '    exit "$code"\n'
+    "  fi\n"
+    "  sleep 1\n"
+    "done\n"
+    'echo "the extract did not end within $1 s" >&2\n'
+    "exit 124"
+)
+"""The bash script that waits, up to `$1` seconds, for the exit code of the extract in the
+destination copy pod, and exits with it."""
 CONST_K8S_VOLUME_MOVE_SOURCE_SUFFIX: Final[str] = "-src"
 CONST_K8S_VOLUME_MOVE_DESTINATION_SUFFIX: Final[str] = "-dst"
 CONST_K8S_VOLUME_MOVE_CLAIM_SUFFIX: Final[str] = "-move"

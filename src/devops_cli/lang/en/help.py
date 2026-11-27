@@ -617,7 +617,7 @@ class K8sCommandHelp:
     volume_move: str = (
         "Move the data of a local-path claim to a new volume on another node or of another "
         "storage class, and bind the claim to it. The move pauses Argo CD from the top down, stops the workloads that mount the "
-        "claim, copies the data with GNU tar through the API server, compares the two sides, "
+        "claim, copies the data with GNU tar from pod to pod, compares the two sides, "
         "binds the claim to the new volume, starts the workloads and resumes Argo CD. Before it "
         "deletes the old claim, a failure undoes its steps; after that, a failure leaves Argo CD "
         "paused and names the saved claim. The old volume stays, with reclaim policy Retain, "
