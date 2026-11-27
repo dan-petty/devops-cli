@@ -2,7 +2,10 @@
 
 Each Application of the environment tree (`devops_cli.k8s.environment`, #5131) is rendered as
 Argo CD renders it: a path source with the builder of the Argo CD gate (`kubectl kustomize`), a
-chart source with `helm template` and the value files that its `$ref` sources name. A git source of
+chart source with `helm template` and the value files that its `$ref` sources name. A chart source
+names one of two repository forms. An `http` or `https` chart repository renders with the chart
+name and `--repo`. A path of an OCI registry, which Argo CD writes as a `repoURL` with no scheme,
+renders with the chart reference `oci://<repoURL>/<chart>` (#7368). A git source of
 the repository that holds the tree reads the checkout, and a source of another public repository is
 fetched at its revision (`devops_cli.k8s.app_sources`). A kustomization folder, such as the product
 base `k8s/devops`, renders the same way in place of the Applications. Helm's output then passes
@@ -195,6 +198,19 @@ def updater_repositories(rendered: str) -> list[str]:
     return repositories
 
 
+def _chart_reference(repo: str, chart: str) -> list[str]:
+    """The arguments that name the chart `chart` of the repository `repo` for `helm template`.
+
+    A `repoURL` with no `//` part is a path of an OCI registry, with a port or with none, as
+    `IsHelmOciRepo` of Argo CD reads it. Helm takes such a chart by its reference
+    `oci://<repoURL>/<chart>`, which is the reference that Argo CD pulls, and reads `--repo` only
+    as an `http` or `https` chart repository.
+    """
+    if not urlsplit(repo).netloc:
+        return [f"oci://{repo}/{chart}"]
+    return [chart, "--repo", repo]
+
+
 def _chart_command(
     trees: SourceTrees,
     name: str,
@@ -203,16 +219,9 @@ def _chart_command(
     refs: dict[str, Any],
 ) -> list[str]:
     helm = source.get("helm") or {}
-    repo = str(source["repoURL"])
-    if not urlsplit(repo).scheme:
-        # An OCI chart repository: no Application of this repository uses one yet.
-        raise ImagePinError(
-            f"Application {name} names an OCI chart repository, which the check does not render: {repo}"
-        )
-    command = ["helm", "template", str(helm.get("releaseName") or name), str(source["chart"])]
+    command = ["helm", "template", str(helm.get("releaseName") or name)]
+    command += _chart_reference(str(source["repoURL"]), str(source["chart"]))
     command += [
-        "--repo",
-        repo,
         "--version",
         str(source["targetRevision"]),
         "--namespace",
