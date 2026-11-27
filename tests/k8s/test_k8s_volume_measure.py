@@ -61,7 +61,7 @@ def test_the_measure_plans_the_copy_command_of_the_move(process_fake: ProcessFak
         == [tuple(copy_argv(plan.namespace, plan.source_pod, plan.destination_pod, CONTEXT))]
         * MEASURE_COPIES
     )
-    assert all("mkfifo" in argv[-1] and argv[-1].count("kubectl") == 2 for argv in copies)
+    assert all("/dev/tcp/" in argv[-1] and argv[-1].count("kubectl") == 4 for argv in copies)
     assert len(digests) == 2 * MEASURE_COPIES
     assert any(
         plan.source_pod in argv and CONST_K8S_VOLUME_MOVE_SOURCE_DIR in argv for argv in digests
@@ -308,7 +308,7 @@ def test_the_dry_run_lists_the_requests(
     assert f"pod {plan.destination_pod}" in output
     assert f"copy 1/{MEASURE_COPIES}" in output
     assert f"copy {MEASURE_COPIES}/{MEASURE_COPIES}" in output
-    assert output.count("mkfifo") == MEASURE_COPIES
+    assert output.count("volume-move-send") == MEASURE_COPIES
     assert process_fake.calls == []
 
 

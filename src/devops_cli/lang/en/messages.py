@@ -1112,8 +1112,9 @@ class K8sMessages:
         "Pause nothing: no Argo CD Application tracks the claim or its workloads."
     )
     volume_move_step_destination: str = (
-        "Create claim {claim} ({size}, {storage_class}) and pod {pod} on node {node}, and wait "
-        "until the pod is Ready."
+        "Create claim {claim} ({size}, {storage_class}), NetworkPolicy {policy} that lets the "
+        "copy pods reach each other on port {port}, and pod {pod} on node {node}, and wait until "
+        "the pod is Ready."
     )
     volume_move_step_stop: str = (
         "Scale {workloads} to 0, and wait until these pods are gone: {pods}."
@@ -1122,8 +1123,9 @@ class K8sMessages:
         "Start pod {pod} with claim {claim} read-only on node {node}, and wait until it is Ready."
     )
     volume_move_step_copy: str = (
-        "Copy /src of pod {source} to /dst of pod {destination} with GNU tar through the API "
-        "server. If the stream stops, empty /dst and copy one more time."
+        "Copy /src of pod {source} to /dst of pod {destination} with GNU tar over the pod "
+        "network: pod {destination} listens on port {port}, and pod {source} sends the archive. "
+        "If the copy fails, empty /dst and copy one more time."
     )
     volume_move_step_compare: str = (
         "Compare the two sides: the entries, the files, the bytes of regular files, a metadata "
@@ -1133,7 +1135,9 @@ class K8sMessages:
         "Set the reclaim policy of the new volume of claim {claim} and of volume {volume} to "
         "Retain."
     )
-    volume_move_step_delete_pods: str = "Delete the pods {source} and {destination}."
+    volume_move_step_delete_pods: str = (
+        "Delete the pods {source} and {destination}, and NetworkPolicy {policy}."
+    )
     volume_move_step_delete_claim: str = (
         "Save claim {namespace}/{claim} and delete it. This is the point of no return."
     )
