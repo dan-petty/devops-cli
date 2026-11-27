@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.225.0](https://github.com/dan-petty/devops-cli/compare/v0.224.3...v0.225.0) (2026-11-27)
+
+
+### Features
+
+* **k8s:** move a claim to another storage class with volume move ([#7409](https://github.com/dan-petty/devops-cli/issues/7409)) ([19bb409](https://github.com/dan-petty/devops-cli/commit/19bb409970d7a46344cd1a810069ecf1b60f4518))
+
+
+### Bug Fixes
+
+* **k8s:** run infra-drift on Argo v4 with API server egress ([#7410](https://github.com/dan-petty/devops-cli/issues/7410)) ([6546f84](https://github.com/dan-petty/devops-cli/commit/6546f842f72d336c140a27e2e517c38ac2e7b235))
+
 ## [0.224.3](https://github.com/dan-petty/devops-cli/compare/v0.224.2...v0.224.3) (2026-11-27)
 
 
