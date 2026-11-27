@@ -7,7 +7,8 @@ metadata:
     app.kubernetes.io/name: rag-ingest
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
-  schedule: "*/3 * * * *"
+  schedules:
+    - "*/3 * * * *"
   concurrencyPolicy: Forbid
   workflowSpec:
     workflowTemplateRef:

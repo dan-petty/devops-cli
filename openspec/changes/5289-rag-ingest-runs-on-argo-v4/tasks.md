@@ -22,11 +22,11 @@ Kind: other. Reads: `.github/actions/devtools-commands/action.yml`, `docs/SDLC.m
 
 Kind: other. Reads: `k8s/devops/workflowtemplate-infra-drift.yaml`, `k8s/devops/networkpolicy.yaml`, `docs/SERVICE_PATTERNS.md`. Changes: `k8s/devops/cronworkflow-rag-ingest.yaml`, `k8s/devops/workflowtemplate-rag-ingest.yaml`.
 
-- [ ] 3.1 In `k8s/devops/cronworkflow-rag-ingest.yaml`, replace `spec.schedule` with the list `spec.schedules` that holds the same cron expression `"*/3 * * * *"`. Keep each other field, and add no `suspend`
+- [x] 3.1 In `k8s/devops/cronworkflow-rag-ingest.yaml`, replace `spec.schedule` with the list `spec.schedules` that holds the same cron expression `"*/3 * * * *"`. Keep each other field, and add no `suspend`
   - Verification: `$ uv run devops ci --check --only k8s` no longer names CronWorkflow `rag-ingest`
-- [ ] 3.2 In `k8s/devops/workflowtemplate-rag-ingest.yaml`, replace `spec.synchronization.mutex` with the list `spec.synchronization.mutexes` that holds the mutex `rag-ingest`, and add `spec.executor.serviceAccountName: argo-executor`. Keep `serviceAccountName: devops-cli` for the pod
+- [x] 3.2 In `k8s/devops/workflowtemplate-rag-ingest.yaml`, replace `spec.synchronization.mutex` with the list `spec.synchronization.mutexes` that holds the mutex `rag-ingest`, and add `spec.executor.serviceAccountName: argo-executor`. Keep `serviceAccountName: devops-cli` for the pod
   - Verification: `$ uv run devops ci --check --only k8s` passes
-- [ ] 3.3 In the template `ingest` of `k8s/devops/workflowtemplate-rag-ingest.yaml`, add `retryStrategy` with `limit: "3"` and `expression: "asInt(lastRetry.exitCode) == 75"`
+- [x] 3.3 In the template `ingest` of `k8s/devops/workflowtemplate-rag-ingest.yaml`, add `retryStrategy` with `limit: "3"` and `expression: "asInt(lastRetry.exitCode) == 75"`
   - Verification: `$ uv run devops ci --check --only k8s,kube-linter` passes
 
 ## 4. Record the stale controller facts in ADR 0008

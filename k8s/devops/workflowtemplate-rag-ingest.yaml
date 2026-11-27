@@ -9,9 +9,15 @@ metadata:
 spec:
   entrypoint: ingest
   synchronization:
-    mutex:
-      name: rag-ingest
+    mutexes:
+      - name: rag-ingest
   serviceAccountName: devops-cli
+  # The pod runs as devops-cli, which mounts no token. The executor writes the task results
+  # through the API server with the account argo-executor, which the environment repository
+  # makes with its Role. Policy argo-workflow-egress (networkpolicy.yaml) lets it reach the API
+  # server.
+  executor:
+    serviceAccountName: argo-executor
   activeDeadlineSeconds: 7200
   ttlStrategy:
     secondsAfterCompletion: 3600
@@ -34,6 +40,11 @@ spec:
         labels:
           app.kubernetes.io/name: rag-ingest
           app.kubernetes.io/part-of: devops-cli-stack
+      # Exit 75 means "try again later" in this project, so only that code retries. A defect or
+      # a refusal fails at once (JB4 of docs/SERVICE_PATTERNS.md).
+      retryStrategy:
+        limit: "3"
+        expression: "asInt(lastRetry.exitCode) == 75"
       container:
         image: ghcr.io/dan-petty/devops-cli/service
         imagePullPolicy: IfNotPresent
