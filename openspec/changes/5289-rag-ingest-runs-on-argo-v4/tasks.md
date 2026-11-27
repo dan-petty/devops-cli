@@ -40,7 +40,7 @@ Kind: other. Reads: `docs/adr/README.md`, `tests/invariants/test_adr_records.py`
 
 Kind: other. Reads: `tests/gate/k8s_checks/argo_workflows.py`. Changes: `k8s/README.md`, `docs/SERVICE_PATTERNS.md`, `docs/TESTING.md`.
 
-- [ ] 5.1 In `k8s/README.md`, add the section Argo Workflows after the section NetworkPolicy. It says that each Argo object of `k8s/devops` uses `schedules`, `mutexes` and `semaphores`, and that the `k8s` row runs `argo lint --offline` on the Argo objects. Name `argo lint --offline` in the tools of CT2 in `docs/SERVICE_PATTERNS.md` and in the schema and policy tools of CI in `docs/TESTING.md`
+- [x] 5.1 In `k8s/README.md`, add the section Argo Workflows after the section NetworkPolicy. It says that each Argo object of `k8s/devops` uses `schedules`, `mutexes` and `semaphores`, and that the `k8s` row runs `argo lint --offline` on the Argo objects. Name `argo lint --offline` in the tools of CT2 in `docs/SERVICE_PATTERNS.md` and in the schema and policy tools of CI in `docs/TESTING.md`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
