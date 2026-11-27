@@ -43,6 +43,7 @@ from devops_cli.config.constants import (
     CONST_K8S_LABEL_RE,
     CONST_K8S_LAST_APPLIED_ANNOTATION,
     CONST_K8S_POD_PHASE_RUNNING,
+    CONST_K8S_RECLAIM_DELETE,
     CONST_K8S_RECLAIM_RETAIN,
     CONST_K8S_RECREATED_CLAIM_METADATA_KEYS,
     CONST_K8S_RETENTION_DELETE,
@@ -1065,6 +1066,30 @@ class _MoveRun:
     def _set_reclaim(self, volume: str, policy: str) -> None:
         self._kubectl(_reclaim_args(volume, policy))
 
+    def _discard_move_claim(self) -> None:
+        """Delete the temporary claim and the volume that the move made for it (#7416).
+
+        A class with the reclaim policy Retain, such as `longhorn`, keeps a volume after the delete
+        of its claim, and a class with `Immediate` binding makes it before the pod starts. So the
+        undo reads the volume when it runs, and sets it to Delete first.
+        """
+        plan = self.plan
+        volume = self._kubectl(
+            [
+                "get",
+                "pvc",
+                plan.move_claim,
+                "-n",
+                plan.namespace,
+                "--ignore-not-found",
+                "-o",
+                "jsonpath={.spec.volumeName}",
+            ]
+        ).strip()
+        if volume:
+            self._set_reclaim(volume, CONST_K8S_RECLAIM_DELETE)
+        self._delete("pvc", plan.move_claim, missing_ok=True)
+
     def _undo_delete(self, kind: str, name: str, label: str) -> None:
         self._on_undo(
             MESSAGES.k8s.volume_move_undo_delete.format(kind=label, name=name),
@@ -1085,7 +1110,10 @@ class _MoveRun:
 
     def make_destination(self) -> None:
         plan = self.plan
-        self._undo_delete("pvc", plan.move_claim, "claim")
+        self._on_undo(
+            MESSAGES.k8s.volume_move_undo_discard.format(claim=plan.move_claim),
+            self._discard_move_claim,
+        )
         self._create(_move_claim_manifest(plan))
         self._undo_delete("networkpolicy", plan.copy_policy, "NetworkPolicy")
         self._create(_copy_policy_manifest(plan))

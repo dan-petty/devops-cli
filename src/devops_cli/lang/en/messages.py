@@ -1163,6 +1163,9 @@ class K8sMessages:
     volume_move_step_line: str = "Step {number}/{total}: {text}"
     volume_move_undo_resume: str = "Resume automated sync of Application {application}"
     volume_move_undo_delete: str = "Delete {kind} {name}"
+    volume_move_undo_discard: str = (
+        "Set the reclaim policy of the volume of claim {claim} to Delete, and delete the claim"
+    )
     volume_move_undo_scale: str = "Scale {workload} back to {replicas}"
     volume_move_undo_reclaim: str = "Set the reclaim policy of volume {volume} back to {policy}"
     volume_move_undo_line: str = "Undo: {text}."
@@ -1231,8 +1234,8 @@ class K8sMessages:
     )
     volume_move_dry_run_undo: str = (
         "Before the old claim is deleted, a failed request starts the undo, in reverse order: "
-        "it deletes the copy pods and claim {claim}, scales the workloads back, sets the reclaim "
-        "policies back and resumes Argo CD."
+        "it deletes the copy pods, claim {claim} and the volume that the move made for it, scales "
+        "the workloads back, sets the reclaim policies back and resumes Argo CD."
     )
     volume_move_measure_report_heading: str = (
         "### Volume move copy measure: {copies} copies of {bytes} bytes from {source_node} to "
