@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.224.1](https://github.com/dan-petty/devops-cli/compare/v0.224.0...v0.224.1) (2026-11-27)
+
+
+### Bug Fixes
+
+* **deps:** update dan-petty/devtools Docker tag to v1.3.2 ([#7397](https://github.com/dan-petty/devops-cli/issues/7397)) ([58e08dd](https://github.com/dan-petty/devops-cli/commit/58e08dda66cea4a823daca7d213f2b7a3460c016))
+
 ## [0.224.0](https://github.com/dan-petty/devops-cli/compare/v0.223.5...v0.224.0) (2026-11-27)
 
 
