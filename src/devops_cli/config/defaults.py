@@ -1433,6 +1433,10 @@ DEFAULT_SERVICE_MAX_FAILED_ROUNDS: Final[int] = 6
 # call at a time, so one keeps a lane's call from queueing at the gateway, where a stall timer
 # would refuse it, and lets it wait in the Service instead (#2564).
 DEFAULT_SERVICE_MODEL_CALL_CONCURRENCY: Final[int] = 1
+# The public URL of the Service webhook route, which the cluster holds and a workstation often does
+# not. Row 12 of `devops repos onboard` reports this value as a person step and writes no hook, so
+# the setting and that guard read one value (#7308).
+DEFAULT_SERVICE_WEBHOOK_URL: Final[str] = "https://hooks.example.com/webhooks/github"
 
 # ── AI Research Information Foraging Defaults ────────────────────────────────
 DEFAULT_AI_FORAGE_MAX_NODES: Final[int] = 20

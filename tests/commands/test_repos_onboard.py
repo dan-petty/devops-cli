@@ -89,6 +89,50 @@ def test_only_one_row(cli: Callable[..., Any], onboard_github: OnboardHarness) -
     assert result.exit_code == 1
 
 
+def _default_webhook_url() -> Any:
+    """The default of `service.webhook_url`, read from the field, so a test meets no constant."""
+    from devops_cli.config.settings import ServiceConfig
+
+    return ServiceConfig.model_fields["webhook_url"].default
+
+
+def _hook_requests(harness: OnboardHarness) -> list[str]:
+    """Each request to GitHub that a repository hooks route answers, as `<method> <path>`."""
+    return [
+        f"{request.method} {request.url.path}"
+        for request in harness.api.sent
+        if request.url.path.startswith(f"/repos/{REPO}/hooks")
+    ]
+
+
+def test_a_default_webhook_url_is_a_person_step(
+    cli: Callable[..., Any], onboard_github: OnboardHarness, config: Callable[..., Any]
+) -> None:
+    _onboarded(onboard_github, onboard_github.state)
+    config(service={"repos": [REPO], "webhook_url": _default_webhook_url()})
+
+    result = cli("repos", "onboard", "--all", "--plan")
+
+    steps = result.stdout.split("Person steps:")[-1]
+    assert result.exit_code == 0, result.output
+    assert "12. Webhook: person" in result.stdout
+    assert "service.webhook_url" in steps
+    assert _hook_requests(onboard_github) == []
+
+
+def test_a_confirm_with_the_default_webhook_url_writes_no_hook(
+    cli: Callable[..., Any], onboard_github: OnboardHarness, config: Callable[..., Any]
+) -> None:
+    _onboarded(onboard_github, onboard_github.state)
+    config(service={"repos": [REPO], "webhook_url": _default_webhook_url()})
+
+    result = cli("repos", "onboard", REPO, "--confirm", "--only", "12")
+
+    assert result.exit_code == 0, result.output
+    assert "12. Webhook: person" in result.stdout
+    assert _hook_requests(onboard_github) == []
+
+
 def test_the_drift_check_reads_every_service_repository(
     cli: Callable[..., Any], onboard_github: OnboardHarness, config: Callable[..., Any]
 ) -> None:
