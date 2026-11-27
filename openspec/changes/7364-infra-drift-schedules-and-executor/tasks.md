@@ -22,7 +22,7 @@ Kind: manifest. Reads: `k8s/devops/networkpolicy.yaml`, `k8s/devops/roadmap-serv
 
 Kind: other. Reads: `k8s/README.md`, `docs/CLUSTER.md`, `k8s/devops/networkpolicy.yaml`. Changes: `k8s/README.md`, `docs/CLUSTER.md`.
 
-- [ ] 3.1 In the tree of `k8s/README.md`, say that `networkpolicy.yaml` lets each Argo Workflow pod reach the API server on TCP 6443. In Runner Jobs of `docs/CLUSTER.md`, name `argo-workflow-egress` beside `roadmap-service-egress`, and say that a Job pod has no Workflow label
+- [x] 3.1 In the tree of `k8s/README.md`, say that `networkpolicy.yaml` lets each Argo Workflow pod reach the API server on TCP 6443. In Runner Jobs of `docs/CLUSTER.md`, name `argo-workflow-egress` beside `roadmap-service-egress`, and say that a Job pod has no Workflow label
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
