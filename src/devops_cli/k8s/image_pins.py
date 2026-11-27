@@ -17,7 +17,10 @@ test pod is never pulled.
 Each `image` value of a rendered object is a pin, with three exceptions. Image Updater moves the
 images that an `ImageUpdater` object names, so they are not pins. An image with no digest and the
 `latest` tag, or no tag, is not a pin either: each pull can get a different image, so the check
-refuses it (#2093). An image of a registry that only the cluster or this host reaches cannot be
+refuses it (#2093). An untagged image of an object that keeps its tag in another key takes that
+tag, as the operator of the object pulls it: the `version` next to the `image` of a Mattermost
+object, and the `spec.version` of a Plan of system-upgrade-controller, with each `+` replaced by
+`-`, for the image of its `prepare` and `upgrade` specs (#7455). An image of a registry that only the cluster or this host reaches cannot be
 resolved from a runner: its registry host is an IP address, `localhost`, a name with no dot (a
 cluster Service), or a name under `.svc`, `.cluster.local` or `.local`.
 
@@ -72,6 +75,10 @@ _LOCAL_REGISTRY_DOMAINS = tuple(
     dns.name.from_text(domain) for domain in ("svc", "cluster.local", "local")
 )
 _UPDATER_KIND = "ImageUpdater"
+# The `apiVersion` and `kind` of a Plan of system-upgrade-controller, and the keys of its spec that
+# hold a container spec.
+_PLAN = ("upgrade.cattle.io/v1", "Plan")
+_PLAN_CONTAINERS = ("prepare", "upgrade")
 _KUSTOMIZE = ("kubectl", "kustomize")
 # Applications rendered, and images resolved, at the same time: each render or resolve waits on
 # the network for most of its time.
@@ -159,21 +166,60 @@ def key_line(node: yaml.MappingNode, key: str) -> int:
     return 0
 
 
+def _yaml_mapping(node: yaml.MappingNode, key: str) -> yaml.MappingNode | None:
+    """The mapping that `key` holds in `node`, or `None` if `key` holds none."""
+    for key_node, value in node.value:
+        if key_node.value == key and isinstance(value, yaml.MappingNode):
+            return value
+    return None
+
+
+def _plan_tags(document: yaml.Node) -> dict[int, str]:
+    """The tag that system-upgrade-controller gives the untagged image of each container spec of a
+    Plan, by the `id` of the spec's mapping: `spec.version` with each `+` replaced by `-`
+    (`MungeVersion` and `WithLatestTag` of v0.21.1). A Plan with no version takes the version that
+    its channel names when it runs, so it gives no tag (#7455)."""
+    if not isinstance(document, yaml.MappingNode) or _PLAN != (
+        yaml_scalar(document, "apiVersion"),
+        yaml_scalar(document, "kind"),
+    ):
+        return {}
+    spec = _yaml_mapping(document, "spec")
+    version = yaml_scalar(spec, "version") if spec is not None else None
+    if spec is None or not version:
+        return {}
+    containers = (_yaml_mapping(spec, key) for key in _PLAN_CONTAINERS)
+    return {id(c): version.replace("+", "-") for c in containers if c is not None}
+
+
+def _with_tag(image: str, tag: str | None) -> str:
+    """`image` with the tag `tag` when `image` names no tag and no digest, as docker-py splits it.
+    docker-py is imported here for the reason that `image_reference` gives."""
+    from docker.utils import parse_repository_tag
+
+    if tag and parse_repository_tag(image)[1] is None:
+        return f"{image}:{tag}"
+    return image
+
+
 def image_nodes(rendered: str) -> list[tuple[str, int]]:
     """Every `image` value of the objects in `rendered`, in order, with its line (from 1).
+
+    An untagged image takes the tag that its object keeps in another key: the `version` of the
+    same mapping (the Mattermost form, #1391), or the version of a Plan of
+    system-upgrade-controller for the image of its `prepare` or `upgrade` spec (#7455).
 
     The YAML is composed and not constructed, so a scalar keeps its text whatever tag YAML 1.1
     gives it, such as the `value` tag of a lone `=` that a CRD schema writes.
     """
     found: list[tuple[str, int]] = []
     for document in yaml.compose_all(rendered, Loader=YAML_SAFE_LOADER):
+        plan_tags = _plan_tags(document)
         for mapping in yaml_mappings(document) if document is not None else ():
             image = yaml_scalar(mapping, "image")
             if image:
-                version = yaml_scalar(mapping, "version")
-                if version and ":" not in image.rsplit("/", 1)[-1] and "@" not in image:
-                    image = f"{image}:{version}"
-                found.append((image, key_line(mapping, "image")))
+                tag = yaml_scalar(mapping, "version") or plan_tags.get(id(mapping))
+                found.append((_with_tag(image, tag), key_line(mapping, "image")))
     return found
 
 
