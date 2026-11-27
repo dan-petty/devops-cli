@@ -78,6 +78,18 @@ _BATCH_RETRY_MAX_WAIT_SECONDS: Final = 60.0
 # outage in a run to about 36 min, not one retry and wait for each batch of the workspace (#6717).
 _FAILED_BATCHES_IN_A_ROW: Final = 3
 
+# Each point of a file holds the content hash of the whole file and the count of the chunks of
+# that version, so a run with no cache file reads from the store which files are stored whole
+# and current (#7467). The chunk `content_hash` is the hash of one chunk only.
+_FILE_HASH_KEY: Final = "file_hash"
+_FILE_CHUNKS_KEY: Final = "file_chunks"
+_STORED_STATE_KEYS: Final = ("file_path", _FILE_HASH_KEY, _FILE_CHUNKS_KEY)
+
+# The points that one scroll request of the stored state reads: the payload of each holds three
+# short keys, so a page is some tens of KiB and the read of a project of 20,000 points takes 20
+# requests.
+_STORED_STATE_PAGE_SIZE: Final = 1000
+
 
 class _SkippedBatch(NamedTuple):
     """A batch that the run skipped: the files of its chunks, and the last error."""
@@ -476,8 +488,14 @@ def _build_chunk_point(
     *,
     embedding_model: str | None = None,
     kb_digest: str | None = None,
+    file_hash: str = "",
+    file_chunks: int = 0,
 ) -> dict[str, Any]:
-    """Construct Qdrant point dictionary with vector and chunk metadata payload."""
+    """Construct Qdrant point dictionary with vector and chunk metadata payload.
+
+    `file_hash` and `file_chunks` are the content hash of the file of the chunk and the count of
+    its chunks in this run, which a later run reads to skip the file (`_read_stored_files`).
+    """
     payload: dict[str, Any] = {
         "file_path": chunk.file_path,
         "start_line": chunk.start_line,
@@ -491,6 +509,8 @@ def _build_chunk_point(
         "symbol_names": chunk.symbol_names,
         "metadata": chunk.metadata,
         "content_hash": chunk.content_hash,
+        _FILE_HASH_KEY: file_hash,
+        _FILE_CHUNKS_KEY: file_chunks,
         "indexed_at": datetime.now(UTC).isoformat(),
         "embedding_model": embedding_model or "",
     }
@@ -499,6 +519,89 @@ def _build_chunk_point(
     if chunk.project_name == CONST_RAG_KB_PROJECT:
         payload["kb_digest"] = kb_digest or ""
     return {"id": chunk.id, "vector": vector, "payload": payload}
+
+
+def _stored_file_versions(
+    qdrant: QdrantClient, collections: Sequence[str], project: str
+) -> tuple[Counter[str], dict[str, set[tuple[str, int]]]]:
+    """The count of stored points of each file of `project`, by cache key, and the pairs of file
+    hash and chunk count that its points hold. One paged scroll of each collection reads three
+    payload keys of each point of the project."""
+    counts: Counter[str] = Counter()
+    versions: dict[str, set[tuple[str, int]]] = defaultdict(set)
+    for coll in collections:
+        for payload in qdrant.scroll_payloads(
+            coll,
+            {"project_name": project},
+            keys=_STORED_STATE_KEYS,
+            page_size=_STORED_STATE_PAGE_SIZE,
+        ):
+            path = payload.get("file_path")
+            if not isinstance(path, str) or not path:
+                continue
+            key = f"{project}:{path}"
+            file_hash = payload.get(_FILE_HASH_KEY)
+            chunks = payload.get(_FILE_CHUNKS_KEY)
+            counts[key] += 1
+            versions[key].add(
+                (
+                    file_hash if isinstance(file_hash, str) else "",
+                    chunks if isinstance(chunks, int) else 0,
+                )
+            )
+    return counts, versions
+
+
+def _read_stored_files(
+    qdrant: QdrantClient, collections: Sequence[str], project: str
+) -> dict[str, str]:
+    """The skip state of each file of `project` that the store holds, by cache key.
+
+    A file is stored whole when all its points hold one file hash and the store holds as many
+    points as that version had chunks: its value is that hash. Any other file gets the incomplete
+    marker, which no content hash matches, so the run embeds it again and its purge finds its
+    points: a file whose points hold no file hash, which a release before #7467 wrote, or a file
+    whose chunks a skipped batch left out (#1296).
+    """
+    counts, versions = _stored_file_versions(qdrant, collections, project)
+    state: dict[str, str] = {}
+    for key, count in counts.items():
+        file_hash, chunks = next(iter(versions[key])) if len(versions[key]) == 1 else ("", 0)
+        whole = bool(file_hash) and chunks == count
+        state[key] = file_hash if whole else CONST_RAG_INCOMPLETE_FILE_MARKER
+    return state
+
+
+class _StoredFiles:
+    """The skip state that the store holds for the files of each project of one run. A project is
+    read once, at its first file whose content hash the cache does not hold, so a cache file that
+    holds every file reads nothing (#7467)."""
+
+    def __init__(self, qdrant: QdrantClient, collections: Sequence[str]) -> None:
+        self._qdrant = qdrant
+        # The code and docs collections can have one name, as in a run of `devops ai rag ingest`
+        # with one collection.
+        self._collections = tuple(dict.fromkeys(collections))
+        self._projects: dict[str, dict[str, str]] = {}
+
+    def of(self, project: str) -> dict[str, str]:
+        """The stored skip state of each file of `project`, read on the first call."""
+        if project not in self._projects:
+            with trace_span(
+                "ai.rag.read_stored_files", attributes={"rag.project": project}
+            ) as span:
+                state = _read_stored_files(self._qdrant, self._collections, project)
+                span.set_attribute("rag.stored_files", len(state))
+            self._projects[project] = state
+        return self._projects[project]
+
+    def merge_into(self, cache: dict[str, str]) -> bool:
+        """Add each stored file of the read projects that `cache` lacks, so the purges of edited
+        and deleted files find its points. Return whether the run read any project."""
+        for state in self._projects.values():
+            for key, value in state.items():
+                cache.setdefault(key, value)
+        return bool(self._projects)
 
 
 def _resolve_indexing_target_metadata(
@@ -536,8 +639,13 @@ def _scan_single_file_for_indexing(
     cache: dict[str, str],
     file_hashes: dict[str, str],
     force: bool,
+    stored_files: _StoredFiles | None = None,
 ) -> tuple[tuple[Path, str, str], list[CodeChunk]] | None:
-    """Read and chunk a single file if content has changed or force is True."""
+    """Read and chunk a single file if content has changed or force is True.
+
+    When the cache does not hold the content hash of the file, the skip state that the store
+    holds for the file takes its place in the cache, read from `stored_files`.
+    """
     proj_name, rel_base, rel_path = _resolve_indexing_target_metadata(
         file_path, root_dir, kb_dir, project
     )
@@ -551,6 +659,10 @@ def _scan_single_file_for_indexing(
         logger.warning("Failed to read file %s for indexing: %s", file_path, exc)
         return None
 
+    if not force and cache.get(cache_key) != content_hash and stored_files is not None:
+        stored = stored_files.of(proj_name).get(cache_key)
+        if stored is not None:
+            cache[cache_key] = stored
     if not force and cache.get(cache_key) == content_hash:
         return None
 
@@ -1039,6 +1151,7 @@ class WorkspaceIndexer:
         force_projects: set[str],
         *,
         force: bool,
+        stored_files: _StoredFiles,
         progress_callback: Callable[[str, int, int], None] | None,
     ) -> tuple[dict[str, str], list[CodeChunk], list[tuple[Path, str, str]]]:
         """Scan and chunk all indexable workspace files."""
@@ -1063,6 +1176,7 @@ class WorkspaceIndexer:
                 cache,
                 file_hashes,
                 file_forced,
+                stored_files,
             )
             if scanned is not None:
                 file_info, file_chunks = scanned
@@ -1082,7 +1196,8 @@ class WorkspaceIndexer:
         """Partition chunks into code and docs, then upsert to Qdrant; `run` records the result of
         each batch."""
         code_chunks, doc_chunks = _partition_chunks(all_chunks)
-        pending = Counter(f"{c.project_name}:{c.file_path}" for c in all_chunks)
+        chunk_counts = Counter(f"{c.project_name}:{c.file_path}" for c in all_chunks)
+        pending = chunk_counts.copy()
         if code_chunks:
             self._upsert_chunks(
                 self.code_collection,
@@ -1090,6 +1205,7 @@ class WorkspaceIndexer:
                 cache,
                 file_hashes,
                 pending=pending,
+                chunk_counts=chunk_counts,
                 run=run,
                 progress_callback=progress_callback,
                 progress_title="Embedding code",
@@ -1101,6 +1217,7 @@ class WorkspaceIndexer:
                 cache,
                 file_hashes,
                 pending=pending,
+                chunk_counts=chunk_counts,
                 run=run,
                 progress_callback=progress_callback,
                 progress_title="Embedding docs",
@@ -1144,6 +1261,7 @@ class WorkspaceIndexer:
                     k: v for k, v in cache.items() if k.partition(":")[0] not in force_projects
                 }
 
+            stored_files = _StoredFiles(self.qdrant, (self.code_collection, self.docs_collection))
             file_hashes, all_chunks, files_to_reindex = self._scan_workspace_files(
                 files,
                 root_dir,
@@ -1152,8 +1270,10 @@ class WorkspaceIndexer:
                 cache,
                 force_projects,
                 force=force,
+                stored_files=stored_files,
                 progress_callback=progress_callback,
             )
+            read_store = stored_files.merge_into(cache)
             if visibility:
                 for c in all_chunks:
                     if c.project_name != CONST_RAG_KB_PROJECT and not c.visibility:
@@ -1175,6 +1295,8 @@ class WorkspaceIndexer:
                 )
 
             if not all_chunks:
+                if read_store:
+                    self._save_cache(cache)
                 self._save_project_counts(scanned_projects)
                 root_span.set_attribute("rag.indexed_files", 0)
                 root_span.set_attribute("rag.total_chunks", 0)
@@ -1237,14 +1359,16 @@ class WorkspaceIndexer:
         file_hashes: dict[str, str],
         *,
         pending: Counter[str],
+        chunk_counts: Counter[str],
         run: _BatchRun,
         progress_callback: Callable[[str, int, int], None] | None = None,
         progress_title: str = "Embedding",
     ) -> None:
         """Embed and upsert a list of chunks in batches.
 
-        `pending` counts each file's chunks not yet stored, across both collections. `run`
-        records the result of each batch, and the loop goes on after a skipped batch.
+        `pending` counts each file's chunks not yet stored, and `chunk_counts` all its chunks of
+        this run, across both collections. `run` records the result of each batch, and the loop
+        goes on after a skipped batch.
         """
         if not chunks:
             return
@@ -1278,6 +1402,10 @@ class WorkspaceIndexer:
                             vec,
                             embedding_model=embedding_model,
                             kb_digest=kb_digest,
+                            file_hash=file_hashes.get(
+                                f"{chunk.project_name}:{chunk.file_path}", ""
+                            ),
+                            file_chunks=chunk_counts[f"{chunk.project_name}:{chunk.file_path}"],
                         )
                         for chunk, vec in zip(batch, embeddings, strict=False)
                     ]
