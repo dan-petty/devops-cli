@@ -3,6 +3,7 @@ does, and embeds only the files whose content the store does not hold (#7467).""
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +72,20 @@ def _unchanged_run(skipped: int, removed: int = 0) -> dict[str, Any]:
         "skipped_files": skipped,
         "collections": ["test_code", "test_docs"],
     }
+
+
+def test_each_point_holds_the_hash_and_the_chunk_count_of_its_file(
+    tmp_path: Path, qdrant: Any, embedder: Any
+) -> None:
+    text = "def first():\n    return 1\n\n\ndef second():\n    return 2\n"
+    repo = _repo(tmp_path, {"two.py": text})
+
+    _indexer(tmp_path / "pod-1", qdrant, embedder).index_workspace(repo, project=_PROJECT)
+
+    points = qdrant.collections["test_code"]
+    assert [(p["payload"]["file_hash"], p["payload"]["file_chunks"]) for p in points] == [
+        (hashlib.sha256(text.encode("utf-8")).hexdigest(), 2)
+    ] * 2
 
 
 def test_a_run_with_no_cache_file_embeds_no_file_that_the_store_holds(
