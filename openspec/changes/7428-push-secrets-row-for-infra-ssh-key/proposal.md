@@ -6,7 +6,7 @@ WorkflowTemplate `infra-drift` (`k8s/devops/workflowtemplate-infra-drift.yaml`, 
 
 ## What Changes
 
-- A new managed credential, `infra.ssh_private_key`, with the keyring entry `infra_ssh_private_key` and the variable `DEVOPS_CLI_INFRA_SSH_PRIVATE_KEY`. A person stores the private key with `devops config set infra.ssh_private_key --from-file <private key file>`, which keeps each line of the file.
+- A new managed credential, `infra.ssh_private_key`, with the keyring entry `infra_ssh_private_key` and the variable `DEVOPS_CLI_INFRA_SSH_PRIVATE_KEY`. A person stores the private key with `devops config set infra.ssh_private_key --from-file <key-file>`, which keeps each line of the file.
 - A new product row of `CLUSTER_SECRETS`: Secret `devops/infra-ssh-key` of stack `devops`, with one optional key, `id_ed25519`, from that keyring entry. It has no generator and restarts no workload.
 - `k8s/README.md` (Cluster Secrets) and a new section "Infra drift" of `docs/CLUSTER.md` name the Secret, its key, its keyring source and the commands of a person.
 - The change is observable: `devops k8s push-secrets` gets a new Secret and `devops config set` a new key, so it has a spec delta.

@@ -32,10 +32,10 @@ Kind: documents.
 
 Changes: `k8s/README.md`, `docs/CLUSTER.md`.
 
-- [ ] 3.1 Name the Secret, its key, its keyring source and the commands of a person in `k8s/README.md` (Cluster Secrets) and in a new section "Infra drift" of `docs/CLUSTER.md`.
+- [x] 3.1 Name the Secret, its key, its keyring source and the commands of a person in `k8s/README.md` (Cluster Secrets) and in a new section "Infra drift" of `docs/CLUSTER.md`.
   - Verification: `$ uv run devops ci docs`
 
 ## Workflow follow-up
 
-- Pending a person: store the key with `uv run devops config set infra.ssh_private_key --from-file <private key file>`, run `uv run devops k8s push-secrets --only devops/infra-ssh-key --plan` and then `uv run devops k8s push-secrets --only devops/infra-ssh-key`. Then `argo submit -n devops --from cronwf/infra-drift` starts one Workflow, and `argo get -n devops @latest` shows that its pod gets past the mount of `ssh-key`.
+- Pending a person: store the key with `uv run devops config set infra.ssh_private_key --from-file <key-file>`, run `uv run devops k8s push-secrets --only devops/infra-ssh-key --plan` and then `uv run devops k8s push-secrets --only devops/infra-ssh-key`. Then `argo submit -n devops --from cronwf/infra-drift` starts one Workflow, and `argo get -n devops @latest` shows that its pod gets past the mount of `ssh-key`.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
