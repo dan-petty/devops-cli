@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.224.3](https://github.com/dan-petty/devops-cli/compare/v0.224.2...v0.224.3) (2026-11-27)
+
+
+### Bug Fixes
+
+* **k8s:** read a plain = scalar in a rendered manifest as a string ([#7403](https://github.com/dan-petty/devops-cli/issues/7403)) ([d5ff5ad](https://github.com/dan-petty/devops-cli/commit/d5ff5ad188bc476710308d2b227ce8fe5398b129))
+
 ## [0.224.2](https://github.com/dan-petty/devops-cli/compare/v0.224.1...v0.224.2) (2026-11-27)
 
 
