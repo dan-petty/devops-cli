@@ -154,3 +154,7 @@ ADR 0001, ADR 0016 and the rules of ADR 0021 section 3 stay as they are. GitHub 
 2026-11-12: Living detail moved to tracker #4624: the items that build this record and their state (#5225).
 
 2026-11-20: Fact out of date: the deployed paths name three source files of programs in place of `tools.lock` (#4363).
+
+2026-11-26: Fact out of date: section 8 says that `valkey-devops` has only the default user. It has one ACL user for each role (#4704), and its default user is still on, so the rule of section 8 stays in force. `valkey-roadmap` has the users `brain`, `agent` and `metrics`, and its default user is off (#7294).
+
+2026-11-26: Fact out of date: section 4 says that the mark `brain-repair` is set when the index marker is missing or has an old schema. The sync step of the alternatives round copies each check again when its watermark is missing or has another schema, with no mark and no run of repair (#4676).
