@@ -1,8 +1,9 @@
 name: Release Image
 
 # The release of one image of `./Dockerfile` (#6407). release.yml calls this workflow once for each
-# of the service, runner and mcp-server images, in a matrix with `fail-fast: false`. Each call runs
-# its own three jobs, so a failed job of one image stops no job of another image.
+# of the service, runner, mcp-server and uv-seed images, in a matrix with `fail-fast: false`. Each
+# call runs its own three jobs, so a failed job of one image stops no job of another image. It stops
+# the publication of the release: the job assets of release.yml needs each call (#7444).
 # 1. Build builds the image one time and pushes it by digest, with no tag.
 # 2. Verify pulls that digest, smoke-tests it and scans it. It can write no package and gets no
 #    OIDC token.

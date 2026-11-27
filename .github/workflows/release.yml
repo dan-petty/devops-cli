@@ -4,9 +4,10 @@ name: Release
 # release pull request, which holds the version, CHANGELOG.md and the manifest. A person merges
 # that pull request, or the workflow release-merge.yml merges it every 6 hours (#3921), or, for an
 # urgent fix, GitHub merges it when its checks pass (#1966); the next run then creates the tag and
-# a draft GitHub release, and the publish jobs below run only for that run. The job assets publishes
-# the release after it attaches the files: the repository has immutable releases, and a published
-# release takes no more files (#7328).
+# a draft GitHub release, and the publish jobs below run only for that run. The job assets runs
+# last: it starts only after each image job passes, so a consumer that pins a release finds its
+# images (#7444). It publishes the release after it attaches the files: the repository has
+# immutable releases, and a published release takes no more files (#7328).
 on:
   push:
     branches:
@@ -95,9 +96,11 @@ jobs:
             fi
           fi
 
+  # A failed or skipped image job skips this job, so the release stays a draft (no `always()`).
+  # `devcontainer` needs the smoke test, so the smoke test gates the publication too.
   assets:
     name: Upload Release Assets
-    needs: release-please
+    needs: [release-please, image, devcontainer-image, devcontainer]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
@@ -127,8 +130,9 @@ jobs:
           cd dist && sha256sum -- * > SHA256SUMS.txt
 
       # One script, so the publication runs only after the upload passes (`bash -e`). A failure
-      # leaves the release a draft, and "Re-run failed jobs" runs this job again (RELEASE_CYCLE.md,
-      # A Release That Stays a Draft). No file can reach the release after the publication.
+      # here or in an image job leaves the release a draft, and "Re-run failed jobs" runs this job
+      # again (RELEASE_CYCLE.md, A Release That Stays a Draft). No file can reach the release after
+      # the publication.
       - name: Attach the Packages and Publish the Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -308,12 +312,13 @@ jobs:
           sarif_file: trivy-image-devcontainer.sarif
           category: trivy-image-devcontainer
 
-  # The service, runner and mcp-server images of the release, one call of release-image.yml for
-  # each (#6407). A call builds its image one time and pushes it by digest, then smoke-tests and
-  # scans that digest, and only then attests it and tags it with the release tag and latest.
-  # Image Updater rolls the cluster onto the digest of latest (#1486, #2667, #4324). Each image
-  # promotes on its own: a failed job of one call stops no job of another call. The mcp-server
-  # package is public, so the pod pulls it with no credential (see the pull request of #4324).
+  # The service, runner, mcp-server and uv-seed images of the release, one call of
+  # release-image.yml for each (#6407). A call builds its image one time and pushes it by digest,
+  # then smoke-tests and scans that digest, and only then attests it and tags it with the release
+  # tag and latest. Image Updater rolls the cluster onto the digest of latest (#1486, #2667, #4324).
+  # Each image promotes on its own: a failed job of one call stops no job of another call, but it
+  # stops the publication of the release (job assets). The mcp-server package is public, so the pod
+  # pulls it with no credential (see the pull request of #4324).
   image:
     name: ${{ matrix.title }} Image
     needs: release-please

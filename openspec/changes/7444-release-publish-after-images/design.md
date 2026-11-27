@@ -1,0 +1,18 @@
+# Design
+
+## Decisions
+
+- **The job `assets` needs each image job.** Its `needs` lists `release-please`, `image`, `devcontainer-image` and `devcontainer`. These are the jobs of `release.yml` with `packages: write`, the jobs that push or tag an image. `devcontainer` needs `devcontainer-smoke`, so a failed smoke test also keeps the draft. The job that publishes is the last job of the run, as owner decision 1 of 2026-11-12 on #5249 and the owner decision of 2026-11-27 on #7444 ask.
+- **The condition keeps no status function.** `if: needs.release-please.outputs.release_created == 'true'` has no `always()`, so GitHub adds `success()`. A failed or skipped need skips the job, and the release stays a draft. A run that creates no release skips each image job, and so skips the job too.
+- **The job keeps its name and its one step.** The upload and the publication stay in one `bash -e` script (#7328). The name `Upload Release Assets` is in `RELEASE_CYCLE.md`, in the spec `release-publication` and in the run history. A new name would change these and no behavior.
+- **The step has no check for a published release.** A re-run of a passed image job after the publication also runs this job. Its upload then fails with HTTP 422 and changes nothing, and the image keeps its new tags. `RELEASE_CYCLE.md` says so. A check would only make that run green, and the run changes nothing either way. The design of #7328 made the same choice.
+- **ADR 0013 gets no status line.** Its line of 2026-11-26 says that a release is a draft until `Upload Release Assets` attaches its files and publishes it. That stays true. docs/adr/README.md says that the next change of a record whose body contradicts the code supersedes it. #5249 holds that new record, so this change does not change ADR 0013.
+- **The image grace of the row `release_comments` stays.** `live_release` (`src/devops_cli/roadmap/release_roll.py:63`) skips a release less than `CONST_ROADMAP_RELEASE_IMAGE_GRACE_MINUTES` (20) old whose image tag is missing (#3507). With the new order, such a release is not published. #5249 removes the grace after the publish job. This change keeps it until a real release proves the order.
+
+## Rejected alternatives
+
+- **A separate job `publish` after `assets` and the image jobs.** It moves `gh release edit --draft=false` out of the step of `assets` into a new job with `contents: write`. The order is the same, and the change is larger: a new job, a new name in `RELEASE_CYCLE.md`, and a MODIFIED requirement of `release-publication`, which says that `Upload Release Assets` publishes. It also splits the one script that keeps the publication after the upload (#7328, design).
+- **Only `devcontainer` and `image` in `needs`.** `devcontainer` already needs `devcontainer-image`, so the order is the same. The issue names each image job, and a direct need shows the gate in the job of the publication.
+- **`if: always()` with a check of each result.** It runs the job after a failed image job, so the job must test each result itself. The default `success()` does the same with no code.
+- **Publish before the images, as #7328 decided.** The design of #7328 rejected the publication after the images, because a failed image would keep the release a draft (`openspec/changes/archive/2026-11-26-7328-release-draft-then-publish/design.md`). The owner decision of 2026-11-27 reverses that: a consumer that pins a release must find its images (dan-petty/homelab#576).
+- **A test that reads `release.yml` for the `needs`.** docs/TESTING.md gives a workflow change no test, and no test asserts a value of a workflow file (#6060, #7229). The proof is `actionlint`, `zizmor` and a check of the job graph that runs again.
