@@ -16,6 +16,7 @@ from devops_cli.grafana import (
     lint_dashboard,
     lint_dashboard_file,
     lint_dashboard_files,
+    linter,
     load_dashboard,
 )
 from devops_cli.grafana.schema import Dashboard, Datasource, GridPos, Panel, Target
@@ -206,6 +207,65 @@ def test_duplicate_target_ref_ids_are_reported() -> None:
     )
     report = lint_dashboard(Dashboard(uid="u", title="T", panels=[panel]))
     assert any("Duplicate target refId" in issue.message for issue in report.errors)
+
+
+def _panel_with(targets: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "id": 1,
+        "type": "timeseries",
+        "title": "Queue",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "targets": targets,
+    }
+
+
+@pytest.mark.parametrize(
+    "targets",
+    [
+        [{"expr": "up"}, {"expr": "down"}],
+        [{"expr": "up"}, {"expr": "down", "refId": "A"}],
+        [{"expr": "up", "refId": "B"}, {"expr": "down"}, {"expr": "left"}],
+    ],
+    ids=["none-stated", "one-stated-after", "one-stated-before"],
+)
+def test_targets_with_no_ref_id_are_not_duplicates(targets: list[dict[str, Any]]) -> None:
+    """Grafana gives each target with no refId the next free id when it loads the panel
+    (`PanelModel.ensureQueryIds`), so no series is dropped (#7400). Community dashboards that
+    Grafonnet renders, such as those of argo-workflows-mixin, state no refId."""
+    report = lint_dashboard(
+        load_dashboard({"uid": "u", "title": "T", "panels": [_panel_with(targets)]})
+    )
+
+    assert not [issue for issue in report.errors if "Duplicate target refId" in issue.message]
+
+
+def test_two_stated_ref_ids_stay_duplicates_next_to_a_target_with_none() -> None:
+    targets = [{"expr": "up", "refId": "A"}, {"expr": "down", "refId": "A"}, {"expr": "left"}]
+
+    report = lint_dashboard(
+        load_dashboard({"uid": "u", "title": "T", "panels": [_panel_with(targets)]})
+    )
+
+    assert [issue.message for issue in report.errors] == [
+        "Duplicate target refId 'A'; a series will be dropped"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("stated", "expected"),
+    [
+        (["", ""], ["A", "B"]),
+        (["", "A"], ["B", "A"]),
+        (["B", "", ""], ["B", "A", "C"]),
+        ([""] * 27, [*"ABCDEFGHIJKLMNOPQRSTUVWXYZ", "AA"]),
+    ],
+    ids=["none", "stated-after", "stated-before", "past-z"],
+)
+def test_grafana_ref_ids_follow_get_next_ref_id(stated: list[str], expected: list[str]) -> None:
+    """The ids follow `getNextRefId` of Grafana: A to Z, then AA, AB, and so on, skipping each id
+    that a target of the panel states."""
+    assert linter.grafana_ref_ids(stated) == expected
 
 
 def test_panel_without_targets_or_datasource_warns() -> None:

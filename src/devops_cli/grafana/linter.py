@@ -10,6 +10,8 @@ query that would be rejected at the command line is rejected here too.
 
 from __future__ import annotations
 
+import itertools
+import string
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -83,6 +85,32 @@ def _check_layout(panels: list[Panel]) -> list[DashboardLintIssue]:
     return issues
 
 
+def _ref_id(number: int) -> str:
+    """The refId with index `number` in Grafana's order: A to Z, then AA, AB, and so on."""
+    letters = string.ascii_uppercase
+    if number < len(letters):
+        return letters[number]
+    return _ref_id(number // len(letters) - 1) + letters[number % len(letters)]
+
+
+def grafana_ref_ids(stated: list[str]) -> list[str]:
+    """The refId that Grafana uses for each target of a panel, from the refIds that the targets
+    state ("" for none).
+
+    When Grafana loads a panel, `PanelModel.ensureQueryIds` gives each target with no refId the
+    first id that no target of the panel holds yet (`getNextRefId`). So a dashboard that states no
+    refId, as the dashboards that Grafonnet renders do, drops no series (#7400).
+    """
+    taken = {ref_id for ref_id in stated if ref_id}
+    ref_ids: list[str] = []
+    for ref_id in stated:
+        if not ref_id:
+            ref_id = next(_ref_id(n) for n in itertools.count() if _ref_id(n) not in taken)
+            taken.add(ref_id)
+        ref_ids.append(ref_id)
+    return ref_ids
+
+
 def _check_targets(panels: list[Panel]) -> list[DashboardLintIssue]:
     """Verify every visualisation panel has usable, well-formed queries."""
     from devops_cli.prometheus.promql import validate_promql
@@ -96,16 +124,17 @@ def _check_targets(panels: list[Panel]) -> list[DashboardLintIssue]:
             continue
 
         seen_refs: set[str] = set()
-        for query in panel.targets:
-            if query.ref_id in seen_refs:
+        ref_ids = grafana_ref_ids([query.ref_id for query in panel.targets])
+        for query, ref_id in zip(panel.targets, ref_ids, strict=True):
+            if ref_id in seen_refs:
                 issues.append(
                     _issue(
                         "error",
-                        f"Duplicate target refId {query.ref_id!r}; a series will be dropped",
+                        f"Duplicate target refId {ref_id!r}; a series will be dropped",
                         panel.title,
                     )
                 )
-            seen_refs.add(query.ref_id)
+            seen_refs.add(ref_id)
 
             expression = query.datasource.type == CONST_GRAFANA_EXPRESSION_DATASOURCE_TYPE
             text = (query.expression or "") if expression else query.expr
