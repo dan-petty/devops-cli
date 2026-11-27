@@ -5,10 +5,11 @@ with other text stays: after the first render the repository owns its files, and
 of Renovate brings each new tag of the template. The row writes the files to `TEMPLATE_BRANCH` with
 the Git data API, in one tree and one commit, opens the draft pull request (AGENTS.md rule 6), and
 waits for the check runs of its head. A repository that holds each file gives row 10 the check
-runs of the head of its newest template pull request, merged included. Row 11 marks the pull
-request ready and turns on auto-merge with the head that the checks ran on. When GitHub has
-nothing to wait for, it merges the pull request at once, as `gh pr merge --auto` does, so the run
-of the person starts the merge.
+runs of the head of its open template pull request. A merged or closed template pull request gives
+row 10 no check: its head ran the workflows of that time, and the first confirmed run already wrote
+its checks into the live ruleset (#7476). Row 11 marks the pull request ready and turns on
+auto-merge with the head that the checks ran on. When GitHub has nothing to wait for, it merges the
+pull request at once, as `gh pr merge --auto` does, so the run of the person starts the merge.
 """
 
 from __future__ import annotations
@@ -94,16 +95,6 @@ def _open_pull(session: GitHubSession, repo: str, owner: str) -> dict[str, Any] 
     query = urlencode({"state": "open", "head": f"{owner}:{TEMPLATE_BRANCH}"})
     pulls = session.rest("GET", f"/repos/{repo}/pulls?{query}")
     return pulls[0] if isinstance(pulls, list) and pulls else None
-
-
-def _last_template_pull(session: GitHubSession, repo: str, owner: str) -> dict[str, Any] | None:
-    """The newest template pull request, whatever its state, or None."""
-    query = urlencode({"state": "all", "head": f"{owner}:{TEMPLATE_BRANCH}"})
-    pulls = session.rest("GET", f"/repos/{repo}/pulls?{query}")
-    if not isinstance(pulls, list) or not pulls:
-        return None
-    newest: dict[str, Any] = max(pulls, key=lambda pull: int(pull["number"]))
-    return newest
 
 
 def _branch_sha(session: GitHubSession, repo: str, branch: str) -> str | None:
@@ -244,21 +235,21 @@ def template_row(
 ) -> tuple[Row, tuple[str, ...]]:
     """Row 9, and the template files that the repository holds with other text.
 
-    When the repository holds each file, the row reads the check runs of the head of the newest
-    template pull request, whatever its state, so row 10 finds the evidence of a repository that
-    an earlier run already changed (#7318).
+    When the repository holds each file, the row reads the check runs of the head of the open
+    template pull request, so row 10 finds the evidence of a pull request that still waits (#7318).
+    A merged or closed template pull request gives row 10 no check, because a name that its head
+    reported can be a name that no workflow reports now (#7476).
     """
     name = "Template pull request"
     repo = ctx.repo
     missing, kept = _file_states(session, repo, baseline.files, ctx.default_branch)
+    pull = _open_pull(session, repo, ctx.options.repo.owner)
     if not missing:
-        pull = _last_template_pull(session, repo, ctx.options.repo.owner)
         if pull is not None:
             checks = _read_checks(session, repo, str(pull["head"]["sha"]))
             ctx.successful_checks = checks.successful
             ctx.skipped_checks = checks.skipped
         return Row(9, name, RowState.PRESENT), tuple(kept)
-    pull = _open_pull(session, repo, ctx.options.repo.owner)
     head = str(pull["head"]["sha"]) if pull else None
     stale = missing
     if pull is not None:
