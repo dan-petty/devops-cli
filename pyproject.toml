@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.226.0"
+version = "0.227.0"
 
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
@@ -121,7 +121,7 @@ dev = [
     "bandit==1.9.4",
     "zizmor==1.33.1",
     "pre-commit==4.7.0",
-    "hypothesis==6.170.19",
+    "hypothesis==6.170.22",
     "h11==0.16.0",
     "deptry==0.25.1",
     "mutmut==3.8.1",

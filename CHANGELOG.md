@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.227.0](https://github.com/dan-petty/devops-cli/compare/v0.226.1...v0.227.0) (2026-11-27)
+
+
+### Features
+
+* **roadmap:** set each runner Job memory limit to its request ([#7432](https://github.com/dan-petty/devops-cli/issues/7432)) ([caf276a](https://github.com/dan-petty/devops-cli/commit/caf276a93a725017628e070c5b8d7e280a7278a8))
+
+
+### Bug Fixes
+
+* **deps:** update dan-petty/devtools Docker tag to v1.3.4 ([#7440](https://github.com/dan-petty/devops-cli/issues/7440)) ([4d9a499](https://github.com/dan-petty/devops-cli/commit/4d9a49989f97993157cd5bd0b7b5233d8bd145f5))
+
+## [0.226.1](https://github.com/dan-petty/devops-cli/compare/v0.226.0...v0.226.1) (2026-11-27)
+
+
+### Bug Fixes
+
+* **k8s:** delete the new volume when a volume move undoes ([#7429](https://github.com/dan-petty/devops-cli/issues/7429)) ([82c2c5c](https://github.com/dan-petty/devops-cli/commit/82c2c5c45d34db9e65e20e08c27c692fa20929a4))
+
 ## [0.226.0](https://github.com/dan-petty/devops-cli/compare/v0.225.1...v0.226.0) (2026-11-27)
 
 

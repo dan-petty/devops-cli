@@ -4873,6 +4873,7 @@ CONST_K8S_SCALABLE_WORKLOAD_KINDS: Final[dict[str, str]] = {
 }
 """The owner kinds a volume move scales, each with its kubectl resource name."""
 CONST_K8S_RECLAIM_RETAIN: Final[str] = "Retain"
+CONST_K8S_RECLAIM_DELETE: Final[str] = "Delete"
 CONST_K8S_RETENTION_DELETE: Final[str] = "Delete"
 CONST_K8S_CLAIM_PHASE_BOUND: Final[str] = "Bound"
 CONST_K8S_POD_PHASE_RUNNING: Final[str] = "Running"

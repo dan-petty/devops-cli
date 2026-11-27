@@ -3,9 +3,10 @@
 A Job that implements a small item does not need the memory and the CPU of a Job that changes forty
 files. The Service counts the files that `tasks.md` of the plan names, and takes the row of
 `RUNNER_SIZES` for that count. The CPU of a row is the request, the limit and the worker count of
-`pytest-xdist`, which counts the CPUs of the node and not of the pod (#2806). The memory limit is
-not in the table: it is the setting `roadmap.implement.max_memory_limit`, so one limit protects the
-node for every row.
+`pytest-xdist`, which counts the CPUs of the node and not of the pod (#2806). The memory of a row is
+the request and the limit (#7422). The scheduler places a pod by its request only, and the kernel
+cannot take memory back from a process. So a Job with a limit above its request can go to a node
+that cannot hold the limit, and then takes memory from the other pods of the node.
 
 The admission policy `roadmap-service-jobs` admits the rows of this table and no other size
 (`k8s/devops/roadmap-service/admissionpolicy.yaml`). A gate check holds the two equal. A person who
@@ -34,8 +35,8 @@ _CODE_SPAN: Final[re.Pattern[str]] = re.compile(r"`([^`\n]+)`")
 
 @dataclass(frozen=True)
 class RunnerSize:
-    """One row of the table: the CPU (request and limit) and the memory request of a Job, and the
-    measurement that sets the memory request. The memory request is above `peak_bytes`."""
+    """One row of the table: the CPU and the memory of a Job, each the request and the limit, and
+    the measurement that sets the memory. `peak_bytes` is at most 80 % of the memory."""
 
     max_files: int | None
     cpu: str
@@ -48,37 +49,36 @@ class RunnerSize:
         """The worker count of the test runner: the CPU limit of the same Job."""
         return {WORKERS_VARIABLE: self.cpu}
 
-    def resources(self, memory_limit: str) -> dict[str, dict[str, str]]:
-        """The requests and limits that replace those of the template. The CPU request equals the
-        CPU limit, and the memory limit is `memory_limit`."""
-        return {
-            "requests": {"cpu": self.cpu, "memory": self.memory},
-            "limits": {"cpu": self.cpu, "memory": memory_limit},
-        }
+    def resources(self) -> dict[str, dict[str, str]]:
+        """The requests and limits that replace those of the template: each limit equals its
+        request."""
+        values = {"cpu": self.cpu, "memory": self.memory}
+        return {"requests": dict(values), "limits": dict(values)}
 
 
-# The peaks are the measured ones of the runner Jobs (#2806): the normal peak of the 10 Jobs that
-# did not run out of memory, and the peak that the Job reached before the kernel killed it at its
-# 4 Gi cap, which was still growing. A third row needs a third measurement.
+# The peaks are the highest working set of the container that ran the step, in the runner Jobs of
+# each row in the 14 days to 2026-11-27, read from Prometheus (#7422). Each Job then had a memory
+# limit of 16Gi, so no peak was cut by a limit. The two peaks are of Jobs with one container,
+# which also ran `prepare` and `publish`; the `agent` container of a Job on the three containers
+# peaked at 2.10 GiB in the small row and at 4.54 GiB in the large row. The peak is at most 80 % of
+# the memory of its row, the room of T1 in docs/guidelines/kubernetes.md. A third row needs a third
+# measurement.
 RUNNER_SIZES: Final[tuple[RunnerSize, ...]] = (
     RunnerSize(
         max_files=SMALL_PLAN_MAX_FILES,
         cpu="1",
-        memory="2Gi",
-        sample="the 10 runner Jobs of #2806 that did not run out of memory",
-        peak_bytes=int(1.24 * _GB),
+        memory="5Gi",
+        sample="the 42 runner Jobs of the small row in the 14 days to 2026-11-27 (#7422)",
+        peak_bytes=int(4.08 * _GB),
     ),
     RunnerSize(
         max_files=None,
         cpu="4",
-        memory="6Gi",
-        sample="the runner Job of #2806 that the kernel killed at its 4 Gi cap",
-        peak_bytes=int(4.13 * _GB),
+        memory="11Gi",
+        sample="the 117 runner Jobs of the large row in the 14 days to 2026-11-27 (#7422)",
+        peak_bytes=int(8.65 * _GB),
     ),
 )
-
-# The memory limit may not be below the largest request, or the API refuses the Job.
-MIN_MEMORY_LIMIT_GI: Final[int] = max(int(row.memory.removesuffix("Gi")) for row in RUNNER_SIZES)
 
 
 def plan_file_count(tasks_md: str) -> int:
