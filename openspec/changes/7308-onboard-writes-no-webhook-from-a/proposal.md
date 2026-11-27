@@ -56,7 +56,7 @@ None.
 
 ## Existing Tool Considered
 
-The GitHub REST API for repository webhooks, which the command already uses, covers the hook reads and writes. No open, maintained tool covers a guard on a configuration default inside the onboard rows, and the alternatives check of 2026-11-26 in the issue body gives `none`. The change builds that guard itself at about 40k tokens to build, about 10k tokens to keep and fix, and about 4 hours elapsed.
+The GitHub REST API for repository webhooks, which the command already uses, covers the hook reads and writes. No open, maintained tool covers a guard on a configuration default inside the onboard rows, and the alternatives check of 2026-11-26 in the issue body gives `none`. The change builds that guard itself at about 40k tokens to build, about 10k tokens to keep and fix, and about 4 hours elapsed. The change deletes no internal code: the two reads of the checkout move from `service_row` into `deploy_plan`.
 
 ## Dependencies
 

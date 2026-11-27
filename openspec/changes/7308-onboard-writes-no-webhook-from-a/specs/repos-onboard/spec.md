@@ -11,6 +11,13 @@ Row 12 SHALL report the state `person` with one step that names the setting `ser
 - **WHEN** a test in `tests/commands/test_repos_onboard.py` runs `devops repos onboard example-org/app --confirm --only 12` over the fake GitHub API with `service.webhook_url` at its default value
 - **THEN** the fake records no POST and no PATCH to a hooks route, and row 12 holds the state `person`
 
+### Requirement: The step of a withheld secret says why
+The step of a withheld secret SHALL name the reason (row 13 is not in `--only`, `--no-deploy`, or the refusal reason of the clean-checkout checks) and the command `devops repos onboard <repo> --confirm --only 12,13`, and SHALL name no deploy-stack.
+
+#### Scenario: A withheld secret with no deploy
+- **WHEN** a test in `tests/github/onboard/test_onboard_rows.py` runs a confirmed row 12 with an existing hook whose secret the map lacks and `--no-deploy`
+- **THEN** the step of row 12 names `--no-deploy` and `--confirm --only 12,13`, and no step of the run names deploy-stack
+
 ### Requirement: The webhook secret write needs the Service row
 Row 12 SHALL write a new secret to an existing hook only in a run that does row 13 with its deploy and passes the clean-checkout checks that row 13 makes. With `--no-deploy`, with row 13 out of `--only`, or with a checkout that row 13 refuses, it SHALL report the difference, write nothing, and give one step that names `service.webhook_secrets` and the reason.
 
