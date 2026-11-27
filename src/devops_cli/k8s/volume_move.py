@@ -43,6 +43,7 @@ from devops_cli.config.constants import (
     CONST_K8S_LABEL_RE,
     CONST_K8S_LAST_APPLIED_ANNOTATION,
     CONST_K8S_POD_PHASE_RUNNING,
+    CONST_K8S_POD_PHASES_ENDED,
     CONST_K8S_RECLAIM_RETAIN,
     CONST_K8S_RECREATED_CLAIM_METADATA_KEYS,
     CONST_K8S_RETENTION_DELETE,
@@ -620,9 +621,16 @@ def _mounts(pod: dict[str, Any], claim: str) -> bool:
 
 
 def _claim_pods(namespace: str, claim: str, context: str | None) -> list[dict[str, Any]]:
-    """The pods whose specs mount the claim; labels can lie, the volumes cannot."""
+    """The pods whose specs mount the claim; labels can lie, the volumes cannot. A pod that has
+    ended holds no volume, and a scale to zero does not delete it, so it is not a pod of the move.
+    """
     items = _read_json(["get", "pods", "-n", namespace, "-o", "json"], context).get("items") or []
-    return [pod for pod in items if _mounts(pod, claim)]
+    return [
+        pod
+        for pod in items
+        if _mounts(pod, claim)
+        and (pod.get("status") or {}).get("phase") not in CONST_K8S_POD_PHASES_ENDED
+    ]
 
 
 def _controller(item: dict[str, Any]) -> tuple[str, str] | None:
