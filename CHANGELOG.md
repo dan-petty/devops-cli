@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.229.3](https://github.com/dan-petty/devops-cli/compare/v0.229.2...v0.229.3) (2026-11-27)
+
+
+### Bug Fixes
+
+* **k8s:** wait for running Argo CD syncs in a volume move ([#7469](https://github.com/dan-petty/devops-cli/issues/7469)) ([6d66f06](https://github.com/dan-petty/devops-cli/commit/6d66f06f9f8dc0adafe01189d76fe91c2843587b))
+
 ## [0.229.2](https://github.com/dan-petty/devops-cli/compare/v0.229.1...v0.229.2) (2026-11-27)
 
 
