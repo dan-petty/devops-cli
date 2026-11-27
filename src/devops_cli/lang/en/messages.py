@@ -1055,7 +1055,8 @@ class K8sMessages:
     )
     volume_move_not_on_control_plane: str = (
         "Volume {volume} is on node {node}, which is not a control-plane node. To move it to "
-        "another worker node, name that node with --to-node."
+        "another worker node, name that node with --to-node. To move it to a volume of another "
+        "class, give --storage-class."
     )
     volume_move_unknown_node: str = "Node {node} does not exist."
     volume_move_target_control_plane: str = (
@@ -1064,6 +1065,14 @@ class K8sMessages:
     volume_move_target_is_source: str = "Volume {volume} is on node {node} already."
     volume_move_target_unavailable: str = "Node {node} is not Ready, or it is cordoned."
     volume_move_no_target: str = "No worker node is Ready and schedulable for the volume."
+    volume_move_unknown_storage_class: str = "StorageClass {storage_class} does not exist."
+    volume_move_target_no_driver: str = (
+        "Node {node} cannot attach a volume of class {storage_class}: its CSINode does not list "
+        "the CSI driver {driver}."
+    )
+    volume_move_no_target_for_class: str = (
+        "No worker node is Ready and schedulable and can attach a volume of class {storage_class}."
+    )
     volume_move_unknown_application: str = (
         "Argo CD Application {application}, which the tracking annotation names, does not exist "
         "in namespace {namespace}."
@@ -1091,6 +1100,9 @@ class K8sMessages:
     volume_move_saved: str = "Saved claim {namespace}/{claim} to {path}."
     volume_move_placement: str = (
         "After the move, the pods of claim {claim} must run on node {node}, but they are: {pods}."
+    )
+    volume_move_not_running: str = (
+        "After the move, the pods of claim {claim} must run, but they are: {pods}."
     )
     volume_move_interrupted: str = "the move was interrupted"
     volume_move_step_pause: str = (
@@ -1136,6 +1148,10 @@ class K8sMessages:
         "Scale {workloads} again, wait until the pods are ready, and make sure that they run on "
         "node {node}."
     )
+    volume_move_step_start_any_node: str = (
+        "Scale {workloads} again, wait until the pods are ready, and make sure that they run. "
+        "The scheduler selects their nodes."
+    )
     volume_move_step_resume: str = (
         "Resume automated sync of the Argo CD Applications {applications}."
     )
@@ -1153,7 +1169,9 @@ class K8sMessages:
         "Claim: Bound to volume {volume} ({size}, {storage_class}) on node {node}, reclaim "
         "policy {policy}."
     )
-    volume_move_plan_target: str = "Target node: {node}, {free} free."
+    volume_move_plan_target: str = (
+        "Target node: {node}, {free} free. Target class: {storage_class}."
+    )
     volume_move_plan_workloads: str = (
         "Workloads that mount the claim: {workloads}. Their pods: {pods}."
     )
@@ -1169,7 +1187,14 @@ class K8sMessages:
         "because a self-heal would make an empty claim."
     )
     volume_move_start: str = "Start the move of claim {namespace}/{claim} to node {node}."
+    volume_move_start_class: str = (
+        "Start the move of claim {namespace}/{claim} to a volume of class {storage_class}, "
+        "copied on node {node}."
+    )
     volume_move_done: str = "Moved claim {namespace}/{claim} to node {node}."
+    volume_move_done_class: str = (
+        "Moved claim {namespace}/{claim} to a volume of class {storage_class}."
+    )
     volume_move_done_new_volume: str = (
         "New volume: {volume}, reclaim policy Retain, bound to claim {namespace}/{claim}."
     )

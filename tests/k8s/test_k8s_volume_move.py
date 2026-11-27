@@ -31,6 +31,7 @@ from devops_cli.k8s.volume_move import (
     run_volume_move,
 )
 from devops_cli.lang import MESSAGES
+from devops_cli.output import format_bytes
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 CONTEXT = "test-ctx"
@@ -59,6 +60,8 @@ PAUSE = ("bootstrap", "cluster", "grafana")
 VOLUME_MOVE_IMAGE = (
     "debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2"
 )
+LONGHORN = "longhorn"
+LONGHORN_DRIVER = "driver.longhorn.io"
 
 
 def _claim_object() -> dict[str, Any]:
@@ -133,12 +136,26 @@ class Cluster:
     move_claim_volume: str | None = None
     target_hostname: str | None = None
     restarted_on: str | None = None
+    restarted_phase: str = "Running"
     claim_exists: bool = True
     owner_kind: str | None = None
     tracked: bool = True
     cronjob_exists: bool = True
     known_applications: tuple[str, ...] = ("bootstrap", "cluster", "grafana", "loki")
     timeout_on: str | None = None
+    # The provisioner of each StorageClass, the CSIDrivers, and the drivers of each CSINode: only
+    # worker-a has the Longhorn driver, as only the storage nodes of the homelab do.
+    storage_classes: dict[str, str] = field(
+        default_factory=lambda: {
+            "local-path": "rancher.io/local-path",
+            LONGHORN: LONGHORN_DRIVER,
+            "nfs": "example.com/nfs",
+        }
+    )
+    csi_drivers: tuple[str, ...] = (LONGHORN_DRIVER,)
+    csi_nodes: dict[str, tuple[str, ...]] = field(
+        default_factory=lambda: {CONTROL_PLANE: (), WORKER_A: (LONGHORN_DRIVER,), WORKER_B: ()}
+    )
     changes: list[str] = field(default_factory=list)
     created: list[dict[str, Any]] = field(default_factory=list)
 
@@ -179,8 +196,28 @@ class Cluster:
             "statefulset": lambda _args: json.dumps(self._workload()),
             "applications": lambda _args: json.dumps({"items": self._applications()}),
             "cronjob": self._get_cronjob,
+            "storageclass": self._get_storage_class,
+            "csidriver": lambda args: (
+                json.dumps({"metadata": {"name": args[2]}}) if args[2] in self.csi_drivers else ""
+            ),
+            "csinodes": lambda _args: json.dumps({"items": self._csi_nodes()}),
         }
         return readers[what](args)
+
+    def _get_storage_class(self, args: list[str]) -> str:
+        provisioner = self.storage_classes.get(args[2])
+        if provisioner is None:
+            return ""
+        return json.dumps({"metadata": {"name": args[2]}, "provisioner": provisioner})
+
+    def _csi_nodes(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "metadata": {"name": node},
+                "spec": {"drivers": [{"name": driver, "nodeID": node} for driver in drivers]},
+            }
+            for node, drivers in self.csi_nodes.items()
+        ]
 
     def _get_cronjob(self, args: list[str]) -> str:
         if not self.cronjob_exists:
@@ -283,7 +320,11 @@ class Cluster:
                             {"name": "storage", "persistentVolumeClaim": {"claimName": CLAIM}}
                         ],
                     },
-                    "status": {"phase": "Running"},
+                    "status": {
+                        "phase": "Running"
+                        if self.claim_volume != NEW_VOLUME
+                        else self.restarted_phase
+                    },
                 }
             )
         pods.append(
@@ -411,9 +452,11 @@ def _plan(**options: Any) -> VolumeMovePlan:
     return plan_volume_move(NAMESPACE, CLAIM, parents=PARENTS, context=CONTEXT, **options)
 
 
-def _move(tmp_path: Path, progress: list[str] | None = None) -> Any:
+def _move(tmp_path: Path, progress: list[str] | None = None, **options: Any) -> Any:
     lines = progress if progress is not None else []
-    return run_volume_move(_plan(), context=CONTEXT, save_dir=tmp_path, progress=lines.append)
+    return run_volume_move(
+        _plan(**options), context=CONTEXT, save_dir=tmp_path, progress=lines.append
+    )
 
 
 def _pause(enabled: bool, names: tuple[str, ...]) -> list[str]:
@@ -525,6 +568,93 @@ def test_a_claim_that_no_application_tracks_moves_with_no_pause(
     assert not any(change.startswith("patch application") for change in cluster.changes)
 
 
+# ── A class change ─────────────────────────────────────────────────────────
+
+
+def test_a_class_change_picks_the_worker_whose_csinode_lists_the_driver(
+    cluster: Cluster,
+) -> None:
+    """worker-b has more free disk, but only worker-a can attach a Longhorn volume (#7382)."""
+    plan = _plan(storage_class=LONGHORN)
+
+    assert (plan.storage_class, plan.target_storage_class, plan.new_storage_class) == (
+        "local-path",
+        LONGHORN,
+        LONGHORN,
+    )
+    assert (plan.target_node, plan.target_free_bytes) == (WORKER_A, FREE_BYTES[WORKER_A])
+    assert cluster.changes == []
+
+
+def test_a_class_without_a_csi_driver_does_not_limit_the_nodes(cluster: Cluster) -> None:
+    assert _plan(storage_class="nfs").target_node == WORKER_B
+
+
+def test_a_class_change_moves_a_volume_off_a_worker_without_to_node(cluster: Cluster) -> None:
+    """The new volume is not the old one, so the node of the old volume can be the target."""
+    cluster.volume_node = WORKER_A
+
+    plan = _plan(storage_class=LONGHORN)
+
+    assert (plan.source_node, plan.target_node) == (WORKER_A, WORKER_A)
+
+
+def test_the_class_of_the_old_claim_is_a_move_that_keeps_the_class(cluster: Cluster) -> None:
+    assert _plan(storage_class="local-path") == PLAN
+
+
+def test_the_steps_of_a_class_change_name_the_new_class(cluster: Cluster) -> None:
+    m = MESSAGES.k8s
+
+    steps = describe_volume_move(_plan(storage_class=LONGHORN))
+
+    assert steps[1] == m.volume_move_step_destination.format(
+        claim="grafana-move", size="5Gi", storage_class=LONGHORN, pod="grafana-dst", node=WORKER_A
+    )
+    assert steps[11] == m.volume_move_step_start_any_node.format(
+        workloads="deployment/grafana to 1"
+    )
+
+
+def test_a_class_change_makes_the_move_claim_and_the_claim_again_with_the_new_class(
+    cluster: Cluster, tmp_path: Path
+) -> None:
+    _move(tmp_path, storage_class=LONGHORN)
+
+    claims = [item for item in cluster.created if item["kind"] == "PersistentVolumeClaim"]
+    assert [(claim["metadata"]["name"], claim["spec"]["storageClassName"]) for claim in claims] == [
+        ("grafana-move", LONGHORN),
+        (CLAIM, LONGHORN),
+    ]
+    assert claims[-1]["spec"]["volumeName"] == NEW_VOLUME
+    assert cluster.changes[-3:] == _pause(True, ("grafana", "cluster", "bootstrap"))
+
+
+def test_a_pod_of_a_class_change_can_run_on_another_node(cluster: Cluster, tmp_path: Path) -> None:
+    """The scheduler places the pod of a replicated volume: the run only needs it Running."""
+    cluster.restarted_on = WORKER_B
+
+    result = _move(tmp_path, storage_class=LONGHORN)
+
+    assert (result.plan.target_node, result.new_volume) == (WORKER_A, NEW_VOLUME)
+    assert cluster.changes[-3:] == _pause(True, ("grafana", "cluster", "bootstrap"))
+
+
+def test_a_pod_of_a_class_change_that_does_not_run_leaves_argo_cd_paused(
+    cluster: Cluster, tmp_path: Path
+) -> None:
+    cluster.restarted_phase = "Pending"
+
+    with pytest.raises(VolumeMoveStrandedError) as stranded:
+        _move(tmp_path, storage_class=LONGHORN)
+
+    assert len(stranded.value.remaining) == 2
+    assert MESSAGES.k8s.volume_move_not_running.format(
+        claim=CLAIM, pods=f"{WORKER_A} (Pending)"
+    ) in str(stranded.value)
+    assert not any(change.endswith("enabled=true") for change in cluster.changes)
+
+
 # ── Refusals: nothing changes ──────────────────────────────────────────────
 
 
@@ -595,9 +725,34 @@ def _unknown_application(cluster: Cluster) -> tuple[dict[str, Any], str]:
     )
 
 
+def _unknown_storage_class(cluster: Cluster) -> tuple[dict[str, Any], str]:
+    return {"storage_class": "fast"}, MESSAGES.k8s.volume_move_unknown_storage_class.format(
+        storage_class="fast"
+    )
+
+
+def _target_without_the_driver(cluster: Cluster) -> tuple[dict[str, Any], str]:
+    return (
+        {"storage_class": LONGHORN, "to_node": WORKER_B},
+        MESSAGES.k8s.volume_move_target_no_driver.format(
+            node=WORKER_B, storage_class=LONGHORN, driver=LONGHORN_DRIVER
+        ),
+    )
+
+
+def _no_worker_has_the_driver(cluster: Cluster) -> tuple[dict[str, Any], str]:
+    cluster.csi_nodes = {CONTROL_PLANE: (LONGHORN_DRIVER,), WORKER_A: (), WORKER_B: ()}
+    return {"storage_class": LONGHORN}, MESSAGES.k8s.volume_move_no_target_for_class.format(
+        storage_class=LONGHORN
+    )
+
+
 @pytest.mark.parametrize(
     "precondition",
     [
+        _unknown_storage_class,
+        _target_without_the_driver,
+        _no_worker_has_the_driver,
         _claim_missing,
         _owned_by_a_job,
         _unknown_application,
@@ -988,6 +1143,30 @@ def test_the_dry_run_makes_no_request_and_lists_the_writes_in_order(
     }
 
 
+def test_the_dry_run_of_a_class_change_reads_the_class_and_its_nodes_first(
+    process_fake: ProcessFake,
+) -> None:
+    requests = dry_run_volume_move(
+        NAMESPACE, CLAIM, parents=PARENTS, storage_class=LONGHORN, context=CONTEXT
+    )
+
+    assert process_fake.calls == []
+    reads = [request.argv[3:5] for request in requests if request.argv[3] == "get"]
+    order = [
+        reads.index(("get", "storageclass")),
+        reads.index(("get", "csidriver")),
+        reads.index(("get", "csinodes")),
+        reads.index(("get", "--raw")),
+    ]
+    assert order == sorted(order)
+    claims = [
+        json.loads(request.stdin)
+        for request in requests
+        if request.stdin and '"PersistentVolumeClaim"' in request.stdin
+    ]
+    assert [claim["spec"]["storageClassName"] for claim in claims] == [LONGHORN, LONGHORN]
+
+
 def test_plan_volume_move_raises_when_cronjob_missing(cluster: Cluster) -> None:
     cluster.cronjob_exists = False
     with pytest.raises(VolumeMoveError) as exc_info:
@@ -1026,6 +1205,50 @@ def test_move_plan_prints_the_steps_and_changes_nothing(cli: Any, cluster: Clust
         in result.output
     )
     assert cluster.changes == []
+
+
+def test_move_plan_of_a_class_change_prints_the_two_classes(cli: Any, cluster: Cluster) -> None:
+    result = cli(
+        "k8s",
+        "volume",
+        "move",
+        "monitoring/grafana",
+        "--storage-class",
+        LONGHORN,
+        "--plan",
+        "--context",
+        CONTEXT,
+    )
+
+    assert result.exit_code == 0, result.output
+    m = MESSAGES.k8s
+    output = " ".join(result.output.split())
+    for line in (
+        m.volume_move_plan_claim.format(
+            volume=OLD_VOLUME,
+            size="5Gi",
+            storage_class="local-path",
+            node=CONTROL_PLANE,
+            policy="Delete",
+        ),
+        m.volume_move_plan_target.format(
+            node=WORKER_A, free=format_bytes(FREE_BYTES[WORKER_A]), storage_class=LONGHORN
+        ),
+    ):
+        assert " ".join(line.split()) in output
+    assert cluster.changes == []
+
+
+def test_move_of_a_class_change_names_the_class_when_done(cli: Any, cluster: Cluster) -> None:
+    result = cli(
+        "k8s", "volume", "move", "monitoring/grafana", "--storage-class", LONGHORN, "-c", CONTEXT
+    )
+
+    assert result.exit_code == 0, result.output
+    done = MESSAGES.k8s.volume_move_done_class.format(
+        namespace=NAMESPACE, claim=CLAIM, storage_class=LONGHORN
+    )
+    assert " ".join(done.split()) in " ".join(result.output.split())
 
 
 def test_move_dry_run_prints_the_requests_and_makes_none(

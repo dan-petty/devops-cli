@@ -1,4 +1,4 @@
-"""Kubernetes volume commands: move a local-path claim to another node, reclaim orphaned volumes."""
+"""Kubernetes volume commands: move a local-path claim to another node or class, reclaim volumes."""
 
 from __future__ import annotations
 
@@ -118,7 +118,9 @@ def _print_plan(plan: VolumeMovePlan) -> None:
     )
     _say(
         m.volume_move_plan_target.format(
-            node=plan.target_node, free=format_bytes(plan.target_free_bytes)
+            node=plan.target_node,
+            free=format_bytes(plan.target_free_bytes),
+            storage_class=plan.new_storage_class,
         )
     )
     workloads = ", ".join(f"{w.ref} (replicas: {w.replicas})" for w in plan.workloads)
@@ -141,7 +143,11 @@ def _print_summary(result: VolumeMoveResult, context: str | None) -> None:
     m = MESSAGES.k8s
     plan = result.plan
     print_success(
-        m.volume_move_done.format(
+        m.volume_move_done_class.format(
+            namespace=plan.namespace, claim=plan.claim, storage_class=plan.new_storage_class
+        )
+        if plan.changes_class
+        else m.volume_move_done.format(
             namespace=plan.namespace, claim=plan.claim, node=plan.target_node
         ),
         prefix=False,
@@ -199,14 +205,25 @@ def _print_stranded(exc: VolumeMoveStrandedError, plan: VolumeMovePlan) -> None:
 
 
 def _plan_or_exit(
-    namespace: str, claim: str, to_node: str | None, context: str | None
+    namespace: str,
+    claim: str,
+    to_node: str | None,
+    storage_class: str | None,
+    context: str | None,
 ) -> VolumeMovePlan:
     """The plan, or exit 1 naming each problem: the plan only reads, so nothing changed."""
     from devops_cli.config.settings import load_settings
 
     parents = load_settings().argocd.root_applications
     try:
-        return plan_volume_move(namespace, claim, parents=parents, to_node=to_node, context=context)
+        return plan_volume_move(
+            namespace,
+            claim,
+            parents=parents,
+            to_node=to_node,
+            storage_class=storage_class,
+            context=context,
+        )
     except VolumeMoveRefusedError as exc:
         print_error(str(exc), prefix=False, safe=True)
         for problem in exc.problems:
@@ -229,8 +246,16 @@ def _run_or_exit(plan: VolumeMovePlan, context: str | None) -> VolumeMoveResult:
     from devops_cli.core.repo import resolve_data_path
 
     save_dir = resolve_data_path(load_settings().data.dir) / CONST_K8S_VOLUME_MOVE_SAVE_DIR
+    m = MESSAGES.k8s
     _say(
-        MESSAGES.k8s.volume_move_start.format(
+        m.volume_move_start_class.format(
+            namespace=plan.namespace,
+            claim=plan.claim,
+            storage_class=plan.new_storage_class,
+            node=plan.target_node,
+        )
+        if plan.changes_class
+        else m.volume_move_start.format(
             namespace=plan.namespace, claim=plan.claim, node=plan.target_node
         )
     )
@@ -251,13 +276,17 @@ def volume_move_cmd(
     to_node: Annotated[
         str | None, typer.Option("--to-node", metavar="NODE", help=HELP.k8s.volume_move_to_node)
     ] = None,
+    storage_class: Annotated[
+        str | None,
+        typer.Option("--storage-class", metavar="CLASS", help=HELP.k8s.volume_move_storage_class),
+    ] = None,
     plan: Annotated[bool, typer.Option("--plan", help=HELP.k8s.volume_move_plan)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.k8s.volume_move_dry_run)] = False,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help=HELP.options.context)
     ] = None,
 ) -> None:
-    """Move a local-path claim to a volume on another node, and bind the claim to it."""
+    """Move a local-path claim to a volume on another node or class, and bind the claim to it."""
     from devops_cli.commands.k8s.cluster_runtime import resolve_effective_context
     from devops_cli.core.validation import validate_k8s_context_name
 
@@ -279,6 +308,7 @@ def volume_move_cmd(
                 name,
                 parents=load_settings().argocd.root_applications,
                 to_node=to_node,
+                storage_class=storage_class,
                 context=effective_context,
             ),
             (
@@ -289,7 +319,7 @@ def volume_move_cmd(
             ),
         )
         return
-    move_plan = _plan_or_exit(namespace, name, to_node, effective_context)
+    move_plan = _plan_or_exit(namespace, name, to_node, storage_class, effective_context)
     _print_plan(move_plan)
     if plan:
         return

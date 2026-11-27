@@ -615,8 +615,8 @@ class K8sCommandHelp:
     )
     volume_reclaim_patch: str = "Patch volume finalizers instead of issuing a DELETE request."
     volume_move: str = (
-        "Move the data of a local-path claim to a new volume on another node, and bind the claim "
-        "to it. The move pauses Argo CD from the top down, stops the workloads that mount the "
+        "Move the data of a local-path claim to a new volume on another node or of another "
+        "storage class, and bind the claim to it. The move pauses Argo CD from the top down, stops the workloads that mount the "
         "claim, copies the data with GNU tar through the API server, compares the two sides, "
         "binds the claim to the new volume, starts the workloads and resumes Argo CD. Before it "
         "deletes the old claim, a failure undoes its steps; after that, a failure leaves Argo CD "
@@ -627,7 +627,13 @@ class K8sCommandHelp:
     volume_move_to_node: str = (
         "The worker node to move the volume to. Default: the worker node with the most free "
         "disk, for a volume on the control-plane node. A volume on a worker node moves only to "
-        "the node that this option names."
+        "the node that this option names, unless --storage-class changes its class."
+    )
+    volume_move_storage_class: str = (
+        "The StorageClass of the new volume. Default: the class of the old claim. With another "
+        "class, the default target is the worker node with the most free disk that can attach a "
+        "volume of the class (its CSINode lists the CSI driver of the class), and it can be the "
+        "node of the old volume. The class must hold the data in the size of the claim."
     )
     volume_move_plan: str = (
         "Read the claim, its volume, the nodes, the workloads and the Argo CD Applications, print "

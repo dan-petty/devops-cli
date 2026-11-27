@@ -99,6 +99,7 @@ Each pod that mounts a claim sets this affinity, in its manifest under `k8s/devo
 devops k8s volume move monitoring/grafana --plan
 devops k8s volume move monitoring/grafana
 devops k8s volume move logging/storage-loki-0 --to-node <worker-node>
+devops k8s volume move llm/qdrant-storage-qdrant-0 --storage-class longhorn
 ```
 
 `--plan` only reads, and prints each step with the real names. `--dry-run` makes no request, and prints the requests of a move. Without `--to-node`, the command moves a volume from the control-plane node to the worker node with the most free disk (`node.fs.availableBytes` in the kubelet's `/stats/summary`). A volume on a worker node moves only to the node that `--to-node` names. The command refuses a claim that is not `Bound`, a target on the control-plane node, a StatefulSet that deletes its claims when it scales down (`persistentVolumeClaimRetentionPolicy.whenScaled: Delete`), and the leftovers of an earlier move: the pods `<claim>-src` and `<claim>-dst` and the claim `<claim>-move`.
@@ -106,13 +107,13 @@ devops k8s volume move logging/storage-loki-0 --to-node <worker-node>
 The move does these steps, and prints each one:
 
 1. It pauses automated sync from the top down: the root Applications of the setting `argocd.root_applications` (`bootstrap`, `cluster`), then each Application that tracks the claim or the workloads that mount it (Pausing an Application, below). If it did not, self-heal would start the workload again during the copy.
-2. It makes the claim `<claim>-move`, with the size and the class of the old claim, and the pod `<claim>-dst` on the target node. local-path binds the new volume on that node.
+2. It makes the claim `<claim>-move`, with the size of the old claim and its class (or the class that `--storage-class` names), and the pod `<claim>-dst` on the target node. local-path binds the new volume on that node.
 3. It scales the workloads that mount the claim to zero. It finds them from the volumes of the pod specs, not from labels. Then it starts the pod `<claim>-src`, which mounts the old claim read-only. Its volume keeps it on the old node, so one pod cannot mount the two claims.
 4. It copies through the API server with GNU tar in the copy container of suspended CronJob `devops/volume-move`, which keeps the owners, the modes and the sparse files. The source keeps its stdout open until the destination has ended, because the end of that stdout loses the data that still waits on the path to a slower destination. The extract ends at the end-of-archive marker, and a named pipe from the stdout of the destination to the stdin of the source then ends the source. When the exec stream stops (`connection reset by peer`), it empties the destination and copies one more time.
 5. It compares the two sides: the number of entries, the number of files, the bytes of the regular files (not `du`, which counts directory blocks), a digest of the metadata (`%y %m %U:%G %P` of each entry) and a digest of the content. It stops at a difference.
 6. It sets the two volumes to `Retain`, deletes the copy pods, saves the old claim as a JSON file in `k8s/volume-move/` under the data directory, and deletes the old claim. This is the point of no return.
-7. It deletes `<claim>-move`, reserves its volume for the claim name (`claimRef`), and makes the claim again from the saved one, with `spec.volumeName`. It leaves out the annotation `kubectl.kubernetes.io/last-applied-configuration`, and puts the saved value back after the create. `kubectl create` writes the whole new object, `volumeName` included, into that annotation when the manifest has it. Argo CD then tries to remove `volumeName`, and the API server refuses the change (`spec is immutable after creation`).
-8. It scales the workloads back, makes sure that their pods run on the target node, and turns on automated sync again: the Application, `cluster`, then `bootstrap`.
+7. It deletes `<claim>-move`, reserves its volume for the claim name (`claimRef`), and makes the claim again from the saved one, with `spec.volumeName` and the class of the new volume. It leaves out the annotation `kubectl.kubernetes.io/last-applied-configuration`, and puts the saved value back after the create. `kubectl create` writes the whole new object, `volumeName` included, into that annotation when the manifest has it. Argo CD then tries to remove `volumeName`, and the API server refuses the change (`spec is immutable after creation`).
+8. It scales the workloads back, makes sure that their pods run on the target node (with a class change, that they run on a node that the scheduler selects), and turns on automated sync again: the Application, `cluster`, then `bootstrap`.
 
 Before the point of no return, a failure undoes each change of the move, the last change first. From the point of no return on, a failure leaves Argo CD paused, because a self-heal would make an empty claim. The command then prints the saved claim and the steps that did not run.
 
@@ -124,12 +125,20 @@ The old volume stays `Released`, with its data, until a person deletes it. The c
 kubectl patch pv <old-pv> -p '{"spec":{"persistentVolumeReclaimPolicy":"Delete"}}'
 ```
 
+#### Change the class of a volume
+
+`--storage-class <class>` moves the data to a new volume of that class, such as the replicated class `longhorn` (Replicated Volumes), and keeps the name of the claim. The class of a claim cannot change after its create, so a claim of `volumeClaimTemplates` can get another class only through this move. The target node must be able to attach a volume of the class: when a CSIDriver has the name of the provisioner of the class, the CSINode of the node must list that driver. Without `--to-node`, the command picks the node with the most free disk of those nodes, and that can be the node of the old volume.
+
+1. Compare the data with the size of the claim. local-path does not limit a volume to its size, but `longhorn` does. When the data does not fit, the copy fails and the move undoes its steps. Make the size larger in git first.
+2. Merge the class change in git, then run the move soon after. Until the move, Argo CD cannot apply the class to the live claim (`spec is immutable after creation`), so the sync of the Application fails, and the workload keeps its data. A merge after the move fails the sync in the same way, until the merge.
+3. For a StatefulSet, the API server refuses a change of the class in `volumeClaimTemplates` too. Delete the StatefulSet and keep its pods: `kubectl delete statefulset <name> -n <namespace> --cascade=orphan`. Argo CD makes it again from git, and the new StatefulSet adopts the pods. Do this before or after the move: the claim keeps its name, so the StatefulSet uses it.
+
 #### Finish a stopped move
 
 When a move stops after the point of no return, the old claim is gone, the new volume has the copy, and Argo CD stays paused. Do the steps that the command prints:
 
-1. Make the claim again from the saved file with `spec.volumeName: <new-pv>`. Leave out `kubectl.kubernetes.io/last-applied-configuration` and the annotations of the volume controllers (`pv.kubernetes.io/*`, `volume.kubernetes.io/*`, `volume.beta.kubernetes.io/*`). Then put the saved last-applied value back with `kubectl annotate pvc <claim> -n <namespace> --overwrite kubectl.kubernetes.io/last-applied-configuration=<value>`.
-2. Scale the workloads back to their replicas, and make sure that their pods run on the target node.
+1. Make the claim again from the saved file with `spec.volumeName: <new-pv>`, and, after a class change, `spec.storageClassName: <class>`. Leave out `kubectl.kubernetes.io/last-applied-configuration` and the annotations of the volume controllers (`pv.kubernetes.io/*`, `volume.kubernetes.io/*`, `volume.beta.kubernetes.io/*`). Then put the saved last-applied value back with `kubectl annotate pvc <claim> -n <namespace> --overwrite kubectl.kubernetes.io/last-applied-configuration=<value>`.
+2. Scale the workloads back to their replicas, and make sure that their pods run on the target node (after a class change, that they run).
 3. Turn on automated sync again: the Application, then `bootstrap`, which restores `cluster`, which restores the others from git.
 
 #### Measure the copy path

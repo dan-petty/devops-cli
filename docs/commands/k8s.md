@@ -1055,7 +1055,7 @@ devops k8s volume reclaim [OPTIONS] <name>
 
 ### `devops k8s volume move`
 
-**Move the data of a local-path claim to a new volume on another node, and bind the claim to it. The move pauses Argo CD from the top down, stops the workloads that mount the claim, copies the data with GNU tar through the API server, compares the two sides, binds the claim to the new volume, starts the workloads and resumes Argo CD. Before it deletes the old claim, a failure undoes its steps; after that, a failure leaves Argo CD paused and names the saved claim. The old volume stays, with reclaim policy Retain, until a person deletes it.**
+**Move the data of a local-path claim to a new volume on another node or of another storage class, and bind the claim to it. The move pauses Argo CD from the top down, stops the workloads that mount the claim, copies the data with GNU tar through the API server, compares the two sides, binds the claim to the new volume, starts the workloads and resumes Argo CD. Before it deletes the old claim, a failure undoes its steps; after that, a failure leaves Argo CD paused and names the saved claim. The old volume stays, with reclaim policy Retain, until a person deletes it.**
 
 ```bash
 devops k8s volume move [OPTIONS] <claim>
@@ -1071,7 +1071,8 @@ devops k8s volume move [OPTIONS] <claim>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--to-node` | `string` | - | The worker node to move the volume to. Default: the worker node with the most free disk, for a volume on the control-plane node. A volume on a worker node moves only to the node that this option names. |
+| `--to-node` | `string` | - | The worker node to move the volume to. Default: the worker node with the most free disk, for a volume on the control-plane node. A volume on a worker node moves only to the node that this option names, unless --storage-class changes its class. |
+| `--storage-class` | `string` | - | The StorageClass of the new volume. Default: the class of the old claim. With another class, the default target is the worker node with the most free disk that can attach a volume of the class (its CSINode lists the CSI driver of the class), and it can be the node of the old volume. The class must hold the data in the size of the claim. |
 | `--plan` | `boolean` | - | Read the claim, its volume, the nodes, the workloads and the Argo CD Applications, print each step with the real names, and change nothing. |
 | `--dry-run` | `boolean` | - | Make no request, reads included: print the requests a move would make, in order, with placeholders for each value that a read gives. Wins over --plan. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
