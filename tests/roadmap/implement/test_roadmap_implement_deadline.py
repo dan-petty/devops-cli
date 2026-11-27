@@ -501,7 +501,7 @@ def test_a_round_creates_the_job_with_the_extension_as_its_deadline_and_the_anno
         annotation[0],
         int(START.timestamp()) <= int(annotation[1]) <= int(datetime.now(UTC).timestamp()),
         container["resources"]["limits"]["memory"],
-    ) == (EXTENSION, PROGRESS_AT, True, "8Gi")
+    ) == (EXTENSION, PROGRESS_AT, True, "5Gi")
 
 
 def test_a_later_round_extends_the_deadline_of_the_job_it_created(
