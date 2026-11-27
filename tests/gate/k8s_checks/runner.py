@@ -318,42 +318,66 @@ def _egress_to_port(policy: dict[str, Any], port: int) -> list[dict[str, Any]]:
     ]
 
 
-def check_only_the_service_pod_may_reach_the_api_server() -> None:
+API_SERVER_RULE = {
+    "to": [{"ipBlock": {"cidr": "0.0.0.0/0", "except": [METADATA_ADDRESS]}}],
+    "ports": [{"protocol": "TCP", "port": 6443}],
+}
+
+
+# The label that the Argo Workflows controller sets on each Workflow pod.
+WORKFLOW_LABEL = "workflows.argoproj.io/workflow"
+
+
+def check_only_the_service_pod_and_the_workflow_pods_may_reach_the_api_server() -> None:
+    """The Service pod makes the Jobs, and the executor of each Workflow pod writes the task
+    results (#7364). No other policy has an egress rule on TCP 6443."""
     policy = _object("NetworkPolicy", "roadmap-service-egress")
+    workflow = _object("NetworkPolicy", "argo-workflow-egress")
     perimeter = _object("NetworkPolicy", "devops-default-perimeter-egress")
-    others = [
+    others = sorted(
         document["metadata"]["name"]
         for document in _rendered()
         if document["kind"] == "NetworkPolicy" and _egress_to_port(document, 6443)
-    ]
+    )
 
     assert (
         policy["spec"]["podSelector"],
         policy["spec"]["policyTypes"],
         policy["spec"]["egress"],
+        workflow["spec"]["podSelector"],
+        workflow["spec"]["policyTypes"],
+        workflow["spec"]["egress"],
         _egress_to_port(perimeter, 6443),
         others,
     ) == (
         {"matchLabels": {"app.kubernetes.io/name": "roadmap-service"}},
         ["Egress"],
         [
-            {
-                "to": [{"ipBlock": {"cidr": "0.0.0.0/0", "except": [METADATA_ADDRESS]}}],
-                "ports": [{"protocol": "TCP", "port": 6443}],
-            },
+            API_SERVER_RULE,
             # The store of the brain index, valkey-roadmap (#4676): its pods and its port only.
             {
                 "to": [{"podSelector": {"matchLabels": {"app.kubernetes.io/name": "valkey"}}}],
                 "ports": [{"protocol": "TCP", "port": 6379}],
             },
         ],
+        {"matchExpressions": [{"key": WORKFLOW_LABEL, "operator": "Exists"}]},
+        ["Egress"],
+        [API_SERVER_RULE],
         [],
-        ["roadmap-service-egress"],
+        ["argo-workflow-egress", "roadmap-service-egress"],
     )
 
 
 @pytest.mark.parametrize("name", ["devops-cli", "devops-cli-runner", "roadmap-stage"])
-def check_the_pods_of_jobs_carry_no_label_that_the_service_policy_selects(name: str) -> None:
-    template = _object("CronJob", name)["spec"]["jobTemplate"]["spec"]["template"]
+def check_the_pods_of_jobs_carry_no_label_that_an_api_server_policy_selects(name: str) -> None:
+    labels = _object("CronJob", name)["spec"]["jobTemplate"]["spec"]["template"]["metadata"][
+        "labels"
+    ]
 
-    assert template["metadata"]["labels"].get("app.kubernetes.io/name") != "roadmap-service"
+    assert (
+        labels.get("app.kubernetes.io/name") == "roadmap-service",
+        WORKFLOW_LABEL in labels,
+    ) == (
+        False,
+        False,
+    )

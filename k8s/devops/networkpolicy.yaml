@@ -116,3 +116,34 @@ spec:
       ports:
         - protocol: TCP
           port: 443
+---
+# The executor of each Argo Workflow pod writes the task results of the pod through the
+# Kubernetes API server (#7364). The controller sets the label `workflows.argoproj.io/workflow` on
+# each Workflow pod, so this policy selects each pod that has the label, and lets it reach the API
+# server on TCP 6443 only. It adds to `devops-default-perimeter-egress`, which gives no such port.
+# The `kubernetes` Service resolves to the node's address on 6443, which no namespace selector
+# matches, so the peer is an ipBlock with the cloud metadata address excluded, as in
+# `roadmap-service-egress`. A Job pod has no such label, so it gets no path to the API server.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: argo-workflow-egress
+  namespace: devops
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchExpressions:
+      - key: workflows.argoproj.io/workflow
+        operator: Exists
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+      ports:
+        - protocol: TCP
+          port: 6443
