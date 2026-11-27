@@ -35,9 +35,9 @@ fix-checks Job that waits suspended holds its place, so the fix goes first.
 creates one Job for the first of them, from CronJob `devops-cli-runner` through the launcher seam
 (`job_launcher.launch`), with the item's arguments and a token for the one repository
 (`service.github_app.token_repository`). The record
-of the item then names the Job. The Job has the CPU and the memory request of the row of the size
-table that fits the number of files in the tasks of the plan, and the memory limit of the setting
-`roadmap.implement.max_memory_limit` (`implement_size.py`, #3193).
+of the item then names the Job. The Job has the CPU and the memory of the row of the size table
+that fits the number of files in the tasks of the plan, each limit equal to its request
+(`implement_size.py`, #3193, #7422).
 
 **Clear.** After the report, the round clears the stop of each item that the Service set Blocked
 when a person asked for a retry, when the stop is `job` and a continuation is left (#3721), or when

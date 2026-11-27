@@ -1,15 +1,12 @@
 """The size of a runner Job follows the plan (#3193): the table of sizes, the count of the files
-of a plan, the worker count that equals the CPU limit, and the setting of the memory limit."""
+of a plan, the worker count that equals the CPU limit, and the memory limit that equals the memory
+request of the row (#7422)."""
 
 from __future__ import annotations
-
-from collections.abc import Callable
-from pathlib import Path
 
 import pytest
 
 from devops_cli.config import settings
-from devops_cli.exceptions import ConfigurationError
 from devops_cli.roadmap.implement.implement_size import (
     RUNNER_SIZES,
     SMALL_PLAN_MAX_FILES,
@@ -18,7 +15,6 @@ from devops_cli.roadmap.implement.implement_size import (
     runner_size,
 )
 
-VARIABLE = "DEVOPS_CLI_ROADMAP_IMPLEMENT_MAX_MEMORY_LIMIT"
 GIB = 1024**3
 
 
@@ -38,7 +34,7 @@ def test_a_plan_with_few_files_gets_a_smaller_request_than_a_plan_with_many() ->
     few = runner_size(plan_file_count(_tasks(*(f"src/a{n}.py" for n in range(3)))))
     many = runner_size(plan_file_count(_tasks(*(f"src/a{n}.py" for n in range(12)))))
 
-    assert (few.cpu, few.memory, many.cpu, many.memory) == ("1", "2Gi", "4", "6Gi")
+    assert (few.cpu, few.memory, many.cpu, many.memory) == ("1", "5Gi", "4", "11Gi")
 
 
 @pytest.mark.parametrize(
@@ -56,7 +52,7 @@ def test_a_file_is_counted_once_and_a_command_or_a_setting_is_no_file() -> None:
         "# Tasks\n\n## 1. The work\n\n"
         "- [ ] 1.1 Change `src/devops_cli/a.py` and `tests/test_a.py`\n"
         "  - Verification: `$ uv run devops ci test tests/test_a.py`\n"
-        "- [ ] 1.2 Change `src/devops_cli/a.py` again, set `roadmap.implement.max_memory_limit`, "
+        "- [ ] 1.2 Change `src/devops_cli/a.py` again, set `roadmap.implement.max_parallel_jobs`, "
         "read `PYTEST_XDIST_AUTO_NUM_WORKERS` and `devops_cli.roadmap.implement.implement_size`\n"
         "- [ ] 1.3 Document it in `k8s/README.md` and `CONTEXT.md`\n"
     )
@@ -70,7 +66,7 @@ def test_a_plan_that_names_no_file_has_zero_files() -> None:
 
 def test_the_worker_count_of_each_row_is_its_cpu_limit() -> None:
     for row in RUNNER_SIZES:
-        resources = row.resources("8Gi")
+        resources = row.resources()
         assert (
             row.env,
             resources["requests"]["cpu"],
@@ -78,18 +74,27 @@ def test_the_worker_count_of_each_row_is_its_cpu_limit() -> None:
         ) == ({WORKERS_VARIABLE: row.cpu}, row.cpu, row.cpu)
 
 
-def test_the_memory_limit_is_the_argument_and_the_request_is_the_row() -> None:
-    resources = RUNNER_SIZES[0].resources("12Gi")
+def test_the_memory_limit_of_each_row_equals_its_memory_request() -> None:
+    """The scheduler places a Job by its request, so a Job that may grow past the request takes
+    memory from the other pods of the node (#7422)."""
+    assert [row.resources() for row in RUNNER_SIZES] == [
+        {
+            "requests": {"cpu": "1", "memory": "5Gi"},
+            "limits": {"cpu": "1", "memory": "5Gi"},
+        },
+        {
+            "requests": {"cpu": "4", "memory": "11Gi"},
+            "limits": {"cpu": "4", "memory": "11Gi"},
+        },
+    ]
 
-    assert resources == {
-        "requests": {"cpu": "1", "memory": "2Gi"},
-        "limits": {"cpu": "1", "memory": "12Gi"},
-    }
 
-
-def test_each_row_cites_its_measured_sample_and_its_request_is_above_the_peak() -> None:
+def test_each_row_cites_its_measured_sample_and_its_peak_is_at_most_80_percent_of_the_memory() -> (
+    None
+):
+    """The highest peak is at most 80 % of the limit: the room of T1 in the Kubernetes guideline."""
     for row in RUNNER_SIZES:
-        assert (bool(row.sample), row.peak_bytes < _gibibytes(row.memory)) == (True, True)
+        assert (bool(row.sample), row.peak_bytes <= 0.8 * _gibibytes(row.memory)) == (True, True)
 
 
 def test_the_table_has_more_cpu_and_memory_in_each_row_than_in_the_one_before() -> None:
@@ -97,50 +102,6 @@ def test_the_table_has_more_cpu_and_memory_in_each_row_than_in_the_one_before() 
     memory = [_gibibytes(row.memory) for row in RUNNER_SIZES]
 
     assert (cpus, memory) == (sorted(set(cpus)), sorted(set(memory)))
-
-
-@pytest.fixture
-def clean_setting(config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(VARIABLE, raising=False)
-    config()
-
-
-def _limit() -> str:
-    settings.reset_settings_cache()
-    return settings.load_settings().roadmap.implement.max_memory_limit
-
-
-@pytest.mark.usefixtures("clean_setting")
-def test_a_variable_raises_the_memory_limit(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(VARIABLE, "12Gi")
-
-    assert _limit() == "12Gi"
-
-
-@pytest.mark.usefixtures("clean_setting")
-def test_the_largest_request_is_a_valid_limit(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(VARIABLE, RUNNER_SIZES[-1].memory)
-
-    assert _limit() == RUNNER_SIZES[-1].memory
-
-
-@pytest.mark.usefixtures("clean_setting")
-@pytest.mark.parametrize("value", ["5Gi", "8G", "8192Mi", "8", "0Gi", "08Gi", "8.5Gi", "eight"])
-def test_a_limit_below_the_largest_request_or_in_another_form_is_refused(
-    value: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv(VARIABLE, value)
-
-    with pytest.raises(ConfigurationError, match="max_memory_limit"):
-        _limit()
-
-
-def test_the_description_names_the_smallest_node_that_can_run_a_runner_job() -> None:
-    description = settings.RoadmapImplementConfig.model_fields["max_memory_limit"].description
-
-    assert description is not None
-    assert "smallest node that can run a runner Job" in description
-    assert "smallest node of the cluster" not in description
 
 
 PARALLEL_VARIABLE = "DEVOPS_CLI_ROADMAP_IMPLEMENT_MAX_PARALLEL_JOBS"

@@ -22,14 +22,14 @@
 # the App key, only `agent` reads the model key, `agent` mounts neither the state folder nor a
 # home of the other two, and `publish` mounts the run folder read only. No container restarts in
 # the pod, and the pod shares no process namespace.
-# The CPU and the memory request of `agent` are a row of the size table of the Service
-# (`RUNNER_SIZES` in src/devops_cli/roadmap/implement/implement_size.py, #3193); a gate check holds the two
-# equal. `prepare` and `publish` have one small fixed row. The memory limit is not pinned, because the setting `roadmap.implement.max_memory_limit`
-# raises it.
+# The CPU and the memory of `agent` are a row of the size table of the Service
+# (`RUNNER_SIZES` in src/devops_cli/roadmap/implement/implement_size.py, #3193), each limit equal
+# to its request (#7422); a gate check holds the two equal. `prepare` and `publish` have one small
+# fixed row.
 # Not pinned: the tag or digest of the image, the args and the plain `env` values of a runner Job
-# but its worker count, the values of the plain `env` of a stage Job but its token repository, the
-# memory limit of a runner Job, `nodeSelector`, `tolerations`, `hostUsers` and the number of Jobs
-# (docs/CLUSTER.md, Runner Jobs and Stage Jobs).
+# but its worker count, the values of the plain `env` of a stage Job but its token repository,
+# `nodeSelector`, `tolerations`, `hostUsers` and the number of Jobs (docs/CLUSTER.md, Runner Jobs
+# and Stage Jobs).
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -358,9 +358,10 @@ spec:
         (object.spec.activeDeadlineSeconds > 0 && object.spec.activeDeadlineSeconds <= 14400)))
       message: The Job must set a deadline (activeDeadlineSeconds) of 14400 seconds at most, a stage Job the deadline of 10800 seconds of its template, and a planner run Job the deadline of 120 seconds of its template.
       reason: Forbidden
-    # The rows of `RUNNER_SIZES`: CPU 1 with 2Gi, and CPU 4 with 6Gi. The CPU request equals the
-    # CPU limit, and the worker count of the test runner equals the CPU limit, because
-    # `pytest-xdist` counts the CPUs of the node and not of the pod (#2806). On the three
+    # The rows of `RUNNER_SIZES`: CPU 1 with 5Gi, and CPU 4 with 11Gi. Each limit equals its
+    # request, so the scheduler places the Job on a node that holds its limit (#7422). The worker
+    # count of the test runner equals the CPU limit, because `pytest-xdist` counts the CPUs of the
+    # node and not of the pod (#2806). On the three
     # containers the row is of `agent`, and `prepare` and `publish` have the small fixed row of
     # the template. A stage Job has the size of cronjob-stage.yaml.
     - expression: >-
@@ -378,11 +379,12 @@ spec:
         (c.resources.requests.cpu == "250m" && c.resources.requests.memory == "512Mi" &&
         c.resources.limits.cpu == "1" && c.resources.limits.memory == "2Gi") :
         (c.resources.requests.cpu == c.resources.limits.cpu &&
-        ((c.resources.limits.cpu == "1" && c.resources.requests.memory == "2Gi") ||
-        (c.resources.limits.cpu == "4" && c.resources.requests.memory == "6Gi")) &&
+        c.resources.requests.memory == c.resources.limits.memory &&
+        ((c.resources.limits.cpu == "1" && c.resources.requests.memory == "5Gi") ||
+        (c.resources.limits.cpu == "4" && c.resources.requests.memory == "11Gi")) &&
         has(c.env) && c.env.exists(e, e.name == "PYTEST_XDIST_AUTO_NUM_WORKERS" &&
         has(e.value) && e.value == c.resources.limits.cpu)))))
-      message: The CPU and the memory request of a runner Job, of agent on the three containers, must be a row of the size table (1 CPU with 2Gi, or 4 CPU with 6Gi), the CPU request must equal the CPU limit, the memory limit must be set, and PYTEST_XDIST_AUTO_NUM_WORKERS must equal the CPU limit. prepare and publish request 250m CPU and 512Mi with limits of 1 CPU and 2Gi. A stage Job requests 250m CPU and 1Gi with limits of 1 CPU and 2Gi, the stage size, and a planner run Job requests and limits 1 CPU and 2Gi.
+      message: The CPU and the memory request of a runner Job, of agent on the three containers, must be a row of the size table (1 CPU with 5Gi, or 4 CPU with 11Gi), each limit must equal its request, and PYTEST_XDIST_AUTO_NUM_WORKERS must equal the CPU limit. prepare and publish request 250m CPU and 512Mi with limits of 1 CPU and 2Gi. A stage Job requests 250m CPU and 1Gi with limits of 1 CPU and 2Gi, the stage size, and a planner run Job requests and limits 1 CPU and 2Gi.
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1

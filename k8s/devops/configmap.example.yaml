@@ -318,12 +318,6 @@ data:
         ladder:
           edit: [openrouter/deepseek/deepseek-v4.1-flash-1017]
           repair: [openrouter/deepseek/deepseek-v4.1-flash-1017]
-        # The memory limit of a runner Job, above the 2Gi or 6Gi request of its plan. The code
-        # default 8Gi is the limit at which the kernel killed two runner Jobs, on 2026-11-12 and
-        # on 2026-11-13 (#3727), so this cluster sets 16Gi (#5484). A deploy renders this
-        # template and replaces only the `service` section, so a value that a person sets in the
-        # live ConfigMap alone is lost at the next deploy.
-        max_memory_limit: 16Gi
         # The limits that end an implement attempt (#5440) are twice the code defaults, by the
         # owner decision of 2026-11-13 for the jobs under 80%, and again on 2026-11-16 (#5583).
         # The token budgets count new tokens: input that the cache does not hold, and output.

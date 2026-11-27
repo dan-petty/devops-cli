@@ -152,7 +152,6 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_ITEM_TIME_LIMIT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_ITEM_TOKEN_BUDGET,
     DEFAULT_ROADMAP_IMPLEMENT_LADDER_TIERS,
-    DEFAULT_ROADMAP_IMPLEMENT_MAX_MEMORY_LIMIT,
     DEFAULT_ROADMAP_IMPLEMENT_MAX_PARALLEL_JOBS,
     DEFAULT_ROADMAP_IMPLEMENT_MAX_REQUESTS,
     DEFAULT_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
@@ -247,7 +246,6 @@ from devops_cli.exceptions.validation import ValidationError as DevOpsValidation
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.infra.access import AgentAccess
 from devops_cli.lang import ERRORS
-from devops_cli.roadmap.implement.implement_size import MIN_MEMORY_LIMIT_GI
 from devops_cli.roadmap.stage.stage_filter import split_filter_entry
 from devops_cli.tf.access import (
     TF_AGENT_ACCESS_KEY,
@@ -1710,11 +1708,6 @@ class RoadmapImplementConfig(BaseModel):
         ge=1,
         le=CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS,
     )
-    max_memory_limit: Annotated[str, Variable()] = Field(
-        description="The memory limit of every runner Job that the Service creates, as a whole number of Gi such as `8Gi`. The memory request follows the size of the plan (2Gi or 6Gi), and this limit is the burst class above it. It must not be below the largest request, 6Gi, and it must fit the smallest node that can run a runner Job: a Job that bursts past the node memory starves the other pods",
-        default=DEFAULT_ROADMAP_IMPLEMENT_MAX_MEMORY_LIMIT,
-        pattern=r"^[1-9][0-9]*Gi$",
-    )
     mcp: Annotated[bool, Variable()] = Field(
         description="Whether the implement job adds the remote tools of its role from the MCP server",
         default=False,
@@ -1724,14 +1717,6 @@ class RoadmapImplementConfig(BaseModel):
         default=DEFAULT_ROADMAP_IMPLEMENT_MAX_PARALLEL_JOBS,
         ge=1,
     )
-
-    @field_validator("max_memory_limit")
-    @classmethod
-    def _check_max_memory_limit(cls, value: str) -> str:
-        """The limit is not below the largest memory request of the size table."""
-        if int(value.removesuffix("Gi")) < MIN_MEMORY_LIMIT_GI:
-            raise ValueError(f"max_memory_limit must not be below {MIN_MEMORY_LIMIT_GI}Gi")
-        return value
 
     @field_validator("ladder", mode="before")
     @classmethod
