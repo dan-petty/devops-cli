@@ -35,6 +35,7 @@ from typing import Any
 
 from devops_cli.config.commands import BIN_BASH, build_kubectl_cmd
 from devops_cli.config.constants import (
+    CONST_ARGOCD_OPERATION_PHASES_RUNNING,
     CONST_ARGOCD_TRACKING_ID_ANNOTATION,
     CONST_K8S_ACCESS_MODES,
     CONST_K8S_CLAIM_CONTROLLER_ANNOTATIONS,
@@ -73,6 +74,7 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_VOLUME_MOVE_EXTRACT_WAIT_SECONDS,
     DEFAULT_K8S_VOLUME_MOVE_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_K8S_VOLUME_MOVE_ROLLOUT_SECONDS,
+    DEFAULT_K8S_VOLUME_MOVE_SYNC_WAIT_SECONDS,
     DEFAULT_K8S_VOLUME_MOVE_WAIT_SECONDS,
 )
 from devops_cli.core.process import run_subprocess
@@ -1145,6 +1147,40 @@ class _MoveRun:
     # Each step adds the undo of a change before it asks for the change: a request can fail after
     # the API server made the change, and each undo is harmless when the change did not happen.
 
+    def _settle(self) -> None:
+        """Wait until no paused Application runs a sync operation (#7464).
+
+        A pause turns off automated sync, but an operation that already runs, such as the retry
+        of a sync that failed on the immutable class of the claim, goes on, and it can make the
+        deleted claim again from git. `kubectl wait` waits until the operation has `finishedAt`.
+        """
+        seconds = DEFAULT_K8S_VOLUME_MOVE_SYNC_WAIT_SECONDS
+        for application in self.plan.paused:
+            phase = self._kubectl(
+                [
+                    "get",
+                    "application",
+                    application,
+                    "-n",
+                    DEFAULT_ARGOCD_NAMESPACE,
+                    "-o",
+                    "jsonpath={.status.operationState.phase}",
+                ]
+            ).strip()
+            if phase not in CONST_ARGOCD_OPERATION_PHASES_RUNNING:
+                continue
+            self._kubectl(
+                [
+                    "wait",
+                    f"application/{application}",
+                    "-n",
+                    DEFAULT_ARGOCD_NAMESPACE,
+                    "--for=jsonpath={.status.operationState.finishedAt}",
+                    f"--timeout={seconds}s",
+                ],
+                timeout=_wait_timeout(seconds),
+            )
+
     def pause(self) -> None:
         for application in self.plan.paused:
             self._on_undo(
@@ -1152,6 +1188,7 @@ class _MoveRun:
                 partial(self._pause_application, application, enabled=True),
             )
             self._pause_application(application, enabled=False)
+        self._settle()
 
     def make_destination(self) -> None:
         plan = self.plan
@@ -1266,6 +1303,7 @@ class _MoveRun:
         self._retain(self.plan.old_volume, self.plan.old_reclaim_policy)
 
     def delete_copy_pods(self) -> None:
+        self._settle()
         self._delete("pod", self.plan.source_pod, self.plan.destination_pod)
         self._delete("networkpolicy", self.plan.copy_policy)
 
@@ -1601,6 +1639,42 @@ def _dry_run_copy(plan: VolumeMovePlan, context: str | None) -> list[PlannedRequ
     ]
 
 
+def _dry_run_settle(context: str | None) -> list[PlannedRequest]:
+    """The wait for the sync operation of each paused Application that still runs (#7464)."""
+    seconds = DEFAULT_K8S_VOLUME_MOVE_SYNC_WAIT_SECONDS
+    paused = "for each paused Application"
+    return [
+        _planned(
+            [
+                "get",
+                "application",
+                "<application>",
+                "-n",
+                DEFAULT_ARGOCD_NAMESPACE,
+                "-o",
+                "jsonpath={.status.operationState.phase}",
+            ],
+            context,
+            "the sync operation of an Argo CD Application",
+            repeat=paused,
+        ),
+        _planned(
+            [
+                "wait",
+                "application/<application>",
+                "-n",
+                DEFAULT_ARGOCD_NAMESPACE,
+                "--for=jsonpath={.status.operationState.finishedAt}",
+                f"--timeout={seconds}s",
+            ],
+            context,
+            "the end of that sync operation",
+            condition="the operation runs",
+            repeat=paused,
+        ),
+    ]
+
+
 def _dry_run_writes(plan: VolumeMovePlan, context: str | None) -> list[PlannedRequest]:
     ns, claim = plan.namespace, plan.claim
     workload = plan.workloads[0].ref
@@ -1627,6 +1701,7 @@ def _dry_run_writes(plan: VolumeMovePlan, context: str | None) -> list[PlannedRe
             "an Argo CD Application",
             repeat=top_down,
         ),
+        *_dry_run_settle(context),
         _planned(
             ["create", "-f", "-", "-o", "name"],
             context,
@@ -1691,6 +1766,7 @@ def _dry_run_writes(plan: VolumeMovePlan, context: str | None) -> list[PlannedRe
             "the old volume",
             condition="its policy is not Retain",
         ),
+        *_dry_run_settle(context),
         _planned(
             _delete_args("pod", (plan.source_pod, plan.destination_pod), ns, missing_ok=False),
             context,

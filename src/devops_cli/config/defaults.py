@@ -1348,6 +1348,9 @@ DEFAULT_K8S_VOLUME_MOVE_WAIT_SECONDS: int = 300
 DEFAULT_K8S_VOLUME_MOVE_ROLLOUT_SECONDS: int = 600
 # The bound of one copy and of one side's digest, which read every byte of the volume.
 DEFAULT_K8S_VOLUME_MOVE_COPY_TIMEOUT_SECONDS: float = 3600.0
+# How long a volume move waits for a sync operation of a paused Argo CD Application to end: an
+# operation retries up to 5 times with a backoff of up to 3 minutes (#7464).
+DEFAULT_K8S_VOLUME_MOVE_SYNC_WAIT_SECONDS: int = 600
 # How long the copy waits for the extract in the destination copy pod after the source has sent
 # the whole archive: the extract then only writes the last of its input.
 DEFAULT_K8S_VOLUME_MOVE_EXTRACT_WAIT_SECONDS: int = 300

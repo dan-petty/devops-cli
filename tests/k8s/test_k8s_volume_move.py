@@ -139,6 +139,9 @@ class Cluster:
     restarted_on: str | None = None
     restarted_phase: str = "Running"
     ended_pod: bool = False
+    # The phase of the sync operation of each Application, and whether its end never comes.
+    operation_phase: str = "Succeeded"
+    operation_never_ends: bool = False
     claim_exists: bool = True
     owner_kind: str | None = None
     tracked: bool = True
@@ -170,6 +173,10 @@ class Cluster:
         if args[0] == "get":
             return _ok(self._get(args))
         if args[0] == "wait":
+            if args[1].startswith("application/"):
+                self.changes.append(f"wait {args[1]}")
+                if self.operation_never_ends:
+                    return _failed("error: timed out waiting for the condition")
             return _ok("")
         if args[0] == "exec":
             return self._exec(args)
@@ -197,6 +204,7 @@ class Cluster:
             "deployment": lambda _args: json.dumps(self._workload()),
             "statefulset": lambda _args: json.dumps(self._workload()),
             "applications": lambda _args: json.dumps({"items": self._applications()}),
+            "application": lambda _args: self.operation_phase,
             "cronjob": self._get_cronjob,
             "storageclass": self._get_storage_class,
             "csidriver": lambda args: (
@@ -771,6 +779,41 @@ def test_the_dry_run_of_an_access_mode_change_shows_the_new_mode(
         ["ReadWriteMany"],
     ]
     assert process_fake.calls == []
+
+
+def test_a_running_sync_of_a_paused_application_is_waited_for(
+    cluster: Cluster, tmp_path: Path
+) -> None:
+    """A pause does not stop a sync that runs: it can make the claim again from git (#7464)."""
+    cluster.operation_phase = "Running"
+
+    _move(tmp_path)
+
+    waits = [f"wait application/{name}" for name in PAUSE]
+    first = cluster.changes.index(waits[0])
+    assert cluster.changes[first : first + 3] == waits
+    assert first > cluster.changes.index(_pause(False, PAUSE)[-1])
+    second = cluster.changes.index(waits[0], first + 1)
+    assert cluster.changes[second : second + 3] == waits
+    assert second < cluster.changes.index("delete pod grafana-src grafana-dst")
+
+
+def test_no_running_sync_means_no_wait(cluster: Cluster, tmp_path: Path) -> None:
+    _move(tmp_path)
+
+    assert not any(change.startswith("wait application/") for change in cluster.changes)
+
+
+def test_a_sync_that_does_not_end_undoes_the_move(cluster: Cluster, tmp_path: Path) -> None:
+    cluster.operation_phase = "Running"
+    cluster.operation_never_ends = True
+
+    with pytest.raises(VolumeMoveError) as failed:
+        _move(tmp_path)
+
+    assert not isinstance(failed.value, VolumeMoveStrandedError)
+    assert cluster.changes[-3:] == _pause(True, ("grafana", "cluster", "bootstrap"))
+    assert "delete pvc grafana" not in cluster.changes
 
 
 # ── Refusals: nothing changes ──────────────────────────────────────────────
