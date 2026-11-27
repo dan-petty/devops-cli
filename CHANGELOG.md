@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.229.2](https://github.com/dan-petty/devops-cli/compare/v0.229.1...v0.229.2) (2026-11-27)
+
+
+### Bug Fixes
+
+* **k8s:** delete ended pods before the old claim in volume move ([#7468](https://github.com/dan-petty/devops-cli/issues/7468)) ([36c627c](https://github.com/dan-petty/devops-cli/commit/36c627cb3245d65ce57bd4db7954f035b9dc283b))
+
 ## [0.229.1](https://github.com/dan-petty/devops-cli/compare/v0.229.0...v0.229.1) (2026-11-27)
 
 
