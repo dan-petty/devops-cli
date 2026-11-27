@@ -44,6 +44,7 @@ CONTROL_PLANE = "control-1"
 WORKER_A = "worker-a"
 WORKER_B = "worker-b"
 POD = "grafana-5d4f-abcde"
+ENDED_POD = "grafana-old-fghij"
 REPLICA_SET = "grafana-5d4f"
 FREE_BYTES = {
     CONTROL_PLANE: 40_000_000_000,
@@ -137,6 +138,7 @@ class Cluster:
     target_hostname: str | None = None
     restarted_on: str | None = None
     restarted_phase: str = "Running"
+    ended_pod: bool = False
     claim_exists: bool = True
     owner_kind: str | None = None
     tracked: bool = True
@@ -325,6 +327,23 @@ class Cluster:
                         if self.claim_volume != NEW_VOLUME
                         else self.restarted_phase
                     },
+                }
+            )
+        if self.ended_pod:
+            # A pod of an old ReplicaSet that a node shutdown ended: it still names the claim.
+            pods.append(
+                {
+                    "metadata": {
+                        "name": ENDED_POD,
+                        "ownerReferences": _owned("ReplicaSet", "grafana-old"),
+                    },
+                    "spec": {
+                        "nodeName": self.volume_node,
+                        "volumes": [
+                            {"name": "storage", "persistentVolumeClaim": {"claimName": CLAIM}}
+                        ],
+                    },
+                    "status": {"phase": "Succeeded"},
                 }
             )
         pods.append(
@@ -666,6 +685,20 @@ def test_a_pod_of_a_class_change_that_does_not_run_leaves_argo_cd_paused(
         claim=CLAIM, pods=f"{WORKER_A} (Pending)"
     ) in str(stranded.value)
     assert not any(change.endswith("enabled=true") for change in cluster.changes)
+
+
+def test_an_ended_pod_of_the_claim_is_not_a_pod_of_the_move(
+    cluster: Cluster, process_fake: ProcessFake, tmp_path: Path
+) -> None:
+    """A pod that has ended holds no volume, and a scale to zero does not delete it (#7431)."""
+    cluster.ended_pod = True
+
+    plan = _plan()
+    _move(tmp_path)
+
+    assert plan.pods == (POD,)
+    waits = [call.argv for call in process_fake.calls if "wait" in call.argv]
+    assert not any(f"pod/{ENDED_POD}" in argv for argv in waits)
 
 
 # ── Refusals: nothing changes ──────────────────────────────────────────────
