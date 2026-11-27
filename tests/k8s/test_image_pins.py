@@ -353,24 +353,73 @@ def test_a_chart_that_does_not_render_stops_the_check_with_helms_error(
     )
 
 
-def test_an_oci_chart_repository_stops_the_check(tmp_path: Path, process_fake: ProcessFake) -> None:
-    """No Application uses an OCI chart repository yet, so the check names one instead of skipping
-    its images."""
-    root = _tree(tmp_path, "cloudflare/cloudflared:2026.10.4")
+def _oci_tree(root: Path, registry: str) -> Path:
+    """The tree of `_tree` with one pinned image, and the chart of Application `monitoring` in the
+    OCI registry path `registry`, which Argo CD writes as a `repoURL` with no scheme."""
+    _tree(root, _CLOUDFLARED)
     chart_app = root / "k8s" / "argocd" / "apps" / "monitoring.yaml"
     chart_app.write_text(
-        chart_app.read_text(encoding="utf-8").replace(
-            "https://charts.example.com", "registry.example.com/charts"
-        ),
+        chart_app.read_text(encoding="utf-8").replace("https://charts.example.com", registry),
         encoding="utf-8",
     )
+    return root
+
+
+@pytest.mark.parametrize(
+    "registry", ["registry.example.com/charts", "registry.example.com:5000/charts"]
+)
+def test_a_chart_of_an_oci_registry_renders_by_its_oci_reference(
+    tmp_path: Path, process_fake: ProcessFake, registry: str
+) -> None:
+    """Helm reads `--repo` as an http or https chart repository only, so the chart of a registry
+    path, with a port or with none, is named by its `oci://` reference. The release, the version,
+    the namespace and the value file of the ref source are those of an https chart repository, and
+    the image of the render is a pin."""
+    root = _oci_tree(tmp_path, registry)
+    _chart_answers(process_fake)
+
+    pins = collect_image_pins(_env(root))
+
+    helm = [call.argv for call in process_fake.calls if call.argv[:2] == ("helm", "template")]
+    assert (pins.pinned, helm) == (
+        {_CLOUDFLARED: ("web",), _ALERTMANAGER: ("monitoring",)},
+        [
+            (
+                "helm",
+                "template",
+                "monitoring",
+                f"oci://{registry}/example",
+                "--version",
+                "1.2.3",
+                "--namespace",
+                "monitoring",
+                "--skip-tests",
+                "--values",
+                str(root / "k8s" / "example" / "values.yaml"),
+            )
+        ],
+    )
+
+
+def test_a_chart_of_an_oci_registry_that_does_not_render_stops_the_check_with_helms_error(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    """Helm names the reference that the registry does not hold. The check gives that error as it
+    gives the error of an https chart repository."""
+    root = _oci_tree(tmp_path, "registry.example.com/charts")
+    error = (
+        'Error: failed to perform "FetchReference" on source: '
+        "registry.example.com/charts/example:1.2.3: not found"
+    )
+    _chart_answers(process_fake, returncode=1, stderr=f"{error}\n")
 
     with pytest.raises(ImagePinError) as caught:
         collect_image_pins(_env(root))
 
-    assert caught.value.message == (
-        "Application monitoring names an OCI chart repository, which the check does not render: "
-        "registry.example.com/charts"
+    assert (caught.value.message, caught.value.error_code, caught.value.exit_code) == (
+        f"helm template monitoring failed: {error}",
+        "K8S_IMAGE_PIN_ERROR",
+        1,
     )
 
 
@@ -621,6 +670,41 @@ def test_a_dry_run_renders_and_resolves_nothing(
         "HEAD https://<registry>/v2/<repository>/manifests/<reference>"
         in " ".join(result.output.split()),
     ) == (0, [], True)
+
+
+def test_a_dry_run_plans_the_command_of_a_chart_of_an_oci_registry_and_renders_nothing(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    """A dry run pulls no chart from the registry: the `helm template` command of the chart is a
+    planned command, which the process runner prints and does not start. So the image that the
+    render of the chart names is no pin of the run."""
+    root = _oci_tree(tmp_path, "registry.example.com/charts")
+    _chart_answers(process_fake)
+
+    set_dry_run(True)
+    try:
+        pins = collect_image_pins(_env(root))
+    finally:
+        set_dry_run(False)
+
+    assert (pins.planned, pins.pinned) == (
+        (
+            (
+                "helm",
+                "template",
+                "monitoring",
+                "oci://registry.example.com/charts/example",
+                "--version",
+                "1.2.3",
+                "--namespace",
+                "monitoring",
+                "--skip-tests",
+                "--values",
+                str(root / "k8s" / "example" / "values.yaml"),
+            ),
+        ),
+        {},
+    )
 
 
 _PRODUCT = "https://github.com/example/product"
