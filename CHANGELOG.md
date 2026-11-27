@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.223.5](https://github.com/dan-petty/devops-cli/compare/v0.223.4...v0.223.5) (2026-11-27)
+
+
+### Bug Fixes
+
+* **roadmap:** start a new job record for an item that came by transfer ([#7361](https://github.com/dan-petty/devops-cli/issues/7361)) ([227dd4c](https://github.com/dan-petty/devops-cli/commit/227dd4c176323e7bf4f75115e8961678b49c8c3f))
+
 ## [0.223.4](https://github.com/dan-petty/devops-cli/compare/v0.223.3...v0.223.4) (2026-11-27)
 
 
