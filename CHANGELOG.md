@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.224.0](https://github.com/dan-petty/devops-cli/compare/v0.223.5...v0.224.0) (2026-11-27)
+
+
+### Features
+
+* **k8s:** render an OCI chart in image-pins ([#7373](https://github.com/dan-petty/devops-cli/issues/7373)) ([7058d54](https://github.com/dan-petty/devops-cli/commit/7058d54e1508182c2c9bf328dfdb4d32b242b199))
+
 ## [0.223.5](https://github.com/dan-petty/devops-cli/compare/v0.223.4...v0.223.5) (2026-11-27)
 
 
