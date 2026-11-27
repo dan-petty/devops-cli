@@ -1614,7 +1614,10 @@ class InfraMessages:
         "Read the runner artifacts, fix the cause, then plan and apply again."
     )
     apply_role_own_node: str = "its pod node"
-    apply_role_control_plane: str = "the control-plane node"
+    apply_role_control_plane: str = (
+        "the control-plane node, which an agent changes only with a no-drain restart "
+        "(service-restart-nodrain:<unit>)"
+    )
     apply_stop_cluster_node: str = (
         "The host {host} ({node}) is {role}. Run devops infra apply on a workstation."
     )

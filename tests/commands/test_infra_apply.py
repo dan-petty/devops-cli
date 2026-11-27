@@ -735,14 +735,28 @@ def test_an_agent_stops_before_its_own_pod_node_and_uncordons_nothing(
     assert not lab.cluster.nodes["node-2"].cordoned
 
 
-def test_an_agent_stops_before_the_control_plane_node(
-    lab: Lab, agent_caller: None, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("host", "node", "disruptive"),
+    [
+        pytest.param(NODE_1, "node-1", ["service-restart:demo"], id="drain"),
+        pytest.param(NODE_2, "node-2", ["reboot"], id="reboot"),
+    ],
+)
+def test_an_agent_stops_before_a_drain_or_a_reboot_of_the_control_plane_node(
+    lab: Lab,
+    agent_caller: None,
+    monkeypatch: pytest.MonkeyPatch,
+    host: str,
+    node: str,
+    disruptive: list[str],
 ) -> None:
+    """An agent at full stops before a control-plane host whose plan drains or reboots it, and
+    changes no node (#7441)."""
     from devops_cli.config.constants import CONST_K8S_CONTROL_PLANE_LABEL
 
     monkeypatch.setenv("HOSTNAME", "docker-container-runner")
-    lab.cluster.nodes["node-1"].labels[CONST_K8S_CONTROL_PLANE_LABEL] = ""
-    plan = lab.plan(NODE_1)
+    lab.cluster.nodes[node].labels[CONST_K8S_CONTROL_PLANE_LABEL] = ""
+    plan = lab.plan(host)
 
     result = lab.apply_json(plan)
 
@@ -750,10 +764,79 @@ def test_an_agent_stops_before_the_control_plane_node(
     assert lab.steps == []
     report = json.loads(result.output)
     assert report["result"] == "stopped"
-    assert "node-1.example.com (node-1) is the control-plane node" in report["reason"]
+    assert f"{host} ({node}) is the control-plane node" in report["reason"]
+    assert "only with a no-drain restart (service-restart-nodrain:<unit>)" in report["reason"]
     assert "Run devops infra apply on a workstation" in report["reason"]
-    hosts = _hosts(result)
-    assert hosts[NODE_1]["outcome"] == "stopped"
+    stopped = _hosts(result)[host]
+    assert (stopped["outcome"], stopped["step"], stopped["disruptive"]) == (
+        "stopped",
+        "drain check",
+        disruptive,
+    )
+    assert not lab.cluster.nodes[node].cordoned
+
+
+def _plan_nodrain_control_plane(
+    lab: Lab, infra_repo: Path, ansible_installed: Path, monkeypatch: pytest.MonkeyPatch
+) -> dict[str, Any]:
+    """Make node-1 the control-plane node, list its demo unit for a no-drain restart, and plan
+    node-1: its one disruptive class is service-restart-nodrain:demo."""
+    from devops_cli.config.constants import CONST_K8S_CONTROL_PLANE_LABEL
+
+    monkeypatch.setenv("HOSTNAME", "docker-container-runner")
+    listing = recorded_read("inventory", infra_repo)
+    listing["_meta"]["hostvars"][NODE_1]["devops_infra_restart_nodrain_units"] = ["demo"]
+    lab.process_fake.answer(
+        [str(ansible_installed / "ansible-inventory")], in_export(json.dumps(listing), infra_repo)
+    )
+    lab.cluster.nodes["node-1"].labels[CONST_K8S_CONTROL_PLANE_LABEL] = ""
+    return lab.plan(NODE_1)
+
+
+def test_an_agent_at_full_applies_a_nodrain_restart_of_the_control_plane_node(
+    lab: Lab,
+    infra_repo: Path,
+    ansible_installed: Path,
+    agent_caller: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A control-plane host whose disruptive classes are all no-drain restarts, such as the k3s
+    restart of a server node, is cordoned, changed and settled by an agent at full, as for a
+    person (#7441)."""
+    plan = _plan_nodrain_control_plane(lab, infra_repo, ansible_installed, monkeypatch)
+
+    result = lab.apply_json(plan)
+
+    assert result.exit_code == 0, result.output
+    assert lab.steps == ["cordon node-1", f"check {NODE_1}", f"run {NODE_1}", "uncordon node-1"]
+    report = json.loads(result.output)
+    assert (report["result"], report["caller"], report["level"]) == ("ok", "agent", "full")
+    applied = _hosts(result)[NODE_1]
+    assert (applied["outcome"], applied["disruptive"]) == (
+        "applied",
+        ["service-restart-nodrain:demo"],
+    )
+    assert not lab.cluster.nodes["node-1"].cordoned
+
+
+def test_an_agent_at_safe_is_refused_a_nodrain_restart_of_the_control_plane_node(
+    lab: Lab,
+    infra_repo: Path,
+    ansible_installed: Path,
+    agent_caller: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A no-drain restart is a disruptive class, so an agent below full is refused before any
+    process starts, on a control-plane node too (#7441)."""
+    plan = _plan_nodrain_control_plane(lab, infra_repo, ansible_installed, monkeypatch)
+    calls = len(lab.process_fake.calls)
+
+    result = lab.apply(plan, level="safe")
+
+    assert result.exit_code == 1
+    assert "needs full" in result.output
+    assert "infra.repos[].agent_access" in result.output
+    assert len(lab.process_fake.calls) == calls
     assert not lab.cluster.nodes["node-1"].cordoned
 
 

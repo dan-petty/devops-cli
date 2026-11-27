@@ -4,7 +4,10 @@
 with these guards for every caller and at every level:
 
 1. **Access level.** An agent needs `safe` for a plan with no disruptive class and no unchecked
-   task, else `full` (`apply_level`). A person may apply every plan.
+   task, else `full` (`apply_level`). A person may apply every plan. An agent stops before the
+   node of its own pod, and before a control-plane node that the plan drains or reboots. It
+   applies a control-plane host whose disruptive classes are all `service-restart-nodrain:<unit>`
+   (#7441).
 2. **Same plan.** The record `plans/<id>/plan.json` exists, its facts give its id again, it
    ended `ok`, it is not older than `infra.plan_max_age_hours`, and the caller gives its playbook,
    limit and tags.
@@ -630,7 +633,9 @@ def _apply_alone(context: _Context, planned: HostPlan) -> HostApply:
     """Apply one disruptive host: read its node, cordon or drain it, change it, and let it settle.
     The first step that stops gives the result, with the node as the step left it. A host whose
     disruptive classes are all no-drain restarts cordons its node and runs neither the drain check
-    nor the drain (#6338)."""
+    nor the drain (#6338). An agent stops before the node of its own pod, and before a
+    control-plane node that the plan drains or reboots; it applies a no-drain restart of a
+    control-plane node, because the restart keeps the containers of the node (#7441)."""
     cluster = context.cluster
     work = _HostRun(planned=planned, node=context.node(planned.host))
     nodrain = skips_drain(planned.disruptive)
@@ -642,7 +647,7 @@ def _apply_alone(context: _Context, planned: HostPlan) -> HostApply:
                 host=planned.host, node=work.node, role=MESSAGES.infra.apply_role_own_node
             )
             return work.result(HostOutcome.STOPPED, step=first, reason=reason)
-        if cluster.is_control_plane(work.node):
+        if not nodrain and cluster.is_control_plane(work.node):
             reason = MESSAGES.infra.apply_stop_cluster_node.format(
                 host=planned.host, node=work.node, role=MESSAGES.infra.apply_role_control_plane
             )
