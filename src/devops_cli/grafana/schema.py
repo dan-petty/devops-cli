@@ -67,7 +67,12 @@ class Target(BaseModel):
         description="Server-side expression of a target of the Grafana expression datasource",
     )
     legend_format: str = Field(default="", alias="legendFormat")
-    ref_id: str = Field(default="A", alias="refId")
+    ref_id: str = Field(
+        default="",
+        alias="refId",
+        description="The refId that the target states; empty when it states none, and Grafana "
+        "then gives it the next free id when it loads the panel (linter.grafana_ref_ids)",
+    )
     datasource: Datasource = Field(default_factory=Datasource)
 
 
