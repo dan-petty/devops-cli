@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.229.0](https://github.com/dan-petty/devops-cli/compare/v0.228.3...v0.229.0) (2026-11-27)
+
+
+### Features
+
+* **k8s:** change the access mode of a claim with volume move ([#7461](https://github.com/dan-petty/devops-cli/issues/7461)) ([3dec5b1](https://github.com/dan-petty/devops-cli/commit/3dec5b174077d261f95bfaec1303be04313d2e3a))
+
 ## [0.228.3](https://github.com/dan-petty/devops-cli/compare/v0.228.2...v0.228.3) (2026-11-27)
 
 
