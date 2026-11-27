@@ -537,7 +537,7 @@ k8s/
 │   ├── workflowtemplate-infra-drift.yaml # WorkflowTemplate infra-drift
 │   ├── service-probe.yaml    # Suspended CronJob, the template of the service probe pods
 │   ├── volume-move.yaml      # Suspended CronJob, the template of the copy pods of `devops k8s volume move`
-│   ├── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out; skips the crawl4ai, searxng, renovate, planner run and valkey-roadmap pods
+│   ├── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out; skips the crawl4ai, searxng, renovate, planner run and valkey-roadmap pods. Lets each Argo Workflow pod reach the API server on TCP 6443
 │   ├── networkpolicy-infra.yaml # Lets the infra pods reach the cluster nodes on TCP 22
 │   ├── networkpolicy-rag-ingest.yaml # Lets the rag-ingest pods reach Qdrant on TCP 6333
 │   ├── alerts/
