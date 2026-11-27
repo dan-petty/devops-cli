@@ -695,6 +695,28 @@ def test_a_pod_of_a_class_change_that_does_not_run_leaves_argo_cd_paused(
     assert not any(change.endswith("enabled=true") for change in cluster.changes)
 
 
+def test_an_ended_pod_of_the_claim_is_deleted_before_the_old_claim(
+    cluster: Cluster, tmp_path: Path
+) -> None:
+    """An ended pod still holds the claim, so the delete of the claim would wait for it (#7465)."""
+    cluster.ended_pod = True
+
+    _move(tmp_path)
+
+    deleted = cluster.changes.index(f"delete pod {ENDED_POD}")
+    assert deleted < cluster.changes.index("delete pvc grafana")
+    assert deleted > cluster.changes.index("delete pod grafana-src grafana-dst")
+
+
+def test_the_dry_run_deletes_the_ended_pods_before_the_old_claim(
+    process_fake: ProcessFake,
+) -> None:
+    requests = dry_run_volume_move(NAMESPACE, CLAIM, parents=PARENTS, context=CONTEXT)
+
+    deletes = [r.argv[4:6] for r in requests if r.argv[3] == "delete"]
+    assert deletes.index(("pod", "<ended pod>")) < deletes.index(("pvc", CLAIM))
+
+
 def test_an_ended_pod_of_the_claim_is_not_a_pod_of_the_move(
     cluster: Cluster, process_fake: ProcessFake, tmp_path: Path
 ) -> None:
@@ -1340,9 +1362,10 @@ def test_the_dry_run_makes_the_copy_policy_before_the_pods_and_deletes_it_with_t
     created = [json.loads(r.stdin)["kind"] for r in requests if r.argv[3] == "create" and r.stdin]
     deletes = [r.argv[4:6] for r in requests if r.argv[3] == "delete"]
     assert created[:3] == ["PersistentVolumeClaim", "NetworkPolicy", "Pod"]
-    assert deletes[:3] == [
+    assert deletes[:4] == [
         ("pod", "grafana-src"),
         ("networkpolicy", "grafana-copy"),
+        ("pod", "<ended pod>"),
         ("pvc", CLAIM),
     ]
     assert process_fake.calls == []
