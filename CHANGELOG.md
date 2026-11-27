@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.229.4](https://github.com/dan-petty/devops-cli/compare/v0.229.3...v0.229.4) (2026-11-27)
+
+
+### Bug Fixes
+
+* **repos:** Require only check runs that ended success ([#7470](https://github.com/dan-petty/devops-cli/issues/7470)) ([b7a5d10](https://github.com/dan-petty/devops-cli/commit/b7a5d100e42a2b6645f0d2322699cd2c77131aca))
+
 ## [0.229.3](https://github.com/dan-petty/devops-cli/compare/v0.229.2...v0.229.3) (2026-11-27)
 
 
