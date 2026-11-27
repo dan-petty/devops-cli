@@ -114,7 +114,7 @@ dev = [
     "ty==0.0.112",
     "types-PyYAML==6.0.12.20261122",
     "pytest-cov==7.1.0",
-    "diff-cover==11.0.4",
+    "diff-cover==11.0.5",
     "pytest-xdist==3.8.0",
     "pytest-randomly==5.1.0",
     "pytest-timeout==2.4.0",
@@ -143,7 +143,7 @@ dev = [
 ]
 # The docs site builder (#5152). Zensical is a beta from 0.1.0, so the pin is exact.
 docs = [
-    "zensical==0.1.3",
+    "zensical==0.1.4",
 ]
 
 [tool.hatch.build.targets.wheel]
