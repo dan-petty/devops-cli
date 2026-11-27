@@ -8,11 +8,15 @@
 - **THEN** Row 16 is `present`, the row writes nothing, and the command exits 0
 
 ### Requirement: The OpenSpec row reads missing
-The command SHALL print row 16 as `missing`, with `openspec/config.yaml` in its reason, when neither the default branch nor the head of the open template pull request that row 9 recorded in the same run holds `openspec/config.yaml`.
+The command SHALL print row 16 as `missing`, with `openspec/config.yaml` in its reason, when the default branch holds no `openspec/config.yaml` and the head of the open template pull request that row 9 recorded in the same run does not pass the present conditions. When that pull request is open, the reason SHALL also name the condition that its head fails.
 
 #### Scenario: A repository with no OpenSpec
 - **WHEN** The default branch holds no `openspec/config.yaml` and no template pull request is open
 - **THEN** Row 16 is `missing`, its reason names `openspec/config.yaml`, and the command exits 1
+
+#### Scenario: A template pull request with no specs folder
+- **WHEN** The default branch holds no `openspec/config.yaml`, and the open template pull request holds it and no `openspec/specs/`
+- **THEN** Row 16 is `missing`, and its reason names `openspec/config.yaml` and the specs folder that the pull request lacks
 
 ### Requirement: The OpenSpec row reads invalid
 The command SHALL print row 16 as `invalid`, with the failed condition in its reason, when the default branch holds `openspec/config.yaml`, no open template pull request passes the present conditions, and the file does not parse as YAML, names a schema other than `spec-driven`, or the folder `openspec/specs/` does not exist. For a missing specs folder the reason SHALL name the next step: the `copier update` of the template or a commit of `openspec/specs/.gitkeep`.
