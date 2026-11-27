@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.228.2](https://github.com/dan-petty/devops-cli/compare/v0.228.1...v0.228.2) (2026-11-27)
+
+
+### Bug Fixes
+
+* **monitoring:** give a missing refId the id Grafana gives ([#7450](https://github.com/dan-petty/devops-cli/issues/7450)) ([00bac0d](https://github.com/dan-petty/devops-cli/commit/00bac0d78e4e8b330c214ef3806c66de0bd3f6b9))
+
 ## [0.228.1](https://github.com/dan-petty/devops-cli/compare/v0.228.0...v0.228.1) (2026-11-27)
 
 
