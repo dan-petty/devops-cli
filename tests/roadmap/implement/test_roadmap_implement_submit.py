@@ -298,8 +298,8 @@ def test_a_plan_with_few_files_gets_a_smaller_job_than_a_plan_with_many(
 
     small, large = (_sized(job) for job in _jobs(kube))
     assert (small, large) == (
-        ("1", "1", "1", "2Gi", "8Gi"),
-        ("4", "4", "4", "6Gi", "8Gi"),
+        ("1", "1", "1", "5Gi", "5Gi"),
+        ("4", "4", "4", "11Gi", "11Gi"),
     )
 
 
@@ -312,7 +312,7 @@ def test_a_planned_item_is_sized_from_the_plan_on_the_default_branch(
     _round(store, stage_repo)
 
     (job,) = _jobs(kube)
-    assert _sized(job) == ("4", "4", "4", "6Gi", "8Gi")
+    assert _sized(job) == ("4", "4", "4", "11Gi", "11Gi")
 
 
 def test_the_job_keeps_the_storage_and_the_other_values_of_the_template(
@@ -336,22 +336,6 @@ def test_the_job_keeps_the_storage_and_the_other_values_of_the_template(
         kept["resources"]["requests"]["ephemeral-storage"],
         kept["resources"]["limits"]["ephemeral-storage"],
     )
-
-
-def test_the_setting_raises_the_memory_limit_of_the_job(
-    store: InMemoryRoadmapStore,
-    staged_repo: StageRepo,
-    api: GitHubApiFake,
-    kube: FakeCluster,
-    config: Callable[..., Path],
-) -> None:
-    config(roadmap={"implement": {"max_memory_limit": "12Gi"}})
-    seed_staged(store)
-
-    _round(store, staged_repo)
-
-    (job,) = _jobs(kube)
-    assert _sized(job)[4] == "12Gi"
 
 
 def test_no_second_job_is_created_while_the_first_runs_also_for_another_staged_item(

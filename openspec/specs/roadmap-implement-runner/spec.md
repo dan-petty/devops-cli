@@ -185,14 +185,14 @@ Each `language: system` hook of `.pre-commit-config.yaml` SHALL start with `uv r
 - **THEN** every local hook passes
 
 ### Requirement: The policy admits only the sizes in the table
-The policy SHALL refuse a Job of the Service unless the CPU request of its container equals the CPU limit, the pair of the CPU and the memory request is a row of `RUNNER_SIZES`, the container has a memory limit, and the value of `PYTEST_XDIST_AUTO_NUM_WORKERS` equals the CPU limit. It SHALL not pin the memory limit.
+The policy SHALL refuse a Job of the Service unless the CPU request of its container equals the CPU limit, the memory request equals the memory limit, the pair of the CPU and the memory is a row of `RUNNER_SIZES`, and the value of `PYTEST_XDIST_AUTO_NUM_WORKERS` equals the CPU limit.
 
 #### Scenario: A Job of each row
-- **WHEN** a test builds the Job that the Service makes for each row of the table and evaluates the policy for the Service user
+- **WHEN** the gate check `tests/gate/k8s_checks/job_admission_policy.py` (`uv run devops ci --check --only k8s`) builds the Job that the Service makes for each row of the table and evaluates the policy for the Service user
 - **THEN** the policy admits the Job
 
 #### Scenario: A size outside the table
-- **WHEN** a test tries each pair of CPU and memory request from a grid that holds the rows and values near them
+- **WHEN** the gate check tries each pair of CPU and memory, with each limit equal to its request, from a grid that holds the rows and values near them
 - **THEN** the policy admits exactly the pairs of the table
 
 #### Scenario: A worker count that differs
@@ -200,8 +200,12 @@ The policy SHALL refuse a Job of the Service unless the CPU request of its conta
 - **THEN** the policy refuses the Job
 
 #### Scenario: A raised memory limit
-- **WHEN** the Job of a row sets a memory limit of 12Gi
-- **THEN** the policy admits the Job
+- **WHEN** the Job of the small row sets a memory limit of 16Gi, above its memory request
+- **THEN** the policy refuses the Job with the message of the size table
+
+#### Scenario: A memory limit below the request or no memory limit
+- **WHEN** the Job of the small row sets a memory limit of 4Gi, or sets no memory limit
+- **THEN** the policy refuses the Job with the message of the size table
 
 ### Requirement: Repository and item labels
 `build_job` SHALL set `roadmap.devops-cli/owner`, `roadmap.devops-cli/repo` and `roadmap.devops-cli/item` on the Job metadata and on the pod template metadata.

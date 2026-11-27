@@ -182,17 +182,6 @@ The comment that reports a Job that ended SHALL name `implement.job_digest` when
 - **WHEN** the round reports a Job whose record holds a digest
 - **THEN** the comment names that digest
 
-### Requirement: The memory limit of a runner Job stays 8 Gi
-The container `agent` of the runner Job that the Service creates SHALL have the memory limit of the setting `roadmap.implement.max_memory_limit`, whose default is 8Gi, whatever the deadline settings and the size of the plan are. `prepare` and `publish` SHALL keep their own limit of the template.
-
-#### Scenario: The memory limit
-- **WHEN** a round creates a Job and the setting is not set
-- **THEN** the memory limit of its container `agent` is 8Gi
-
-#### Scenario: A raised limit
-- **WHEN** the setting is 12Gi and a round creates a Job
-- **THEN** the memory limit of its container `agent` is 12Gi
-
 ### Requirement: The job runs a project step only where the target declares it
 The job SHALL run the docs step and the archive step only when the default branch of the target repository declares the step in `.devops/roadmap.toml` under `[implement.steps]`. The job SHALL read the file from the default branch and SHALL NOT read the checkout. A default branch with no file SHALL declare no step. A file that is not valid SHALL stop the item and run no step.
 
@@ -228,11 +217,15 @@ The comment of the job on the pull request SHALL name each step that the job ski
 - **THEN** the comment names no skipped step
 
 ### Requirement: The Service sizes the runner Job from the plan
-The Service SHALL choose the CPU request, the CPU limit and the memory request of a runner Job from the table `RUNNER_SIZES` by the number of files that the plan names: the small row (CPU 1, memory 2Gi) for at most 10 files, and the large row (CPU 4, memory 6Gi) for more. The other values of the template SHALL stay.
+The Service SHALL choose the CPU and the memory of the container `agent` of a runner Job from the table `RUNNER_SIZES` by the number of files that the plan names: the small row (CPU 1, memory 5Gi) for at most 10 files, and the large row (CPU 4, memory 11Gi) for more. The CPU limit SHALL equal the CPU request, and the memory limit SHALL equal the memory request. `prepare` and `publish` SHALL keep the small row of the template, and the other values of the template SHALL stay.
 
 #### Scenario: A plan with few files and a plan with many
 - **WHEN** a round creates a Job for a plan whose tasks name 3 files, and another round creates a Job for a plan whose tasks name 12 files
-- **THEN** the first Job requests 1 CPU and 2Gi, the second requests 4 CPU and 6Gi, and each keeps the `ephemeral-storage` of the template
+- **THEN** the first Job requests and limits 1 CPU and 5Gi, the second requests and limits 4 CPU and 11Gi, and each keeps the `ephemeral-storage` of the template
+
+#### Scenario: Every row
+- **WHEN** a test reads the resources of each row of the table
+- **THEN** the limits of each row are equal to its requests
 
 ### Requirement: The files of a plan are the paths in its tasks
 The Service SHALL count the distinct file paths in the code spans of `tasks.md`, read at the revision that holds the plan: `origin/<default branch>` for a Planned item and `origin/<branch>` for a Staged item. A change that is archived at that revision SHALL count zero files.
@@ -253,22 +246,11 @@ The Service SHALL set `PYTEST_XDIST_AUTO_NUM_WORKERS` of the Job to the CPU limi
 - **THEN** the CPU request, the CPU limit and the value of `PYTEST_XDIST_AUTO_NUM_WORKERS` are equal
 
 ### Requirement: The size table cites its measurements
-Each row of `RUNNER_SIZES` SHALL name the measured Job sample and its peak memory, and the memory request of the row SHALL be above that peak.
+Each row of `RUNNER_SIZES` SHALL name the measured Job sample and its peak memory, and the peak SHALL be at most 80 % of the memory of the row, the room of T1 in the Kubernetes guideline.
 
 #### Scenario: The rows
 - **WHEN** a test reads the table
-- **THEN** each row has a sample name and a peak, and its memory request is above the peak
-
-### Requirement: The memory limit is a setting that holds the largest request
-The setting `roadmap.implement.max_memory_limit` SHALL have the default 8Gi and the variable `DEVOPS_CLI_ROADMAP_IMPLEMENT_MAX_MEMORY_LIMIT`. It SHALL be a whole number of Gi, and the configuration SHALL refuse a value below the largest memory request of the table.
-
-#### Scenario: The default
-- **WHEN** the configuration is loaded with no value
-- **THEN** the setting is 8Gi
-
-#### Scenario: A value below the largest request or in another form
-- **WHEN** the setting is 5Gi, 8G or 8192Mi
-- **THEN** the configuration is refused
+- **THEN** each row has a sample name and a peak, and its peak is at most 80 % of its memory
 
 ### Requirement: The Service clears the result when it records a Job
 The Service SHALL clear `implement.result` in the write that records a new Job of an item.
@@ -298,20 +280,6 @@ A round SHALL report the Job of a closed item whose record holds `implement.job`
 #### Scenario: A closed item whose Job is gone
 - **WHEN** a closed item records a Job that the cluster does not list
 - **THEN** the round records no state and no counter changes
-
-### Requirement: The description of the memory limit names the node that runs the Job
-The description of the setting `roadmap.implement.max_memory_limit` SHALL name the smallest node that can run a runner Job as the bound of the limit, and SHALL name no other node as its bound.
-
-#### Scenario: The description names the node that runs the Jobs
-- **WHEN** a test reads the description of the field from the settings model
-- **THEN** it names the smallest node that can run a runner Job and not the smallest node of the cluster
-
-### Requirement: The cluster document states both runner memory limits
-The Size section of the cluster document SHALL give the code default 8Gi of `roadmap.implement.max_memory_limit` and the 16Gi that the example ConfigMap sets.
-
-#### Scenario: The Size section states both values
-- **WHEN** a test reads the Size line of the cluster document
-- **THEN** it names the default 8Gi and the 16Gi of the example ConfigMap
 
 ### Requirement: A runner Job writes the disk use of its home volume
 In a runner Job, the end of each step of the agent and each stop of the job SHALL write one line to the Job log with the step, the bytes on the disk of the worktree and the home, and their 8 largest folders, largest first. The line SHALL read `du -x -B1 -d 1 <worktree> <home>` and SHALL name a folder of the worktree as `worktree/<name>`. Outside a runner Job, the job SHALL read no disk use.

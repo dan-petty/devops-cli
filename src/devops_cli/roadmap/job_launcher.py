@@ -3,8 +3,8 @@
 
 A row gives a `RunnerUnit`: the row, the repository and the item, the args of the command, the
 size of the pod, the name, the deadline, and its own labels and annotations. The seam builds the
-Job with `build_job`: the runner image of the template, the args only, a row of `RUNNER_SIZES`,
-the memory limit `roadmap.implement.max_memory_limit`, a GitHub token for the one repository, and
+Job with `build_job`: the runner image of the template, the args only, a row of `RUNNER_SIZES`
+with a memory limit equal to its memory request (#7422), a GitHub token for the one repository, and
 the labels of ADR 0022 with the component `roadmap-<row>`. The admission policy
 `roadmap-service-jobs` admits that Job (`tests/gate/k8s_checks/job_admission_policy.py`). Only the
 implement Job carries the label `implement-repo`, so the implement lock counts no Job of another
@@ -85,7 +85,7 @@ class RunnerUnit:
         return env
 
 
-def _options(unit: RunnerUnit, memory_limit: str) -> dict[str, Any]:
+def _options(unit: RunnerUnit) -> dict[str, Any]:
     """The arguments of `build_job` for `unit`, but the CronJob, the args and the name."""
     return {
         "template": RUNNER_TEMPLATE,
@@ -93,7 +93,7 @@ def _options(unit: RunnerUnit, memory_limit: str) -> dict[str, Any]:
         "labels": unit.labels,
         "deadline": unit.deadline,
         "annotations": unit.annotations,
-        "resources": unit.size.resources(memory_limit),
+        "resources": unit.size.resources(),
         "repo": unit.repo,
         "item": unit.item,
         "row": unit.row,
@@ -101,10 +101,10 @@ def _options(unit: RunnerUnit, memory_limit: str) -> dict[str, Any]:
     }
 
 
-def runner_job(cronjob: dict[str, Any], unit: RunnerUnit, memory_limit: str) -> dict[str, Any]:
-    """The Job that `launch` creates for `unit` from `cronjob`, with the memory limit
-    `memory_limit`. Pure: the gate check of the admission policy reads it."""
-    return build_job(cronjob, list(unit.args), unit.name, **_options(unit, memory_limit))
+def runner_job(cronjob: dict[str, Any], unit: RunnerUnit) -> dict[str, Any]:
+    """The Job that `launch` creates for `unit` from `cronjob`. Pure: the gate check of the
+    admission policy reads it."""
+    return build_job(cronjob, list(unit.args), unit.name, **_options(unit))
 
 
 def launch(jobs: ClusterJobs, unit: RunnerUnit, *, cronjob: dict[str, Any] | None = None) -> str:
@@ -114,10 +114,7 @@ def launch(jobs: ClusterJobs, unit: RunnerUnit, *, cronjob: dict[str, Any] | Non
     Raises ClusterJobExistsError when a Job of the name exists (409), and ClusterJobError when the
     CronJob is missing or the API refuses the create.
     """
-    memory_limit = load_settings().roadmap.implement.max_memory_limit
-    return jobs.create(
-        list(unit.args), name=unit.name, cronjob=cronjob, **_options(unit, memory_limit)
-    )
+    return jobs.create(list(unit.args), name=unit.name, cronjob=cronjob, **_options(unit))
 
 
 @dataclass(frozen=True)

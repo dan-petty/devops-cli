@@ -141,7 +141,7 @@ def _delete_refusals(job: dict[str, Any], user: str | None = None) -> list[str]:
     return _policy_refusals(DELETE_POLICY_NAME, job=None, old=job, user=user, operation="DELETE")
 
 
-def _job_of_size(size: RunnerSize | None, memory_limit: str = "8Gi") -> dict[str, Any]:
+def _job_of_size(size: RunnerSize | None) -> dict[str, Any]:
     """The implement Job that the Service makes for a row of the size table, through the
     launcher seam from a `RunnerUnit` of the row implement, as `implement_submit._create` makes
     it, so an env value of that row reaches the policy; or the Job of the bare template."""
@@ -168,7 +168,7 @@ def _job_of_size(size: RunnerSize | None, memory_limit: str = "8Gi") -> dict[str
         labels=SERVICE_LABELS,
         annotations={CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS_AT: "1700000000"},
     )
-    return runner_job(cronjob, unit, memory_limit)
+    return runner_job(cronjob, unit)
 
 
 @functools.cache
@@ -369,11 +369,15 @@ def check_the_job_from_the_runner_template_passes_in_every_image_form() -> None:
         pytest.param(_drop_spec_field("activeDeadlineSeconds"), "deadline", id="no-deadline"),
         pytest.param(_set_resources(cpu="3"), "size table", id="cpu-off-the-table"),
         pytest.param(_set_resources(memory="7Gi"), "size table", id="memory-off-the-table"),
-        pytest.param(_set_resources(memory="6Gi"), "size table", id="large-memory-small-cpu"),
+        pytest.param(
+            _set_resources(memory="11Gi", limit="11Gi"), "size table", id="large-memory-small-cpu"
+        ),
         pytest.param(_set_resources(cpu="4"), "size table", id="large-cpu-small-memory"),
         pytest.param(_set_workers("2"), "size table", id="workers-differ-from-cpu"),
         pytest.param(_drop_workers, "size table", id="no-worker-count"),
         pytest.param(_drop_memory_limit, "size table", id="no-memory-limit"),
+        pytest.param(_set_resources(limit="16Gi"), "size table", id="memory-limit-above-request"),
+        pytest.param(_set_resources(limit="4Gi"), "size table", id="memory-limit-below-request"),
         pytest.param(_drop_resources, "size table", id="no-resources"),
     ],
 )
@@ -564,7 +568,7 @@ def _one_container_job() -> dict[str, Any]:
         template=RUNNER_TEMPLATE,
         env={**SERVICE_ENV, **size.env},
         labels=SERVICE_LABELS,
-        resources=size.resources("8Gi"),
+        resources=size.resources(),
     )
 
 
@@ -583,22 +587,27 @@ def check_the_one_container_of_the_old_template_is_refused_also_on_an_update() -
     ] == [True, True]
 
 
-def check_the_job_of_every_row_of_the_size_table_passes_also_with_a_raised_memory_limit() -> None:
-    jobs = [_job_of_size(row, limit) for row in RUNNER_SIZES for limit in ("8Gi", "12Gi")]
+def check_the_job_of_every_row_of_the_size_table_passes() -> None:
+    jobs = [_job_of_size(row) for row in RUNNER_SIZES]
 
     assert [_refusals(job) for job in jobs] == [[]] * len(jobs)
 
 
 def check_the_policy_admits_exactly_the_cpu_and_memory_pairs_of_the_size_table() -> None:
-    """Each pair from a grid that holds the rows and the values near them: only the table passes."""
+    """Each pair from a grid that holds the rows and the values near them, each limit equal to its
+    request: only the table passes."""
     cpus = sorted({row.cpu for row in RUNNER_SIZES} | {"0.5", "2", "3", "5", "8"})
-    memories = sorted({row.memory for row in RUNNER_SIZES} | {"1Gi", "4Gi", "5Gi", "7Gi", "8Gi"})
+    memories = sorted(
+        {row.memory for row in RUNNER_SIZES} | {"2Gi", "4Gi", "6Gi", "10Gi", "12Gi", "16Gi"}
+    )
 
     admitted = {
         (cpu, memory)
         for cpu in cpus
         for memory in memories
-        if not _refusals(_changed(_set_resources(cpu=cpu, memory=memory), _set_workers(cpu)))
+        if not _refusals(
+            _changed(_set_resources(cpu=cpu, memory=memory, limit=memory), _set_workers(cpu))
+        )
     }
 
     assert admitted == {(row.cpu, row.memory) for row in RUNNER_SIZES}
@@ -1054,7 +1063,7 @@ def _fix_job(*, confirm: bool = True, suspend: bool = False, attempt: int = 1) -
         suspend=suspend,
         now=STAGE_DEADLINE,
     )
-    return runner_job(_object("CronJob", "devops-cli-runner"), unit, "16Gi")
+    return runner_job(_object("CronJob", "devops-cli-runner"), unit)
 
 
 def check_the_fix_checks_job_of_the_launcher_passes_in_each_mode_and_suspended() -> None:

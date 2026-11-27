@@ -46,7 +46,7 @@ from devops_cli.roadmap.fix_checks_row import (
     result_of,
     run_fix_checks_round,
 )
-from devops_cli.roadmap.job_launcher import launch, model_slots
+from devops_cli.roadmap.job_launcher import launch, model_slots, runner_job
 from devops_cli.roadmap.stores.store import FixChecksRecordKey, ItemField
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.support.fakes.kubernetes import FakeCluster, pod, status, terminated
@@ -201,6 +201,24 @@ def test_a_second_create_of_the_same_unit_gets_409(kube: FakeCluster) -> None:
     with pytest.raises(ClusterJobExistsError, match="exists"):
         launch(ClusterJobs(), unit)
     assert len(_jobs(kube)) == 1
+
+
+def test_launch_creates_the_job_of_runner_job_with_a_memory_limit_equal_to_its_request(
+    kube: FakeCluster,
+) -> None:
+    """The gate check of the admission policy reads `runner_job`, so `launch` must create that
+    Job. The fix-checks Job has the large row, with each limit equal to its request (#7422)."""
+    unit = fix_unit(REPO, DUE, attempt=1, confirm=False, suspend=False, now=NOW)
+
+    launch(ClusterJobs(), unit)
+
+    (created,) = _jobs(kube)
+    resources = _container(created)["resources"]
+    assert (created["spec"], resources["requests"]["memory"], resources["limits"]["memory"]) == (
+        runner_job(cronjob_template(RUNNER_TEMPLATE), unit)["spec"],
+        "11Gi",
+        "11Gi",
+    )
 
 
 def test_a_new_head_is_a_new_unit(kube: FakeCluster) -> None:
