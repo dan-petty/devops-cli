@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.223.4](https://github.com/dan-petty/devops-cli/compare/v0.223.3...v0.223.4) (2026-11-27)
+
+
+### Bug Fixes
+
+* **roadmap:** a row goes on when an item left the repository ([#7352](https://github.com/dan-petty/devops-cli/issues/7352)) ([1aea120](https://github.com/dan-petty/devops-cli/commit/1aea120e153c9d60005774ae4aa72379f1d2ecaa))
+
 ## [0.223.3](https://github.com/dan-petty/devops-cli/compare/v0.223.2...v0.223.3) (2026-11-26)
 
 
