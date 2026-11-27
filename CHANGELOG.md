@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.229.5](https://github.com/dan-petty/devops-cli/compare/v0.229.4...v0.229.5) (2026-11-27)
+
+
+### Bug Fixes
+
+* **ai:** skip unchanged files in a run with no index cache ([#7478](https://github.com/dan-petty/devops-cli/issues/7478)) ([60a3540](https://github.com/dan-petty/devops-cli/commit/60a3540b9b091af8a3b81388d17da2a8203aac4d))
+* **repos:** onboard requires checks of a merged template pull request ([#7477](https://github.com/dan-petty/devops-cli/issues/7477)) ([46b9c95](https://github.com/dan-petty/devops-cli/commit/46b9c954efd94495b729700bedf1376473ecba05))
+
 ## [0.229.4](https://github.com/dan-petty/devops-cli/compare/v0.229.3...v0.229.4) (2026-11-27)
 
 
