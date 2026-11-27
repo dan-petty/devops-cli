@@ -20,7 +20,13 @@ from devops_cli.telemetry.instruments import REPOS_DRIFT_ROWS, bounded_label, em
 # The states of a plan row that leave the repository off its baseline and are no failed read: the
 # command exits 1 on each of them (`OnboardReport.failing`).
 _DRIFT_STATES: Final[frozenset[RowState]] = frozenset(
-    {RowState.PENDING, RowState.FAILED, RowState.WAITING}
+    {
+        RowState.PENDING,
+        RowState.FAILED,
+        RowState.WAITING,
+        RowState.MISSING,
+        RowState.INVALID,
+    }
 )
 
 
