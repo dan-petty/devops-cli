@@ -33,7 +33,7 @@ Kind: other. Reads: `k8s/devops/workflowtemplate-infra-drift.yaml`, `k8s/devops/
 
 Kind: other. Reads: `docs/adr/README.md`, `tests/invariants/test_adr_records.py`. Changes: `docs/adr/0008-argo-workflows-run-the-roadmap-jobs-after-a-measured-go.md`.
 
-- [ ] 4.1 At the end of the Status History section of ADR 0008, add one dated line in the `Fact out of date` form, 30 words or fewer: the controller runs namespaced in `devops`, and the manifests use `schedules` and `mutexes`. Do not edit the body
+- [x] 4.1 At the end of the Status History section of ADR 0008, add one dated line in the `Fact out of date` form, 30 words or fewer: the controller runs namespaced in `devops`, and the manifests use `schedules` and `mutexes`. Do not edit the body
   - Verification: `$ uv run devops ci test tests/invariants/test_adr_records.py` passes
 
 ## 5. Name the offline lint of Argo in the documents
