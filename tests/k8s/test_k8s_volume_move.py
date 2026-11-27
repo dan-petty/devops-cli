@@ -486,6 +486,7 @@ PLAN = VolumeMovePlan(
 BEFORE_COPY = [
     *_pause(False, PAUSE),
     "create PersistentVolumeClaim grafana-move",
+    "create NetworkPolicy grafana-copy",
     "create Pod grafana-dst",
     "scale deployment/grafana --replicas=0",
     "create Pod grafana-src",
@@ -494,6 +495,7 @@ UNDO_AFTER_COPY = [
     "delete pod grafana-src",
     "scale deployment/grafana --replicas=1",
     "delete pod grafana-dst",
+    "delete networkpolicy grafana-copy",
     "delete pvc grafana-move",
     *_pause(True, ("grafana", "cluster", "bootstrap")),
 ]
@@ -534,13 +536,17 @@ def test_the_plan_names_each_step_with_the_real_names(cluster: Cluster) -> None:
             storage_class="local-path",
             pod="grafana-dst",
             node=WORKER_B,
+            policy="grafana-copy",
+            port=7373,
         ),
         m.volume_move_step_stop.format(workloads="deployment/grafana", pods=POD),
         m.volume_move_step_source.format(pod="grafana-src", claim=CLAIM, node=CONTROL_PLANE),
-        m.volume_move_step_copy.format(source="grafana-src", destination="grafana-dst"),
+        m.volume_move_step_copy.format(source="grafana-src", destination="grafana-dst", port=7373),
         m.volume_move_step_compare,
         m.volume_move_step_retain.format(claim="grafana-move", volume=OLD_VOLUME),
-        m.volume_move_step_delete_pods.format(source="grafana-src", destination="grafana-dst"),
+        m.volume_move_step_delete_pods.format(
+            source="grafana-src", destination="grafana-dst", policy="grafana-copy"
+        ),
         m.volume_move_step_delete_claim.format(namespace=NAMESPACE, claim=CLAIM),
         m.volume_move_step_rebind.format(
             move_claim="grafana-move", namespace=NAMESPACE, claim=CLAIM
@@ -609,7 +615,13 @@ def test_the_steps_of_a_class_change_name_the_new_class(cluster: Cluster) -> Non
     steps = describe_volume_move(_plan(storage_class=LONGHORN))
 
     assert steps[1] == m.volume_move_step_destination.format(
-        claim="grafana-move", size="5Gi", storage_class=LONGHORN, pod="grafana-dst", node=WORKER_A
+        claim="grafana-move",
+        size="5Gi",
+        storage_class=LONGHORN,
+        pod="grafana-dst",
+        node=WORKER_A,
+        policy="grafana-copy",
+        port=7373,
     )
     assert steps[11] == m.volume_move_step_start_any_node.format(
         workloads="deployment/grafana to 1"
@@ -796,6 +808,7 @@ def test_a_move_copies_compares_rebinds_the_claim_and_resumes_argo_cd(
         "patch pv pvc-new reclaim=Retain",
         "patch pv pvc-old reclaim=Retain",
         "delete pod grafana-src grafana-dst",
+        "delete networkpolicy grafana-copy",
         "delete pvc grafana",
         "delete pvc grafana-move",
         "patch pv pvc-new claimRef=monitoring/grafana",
@@ -891,79 +904,98 @@ def test_the_copy_command_comes_from_copy_argv(
     )
 
 
-def _copy_sides(process_fake: ProcessFake) -> tuple[list[str], list[str]]:
-    """The two sides of the pipe of the copy as words, each with its redirection last."""
+def test_the_copy_sends_the_data_from_pod_to_pod_not_through_the_api_server(
+    cluster: Cluster, process_fake: ProcessFake, tmp_path: Path
+) -> None:
+    """The stdout of an exec stream loses data at full speed (#7408), so each exec carries only a
+    script and its result, and tar goes over the pod network to a listener in the destination."""
+    # Imported here, so the file collects on the base commit and this test fails there.
+    from devops_cli.config.constants import (
+        CONST_K8S_VOLUME_MOVE_LISTEN_SCRIPT,
+        CONST_K8S_VOLUME_MOVE_LISTENER,
+        CONST_K8S_VOLUME_MOVE_RESULT_SCRIPT,
+        CONST_K8S_VOLUME_MOVE_SEND_SCRIPT,
+    )
+
+    _move(tmp_path)
+
+    kubectl = ["kubectl", "--context", CONTEXT]
+
+    def exec_in(pod: str, script: str, name: str, *args: str) -> list[str]:
+        return [*kubectl, "exec", pod, "-n", NAMESPACE, "--", "bash", "-c", script, name, *args]
+
+    pod_ip = [*kubectl, "get", "pod", "grafana-dst", "-n", NAMESPACE, "-o"]
+    listen = exec_in(
+        "grafana-dst",
+        CONST_K8S_VOLUME_MOVE_LISTEN_SCRIPT,
+        "volume-move-listen",
+        CONST_K8S_VOLUME_MOVE_LISTENER,
+        "7373",
+        "/dst",
+    )
+    send = exec_in("grafana-src", CONST_K8S_VOLUME_MOVE_SEND_SCRIPT, "volume-move-send")
+    result = exec_in(
+        "grafana-dst", CONST_K8S_VOLUME_MOVE_RESULT_SCRIPT, "volume-move-result", "300"
+    )
     script = next(call.argv[-1] for call in process_fake.calls if call.argv[0] == "bash")
-    _, _, pipe = script.partition(" && kubectl")
-    source, destination = (
-        shlex.split(side.replace(' <"', ' < "').replace(' >"', ' > "'))
-        for side in f"kubectl{pipe}".split(" | ")
-    )
-    return source, destination
-
-
-def test_the_copy_pipes_gnu_tar_between_the_two_pods_through_the_api_server(
-    cluster: Cluster, process_fake: ProcessFake, tmp_path: Path
-) -> None:
-    _move(tmp_path)
-
-    source, destination = _copy_sides(process_fake)
-    assert (source[:-2], destination[:-2]) == (
+    assert script == "\n".join(
         [
-            "kubectl",
-            "--context",
-            CONTEXT,
-            "exec",
-            "-i",
-            "grafana-src",
-            "-n",
-            NAMESPACE,
-            "--",
-            "bash",
-            "-c",
-            "tar -C /src --numeric-owner --sparse -cpf - . && exec cat",
-        ],
-        [
-            "kubectl",
-            "--context",
-            CONTEXT,
-            "exec",
-            "-i",
-            "grafana-dst",
-            "-n",
-            NAMESPACE,
-            "--",
-            "tar",
-            "-C",
-            "/dst",
-            "--numeric-owner",
-            "-xpf",
-            "-",
-        ],
+            "set -eu",
+            f"ip=$({shlex.join([*pod_ip, 'jsonpath={.status.podIP}'])})",
+            shlex.join(listen),
+            shlex.join(send) + ' "$ip" 7373 /src',
+            shlex.join(result),
+        ]
+    )
+    assert not {"-i", "--stdin"} & {*listen, *send, *result}
+
+
+def test_the_source_sends_gnu_tar_to_the_listener_that_extracts_it() -> None:
+    from devops_cli.config.constants import (
+        CONST_K8S_VOLUME_MOVE_LISTENER,
+        CONST_K8S_VOLUME_MOVE_SEND_SCRIPT,
+    )
+
+    assert CONST_K8S_VOLUME_MOVE_SEND_SCRIPT == (
+        'exec 3>"/dev/tcp/$1/$2" && tar -C "$3" --numeric-owner --sparse -cpf - . >&3'
+    )
+    assert 'system("tar", "-C", $dir, "--numeric-owner", "-xpf", "-")' in (
+        CONST_K8S_VOLUME_MOVE_LISTENER
     )
 
 
-def test_the_source_of_the_copy_holds_until_the_destination_ended(
-    cluster: Cluster, process_fake: ProcessFake, tmp_path: Path
+def test_the_copy_policy_lets_the_copy_pods_reach_each_other_on_the_copy_port_only(
+    cluster: Cluster, tmp_path: Path
 ) -> None:
-    """The destination's stdout is the source's stdin, so its end is the source's end of input."""
+    """A namespace that refuses traffic by default still lets the source reach the listener."""
     _move(tmp_path)
 
-    source, destination = _copy_sides(process_fake)
-    assert source[-2:] == ["<", "$hold/end"]
-    assert destination[-2:] == [">", "$hold/end"]
+    labels = {
+        "app.kubernetes.io/managed-by": "devops-cli",
+        "app.kubernetes.io/component": "volume-move",
+    }
+    peers = [{"podSelector": {"matchLabels": labels}}]
+    ports = [{"protocol": "TCP", "port": 7373}]
+    assert next(item for item in cluster.created if item["kind"] == "NetworkPolicy") == {
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "NetworkPolicy",
+        "metadata": {"name": "grafana-copy", "namespace": NAMESPACE, "labels": labels},
+        "spec": {
+            "podSelector": {"matchLabels": labels},
+            "policyTypes": ["Ingress", "Egress"],
+            "ingress": [{"from": peers, "ports": ports}],
+            "egress": [{"to": peers, "ports": ports}],
+        },
+    }
 
 
-def test_the_copy_makes_the_pipe_that_holds_the_source_and_removes_it(
-    cluster: Cluster, process_fake: ProcessFake, tmp_path: Path
+def test_the_plan_looks_for_the_copy_policy_of_an_earlier_move(
+    cluster: Cluster, process_fake: ProcessFake
 ) -> None:
-    _move(tmp_path)
+    _plan()
 
-    script = next(call.argv[-1] for call in process_fake.calls if call.argv[0] == "bash")
-    setup, _, _ = script.partition("kubectl")
-    assert setup == (
-        """hold=$(mktemp -d) && trap 'rm -rf "$hold"' EXIT && mkfifo "$hold/end" && """
-    )
+    leftovers = next(call.argv for call in process_fake.calls if "pod/grafana-src" in call.argv)
+    assert "networkpolicy/grafana-copy" in leftovers
 
 
 # ── Failures before the point of no return: the move undoes its steps ──────
@@ -1141,6 +1173,22 @@ def test_the_dry_run_makes_no_request_and_lists_the_writes_in_order(
         ("kubectl", "--context", CONTEXT),
         ("bash", "-o", "pipefail"),
     }
+
+
+def test_the_dry_run_makes_the_copy_policy_before_the_pods_and_deletes_it_with_them(
+    process_fake: ProcessFake,
+) -> None:
+    requests = dry_run_volume_move(NAMESPACE, CLAIM, parents=PARENTS, context=CONTEXT)
+
+    created = [json.loads(r.stdin)["kind"] for r in requests if r.argv[3] == "create" and r.stdin]
+    deletes = [r.argv[4:6] for r in requests if r.argv[3] == "delete"]
+    assert created[:3] == ["PersistentVolumeClaim", "NetworkPolicy", "Pod"]
+    assert deletes[:3] == [
+        ("pod", "grafana-src"),
+        ("networkpolicy", "grafana-copy"),
+        ("pvc", CLAIM),
+    ]
+    assert process_fake.calls == []
 
 
 def test_the_dry_run_of_a_class_change_reads_the_class_and_its_nodes_first(
@@ -1339,6 +1387,9 @@ def test_move_undone_prints_the_steps_it_undid(cli: Any, cluster: Cluster) -> No
                         workload="deployment/grafana", replicas=1
                     ),
                     MESSAGES.k8s.volume_move_undo_delete.format(kind="pod", name="grafana-dst"),
+                    MESSAGES.k8s.volume_move_undo_delete.format(
+                        kind="NetworkPolicy", name="grafana-copy"
+                    ),
                     MESSAGES.k8s.volume_move_undo_delete.format(kind="claim", name="grafana-move"),
                     *(
                         MESSAGES.k8s.volume_move_undo_resume.format(application=name)
