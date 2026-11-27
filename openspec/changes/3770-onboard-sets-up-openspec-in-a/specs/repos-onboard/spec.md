@@ -8,14 +8,14 @@
 - **THEN** Row 16 is `present`, the row writes nothing, and the command exits 0
 
 ### Requirement: The OpenSpec row reads missing
-The command SHALL print row 16 as `missing`, with `openspec/config.yaml` in its reason, when the default branch holds no `openspec/config.yaml` and no open template pull request holds it.
+The command SHALL print row 16 as `missing`, with `openspec/config.yaml` in its reason, when neither the default branch nor the head of the open template pull request that row 9 recorded in the same run holds `openspec/config.yaml`.
 
 #### Scenario: A repository with no OpenSpec
 - **WHEN** The default branch holds no `openspec/config.yaml` and no template pull request is open
 - **THEN** Row 16 is `missing`, its reason names `openspec/config.yaml`, and the command exits 1
 
 ### Requirement: The OpenSpec row reads invalid
-The command SHALL print row 16 as `invalid`, with the failed condition in its reason, when the default branch holds `openspec/config.yaml` and the file does not parse as YAML, names a schema other than `spec-driven`, or the folder `openspec/specs/` does not exist.
+The command SHALL print row 16 as `invalid`, with the failed condition in its reason, when the default branch holds `openspec/config.yaml`, no open template pull request passes the present conditions, and the file does not parse as YAML, names a schema other than `spec-driven`, or the folder `openspec/specs/` does not exist. For a missing specs folder the reason SHALL name the next step: the `copier update` of the template or a commit of `openspec/specs/.gitkeep`.
 
 #### Scenario: A config file of another schema
 - **WHEN** `openspec/config.yaml` names a schema other than `spec-driven`
@@ -27,14 +27,25 @@ The command SHALL print row 16 as `invalid`, with the failed condition in its re
 
 #### Scenario: No specs folder
 - **WHEN** `openspec/config.yaml` names `spec-driven` and the default branch holds no file under `openspec/specs/`
-- **THEN** Row 16 is `invalid` and its reason names `openspec/specs/`
+- **THEN** Row 16 is `invalid`, and its reason names `openspec/specs/` and the `copier update` step
 
 ### Requirement: The OpenSpec row reads waiting on the template pull request
-The command SHALL print row 16 as `waiting`, with the number of the open template pull request in its reason, when the default branch holds no `openspec/config.yaml` and the head of that pull request holds it.
+The command SHALL print row 16 as `waiting`, with the number of the open template pull request in its reason, when the default branch fails the present conditions and the head of the template pull request that row 9 recorded in the same run passes them. With `--only 16`, row 9 does not run, and the row SHALL read the default branch alone.
 
 #### Scenario: A config file only on the template branch
-- **WHEN** The default branch holds no `openspec/config.yaml` and the open template pull request holds it
+- **WHEN** The default branch holds no `openspec/config.yaml` and the open template pull request holds it and `openspec/specs/.gitkeep`
 - **THEN** Row 16 is `waiting`, its reason names that pull request, and the row does not make the command exit 1
+
+#### Scenario: A specs folder only on the template branch
+- **WHEN** The default branch holds `openspec/config.yaml` and no `openspec/specs/`, and the open template pull request adds `openspec/specs/.gitkeep`
+- **THEN** Row 16 is `waiting` and not `invalid`
+
+### Requirement: The OpenSpec states count as drift
+The drift check SHALL count `missing` and `invalid` of row 16 as drift, because both make the command exit 1.
+
+#### Scenario: A repository with an invalid OpenSpec setup
+- **WHEN** The drift check reads a repository whose row 16 is `invalid`
+- **THEN** The repository is reported as drift and not as clean
 
 ### Requirement: The OpenSpec config comes from the repository template
 The command SHALL write `openspec/config.yaml` and `openspec/specs/.gitkeep` only as files of the render of the repository template, and devops-cli SHALL hold no OpenSpec config template of its own.
@@ -75,7 +86,7 @@ After the template pull request merges, the pinned `openspec validate --specs --
 ## MODIFIED Requirements
 
 ### Requirement: One row for each step
-`devops repos onboard <owner>/<name>` SHALL print rows 0 to 16 in order: preflight, create, repository, security, Code Quality, environment, release secret, App check, labels, template pull request, ruleset, ready, webhook, Service, cluster, RAG and OpenSpec. Each row SHALL show its number, its name, its state and the changes, the reason or the person step of the state. `--only <row>,...` SHALL run only the named rows.
+`devops repos onboard <owner>/<name>` SHALL print rows 0 to 16 in order: preflight, create, repository, security, Code Quality, environment, release secret, App check, labels, template pull request, ruleset, ready, webhook, Service, cluster, RAG and OpenSpec. Each row SHALL show its number, its name, its state and the changes, the reason or the person step of the state. `--only <row>,...` SHALL run only the named rows, and SHALL take each row number from 0 to the last row of the run.
 
 #### Scenario: An onboarded repository
 - **WHEN** a fake GitHub holds a repository that matches the baseline, including `openspec/config.yaml` and `openspec/specs/.gitkeep`, and `--plan` runs
@@ -84,3 +95,7 @@ After the template pull request merges, the pinned `openspec validate --specs --
 #### Scenario: Only one row
 - **WHEN** `--only 8` runs
 - **THEN** the output holds row 8 and no other step row
+
+#### Scenario: Only the OpenSpec row
+- **WHEN** `--only 16` runs
+- **THEN** the command is not refused and the output holds row 16 and no other step row
