@@ -64,9 +64,9 @@ COPY --from=devtools /usr/local/lib/devtools/npm/node_modules/@devcontainers/cli
 # commands that a job names to a directory, which the job puts on PATH, so the digest above also
 # pins each command. No other stage uses it.
 FROM scratch AS devtools-bin
-COPY --from=devtools /usr/local/bin/gitleaks /usr/local/bin/helm /usr/local/bin/kube-linter \
-    /usr/local/bin/kubectl /usr/local/bin/osv-scanner /usr/local/bin/promtool /usr/local/bin/tofu \
-    /usr/local/bin/trivy /usr/local/bin/tuicr /
+COPY --from=devtools /usr/local/bin/argo /usr/local/bin/gitleaks /usr/local/bin/helm \
+    /usr/local/bin/kube-linter /usr/local/bin/kubectl /usr/local/bin/osv-scanner \
+    /usr/local/bin/promtool /usr/local/bin/tofu /usr/local/bin/trivy /usr/local/bin/tuicr /
 
 # This copy is the devops of the published image: a child repository's post-create and post-start
 # run it, and so does this repository's first post-create, before `uv sync` fills .venv. The venv

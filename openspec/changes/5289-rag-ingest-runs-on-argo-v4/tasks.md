@@ -15,7 +15,7 @@ Kind: other. Reads: `tests/gate/k8s.py`, `tests/gate/k8s_render.py`, `tests/gate
 
 Kind: other. Reads: `.github/actions/devtools-commands/action.yml`, `docs/SDLC.md`. Changes: `.devcontainer/Dockerfile`, `.github/workflows/ci.yml`, `.github/workflows/fail-to-pass.yml`.
 
-- [ ] 2.1 Add `/usr/local/bin/argo` to the stage `devtools-bin` of `.devcontainer/Dockerfile`. Add `argo` to the commands that `Static Analysis` of `.github/workflows/ci.yml` copies. In `.github/workflows/fail-to-pass.yml`, copy `argo` with `.github/actions/devtools-commands` and put its folder on PATH before the replay
+- [x] 2.1 Add `/usr/local/bin/argo` to the stage `devtools-bin` of `.devcontainer/Dockerfile`. Add `argo` to the commands that `Static Analysis` of `.github/workflows/ci.yml` copies. In `.github/workflows/fail-to-pass.yml`, copy `argo` with `.github/actions/devtools-commands` and put its folder on PATH before the replay
   - Verification: `$ uv run devops ci --check --only actionlint,zizmor,hadolint` passes
 
 ## 3. Move the rag-ingest manifests to the fields of controller v4

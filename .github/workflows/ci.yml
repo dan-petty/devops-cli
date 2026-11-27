@@ -79,15 +79,16 @@ jobs:
 
       # The tools of the devtools image for the gate and the scan: tofu (#5862) and osv-scanner;
       # kube-linter, which runs the `kube-linter` row on the build of the product base k8s/devops
-      # (#6068); and Trivy, which runs `trivy-config`, the IaC scan of the Security Scan
-      # step, in the place of Checkov (#2214). The job stays on the runner host, because the `bwrap`
-      # row needs the sandbox of the host, which a container job cannot make (#6416). The next step
-      # puts the directory of the commands first on PATH for the steps after it.
+      # (#6068); Trivy, which runs `trivy-config`, the IaC scan of the Security Scan
+      # step, in the place of Checkov (#2214); and argo, whose offline lint the `k8s` row runs on
+      # the Argo objects of the product base (#5289). The job stays on the runner host, because
+      # the `bwrap` row needs the sandbox of the host, which a container job cannot make (#6416).
+      # The next step puts the directory of the commands first on PATH for the steps after it.
       - name: Copy the tools of the devtools image
         id: devtools
         uses: ./.github/actions/devtools-commands
         with:
-          commands: tofu osv-scanner trivy kube-linter
+          commands: tofu osv-scanner trivy kube-linter argo
 
       - name: Put the tools of the devtools image on PATH
         env:
