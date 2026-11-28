@@ -905,6 +905,19 @@ def check_a_runner_job_with_a_rule_of_the_stage_job_is_refused(mutate: Mutation,
     assert rule in refused[0]
 
 
+def check_a_non_stage_job_with_project_review_is_refused_while_stage_and_implement_pass() -> None:
+    refused = _refusals(_changed(_set_component("project-review")))
+
+    assert len(refused) == 1, refused
+    assert "label" in refused[0]
+    assert "project-review" in refused[0]
+    assert (
+        _refusals(_stage_job()),
+        _refusals(_template_job()),
+        _refusals(_changed(_set_component(None))),
+    ) == ([], [], [])
+
+
 def _drop_secret_keys(job: dict[str, Any]) -> None:
     container = _container(job)
     container["env"] = [entry for entry in container["env"] if "valueFrom" not in entry]
