@@ -2,13 +2,14 @@
 
 The cluster is a scripted answer of the shared process fake (#2186): each kubectl request reads
 or changes the objects of `Cluster`, and `Cluster.changes` records, in order, every request that
-changes the cluster. No test starts kubectl or bash, and no test reaches a cluster.
+changes the cluster. pv-migrate is an answer of the same fake (#7498). No test starts kubectl or
+pv-migrate, and no test reaches a cluster.
 """
 
 from __future__ import annotations
 
 import json
-import shlex
+import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,7 +23,6 @@ from devops_cli.exceptions.k8s import (
     VolumeMoveStrandedError,
 )
 from devops_cli.k8s.volume_move import (
-    CopyDigest,
     VolumeMovePlan,
     Workload,
     describe_volume_move,
@@ -51,16 +51,11 @@ FREE_BYTES = {
     WORKER_A: 1_000_000_000_000,
     WORKER_B: 1_700_000_000_000,
 }
-DIGEST = f"entries 12\nfiles 7\nbytes 4096\nmetadata {'a' * 64}\ncontent {'b' * 64}\n"
-OTHER_DIGEST = DIGEST.replace("b" * 64, "c" * 64)
 LAST_APPLIED = json.dumps(
     {"apiVersion": "v1", "kind": "PersistentVolumeClaim", "metadata": {"name": CLAIM}}
 )
 TRACKING = "argocd.argoproj.io/tracking-id"
 PAUSE = ("bootstrap", "cluster", "grafana")
-VOLUME_MOVE_IMAGE = (
-    "debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2"
-)
 LONGHORN = "longhorn"
 LONGHORN_DRIVER = "driver.longhorn.io"
 
@@ -128,9 +123,14 @@ class Cluster:
     workload_kind: str = "Deployment"
     when_scaled: str = "Retain"
     leftovers: tuple[str, ...] = ()
-    copy_failures: int = 0
+    copy_fails: bool = False
     interrupt_copy: bool = False
-    destination_digest: str = DIGEST
+    copy_times_out: bool = False
+    # The Pod Security level that the namespace enforces, the fsGroup of the pod template of the
+    # workload, and whether pv-migrate is on PATH.
+    pod_security: str = "privileged"
+    fs_group: int | None = 472
+    pv_migrate_installed: bool = True
     failing: frozenset[str] = frozenset()
     replicas: int = 1
     claim_volume: str | None = OLD_VOLUME
@@ -146,7 +146,6 @@ class Cluster:
     claim_exists: bool = True
     owner_kind: str | None = None
     tracked: bool = True
-    cronjob_exists: bool = True
     known_applications: tuple[str, ...] = ("bootstrap", "cluster", "grafana", "loki")
     timeout_on: str | None = None
     # The provisioner of each StorageClass, the CSIDrivers, and the drivers of each CSINode: only
@@ -158,17 +157,22 @@ class Cluster:
             "nfs": "example.com/nfs",
         }
     )
-    csi_drivers: tuple[str, ...] = (LONGHORN_DRIVER,)
+    # The fsGroupPolicy of each CSIDriver.
+    csi_drivers: dict[str, str] = field(
+        default_factory=lambda: {LONGHORN_DRIVER: "ReadWriteOnceWithFSType"}
+    )
     csi_nodes: dict[str, tuple[str, ...]] = field(
         default_factory=lambda: {CONTROL_PLANE: (), WORKER_A: (LONGHORN_DRIVER,), WORKER_B: ()}
     )
     changes: list[str] = field(default_factory=list)
     created: list[dict[str, Any]] = field(default_factory=list)
+    # The argv and the Helm values of each pv-migrate copy.
+    copies: list[tuple[list[str], dict[str, Any]]] = field(default_factory=list)
 
     def __call__(self, call: ProcessCall) -> subprocess.CompletedProcess[str]:
         argv = list(call.argv)
-        if argv[0] == "bash":
-            return self._copy(argv)
+        if argv[0] == "pv-migrate":
+            return self._pv_migrate(argv, call.stdin if isinstance(call.stdin, str) else None)
         assert argv[:3] == ["kubectl", "--context", CONTEXT], argv
         args = argv[3:]
         if args[0] == "get":
@@ -181,8 +185,6 @@ class Cluster:
                         self.operation_phase = "Succeeded"
                     return _failed("error: timed out waiting for the condition")
             return _ok("")
-        if args[0] == "exec":
-            return self._exec(args)
         return self._change(args, call.stdin if isinstance(call.stdin, str) else None)
 
     # ── reads ──────────────────────────────────────────────────────────────
@@ -191,8 +193,6 @@ class Cluster:
         what = args[1]
         if what == self.timeout_on:
             raise subprocess.TimeoutExpired(cmd=args, timeout=1)
-        if what.startswith("pod/"):
-            return "".join(f"{name}\n" for name in self.leftovers)
         if what == "--raw":
             node = args[2].split("/")[4]
             return json.dumps({"node": {"fs": {"availableBytes": FREE_BYTES[node]}}})
@@ -208,11 +208,9 @@ class Cluster:
             "statefulset": lambda _args: json.dumps(self._workload()),
             "applications": lambda _args: json.dumps({"items": self._applications()}),
             "application": lambda _args: self.operation_phase,
-            "cronjob": self._get_cronjob,
+            "namespace": self._get_namespace,
             "storageclass": self._get_storage_class,
-            "csidriver": lambda args: (
-                json.dumps({"metadata": {"name": args[2]}}) if args[2] in self.csi_drivers else ""
-            ),
+            "csidriver": self._get_csi_driver,
             "csinodes": lambda _args: json.dumps({"items": self._csi_nodes()}),
         }
         return readers[what](args)
@@ -232,42 +230,19 @@ class Cluster:
             for node, drivers in self.csi_nodes.items()
         ]
 
-    def _get_cronjob(self, args: list[str]) -> str:
-        if not self.cronjob_exists:
+    def _get_namespace(self, args: list[str]) -> str:
+        labels = {"pod-security.kubernetes.io/enforce": self.pod_security}
+        return json.dumps({"metadata": {"name": args[2], "labels": labels}})
+
+    def _get_csi_driver(self, args: list[str]) -> str:
+        policy = self.csi_drivers.get(args[2])
+        if policy is None:
             return ""
-        return json.dumps(
-            {
-                "apiVersion": "batch/v1",
-                "kind": "CronJob",
-                "metadata": {"name": "volume-move", "namespace": "devops"},
-                "spec": {
-                    "suspend": True,
-                    "jobTemplate": {
-                        "spec": {
-                            "template": {
-                                "spec": {
-                                    "containers": [
-                                        {
-                                            "name": "copy",
-                                            "image": VOLUME_MOVE_IMAGE,
-                                            "securityContext": {
-                                                "allowPrivilegeEscalation": False,
-                                                "readOnlyRootFilesystem": True,
-                                                "runAsNonRoot": True,
-                                                "runAsUser": 65534,
-                                                "capabilities": {"drop": ["ALL"]},
-                                            },
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    },
-                },
-            }
-        )
+        return json.dumps({"metadata": {"name": args[2]}, "spec": {"fsGroupPolicy": policy}})
 
     def _get_claim(self, args: list[str]) -> str:
+        if args[-1] == "name":
+            return "".join(f"{name}\n" for name in self.leftovers)
         if args[2] == f"{CLAIM}-move":
             return self.move_claim_volume or ""
         if not self.claim_exists:
@@ -367,7 +342,11 @@ class Cluster:
         return pods
 
     def _workload(self) -> dict[str, Any]:
-        spec: dict[str, Any] = {"replicas": 1}
+        security = {} if self.fs_group is None else {"fsGroup": self.fs_group}
+        spec: dict[str, Any] = {
+            "replicas": 1,
+            "template": {"spec": {"securityContext": {"runAsUser": 472, **security}}},
+        }
         if self.workload_kind == "StatefulSet":
             spec["persistentVolumeClaimRetentionPolicy"] = {
                 "whenDeleted": "Retain",
@@ -389,25 +368,26 @@ class Cluster:
             for name in self.known_applications
         ]
 
-    # ── exec and copy ──────────────────────────────────────────────────────
+    # ── pv-migrate ─────────────────────────────────────────────────────────
 
-    def _exec(self, args: list[str]) -> subprocess.CompletedProcess[str]:
-        command = args[args.index("--") + 1 :]
-        if command[0] == "find":
-            self.changes.append(f"empty {command[1]}")
+    def _pv_migrate(self, argv: list[str], stdin: str | None) -> subprocess.CompletedProcess[str]:
+        if argv[1] == "cleanup":
+            self.changes.append(f"pv-migrate cleanup {argv[2]}")
             return _ok("")
-        assert command[:2] == ["bash", "-c"], command
-        directory = command[-1]
-        return _ok(DIGEST if directory == "/src" else self.destination_digest)
-
-    def _copy(self, argv: list[str]) -> subprocess.CompletedProcess[str]:
-        assert argv[:4] == ["bash", "-o", "pipefail", "-c"], argv
-        self.changes.append("copy")
+        values = json.loads(stdin or "{}")
+        self.copies.append((argv, values))
+        self.changes.append("pv-migrate")
+        # The rsync pod of pv-migrate mounts the new claim on the node that the values select,
+        # so local-path binds the new volume there.
+        self.move_claim_volume = NEW_VOLUME
+        self.target_hostname = values["rsync"]["nodeSelector"]["kubernetes.io/hostname"]
         if self.interrupt_copy:
             raise KeyboardInterrupt
-        if self.copy_failures:
-            self.copy_failures -= 1
-            return _failed("error: read tcp: connection reset by peer")
+        if self.copy_times_out:
+            raise subprocess.TimeoutExpired(cmd=argv, timeout=1)
+        if self.copy_fails:
+            log = "".join(f"rsync progress line {n}\n" for n in range(40))
+            return _failed(log + "rsync job failed with exit code 23")
         return _ok("")
 
     # ── changes ────────────────────────────────────────────────────────────
@@ -425,8 +405,6 @@ class Cluster:
         if verb == "create":
             created = json.loads(stdin or "{}")
             self.created.append(created)
-            if created["kind"] == "Pod" and "nodeSelector" in created["spec"]:
-                self.target_hostname = created["spec"]["nodeSelector"]["kubernetes.io/hostname"]
             return f"create {created['kind']} {created['metadata']['name']}"
         if verb == "patch":
             return f"patch {args[1]} {args[2]} {_patch_summary(json.loads(args[args.index('-p') + 1]))}"
@@ -442,8 +420,6 @@ class Cluster:
 
     def _apply(self, summary: str) -> None:
         match summary:
-            case "create Pod grafana-dst":
-                self.move_claim_volume = NEW_VOLUME
             case "delete pvc grafana":
                 self.claim_volume = None
             case "create PersistentVolumeClaim grafana":
@@ -475,9 +451,13 @@ def _failed(stderr: str) -> subprocess.CompletedProcess[str]:
 
 
 @pytest.fixture
-def cluster(process_fake: ProcessFake) -> Cluster:
+def cluster(process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch) -> Cluster:
     scripted = Cluster()
     process_fake.answer(lambda _call: True, ProcessAnswer(side_effect=scripted))
+    monkeypatch.setattr(
+        "devops_cli.k8s.volume_move.shutil.which",
+        lambda name: f"/usr/local/bin/{name}" if scripted.pv_migrate_installed else None,
+    )
     return scripted
 
 
@@ -514,21 +494,14 @@ PLAN = VolumeMovePlan(
     source_tolerations=({"key": "example.com/dedicated", "operator": "Exists"},),
     applications=("grafana",),
     paused=PAUSE,
-    image=VOLUME_MOVE_IMAGE,
 )
 BEFORE_COPY = [
     *_pause(False, PAUSE),
     "create PersistentVolumeClaim grafana-move",
-    "create NetworkPolicy grafana-copy",
-    "create Pod grafana-dst",
     "scale deployment/grafana --replicas=0",
-    "create Pod grafana-src",
 ]
 UNDO_AFTER_COPY = [
-    "delete pod grafana-src",
     "scale deployment/grafana --replicas=1",
-    "delete pod grafana-dst",
-    "delete networkpolicy grafana-copy",
     "patch pv pvc-new reclaim=Delete",
     "delete pvc grafana-move",
     *_pause(True, ("grafana", "cluster", "bootstrap")),
@@ -565,22 +538,14 @@ def test_the_plan_names_each_step_with_the_real_names(cluster: Cluster) -> None:
     assert describe_volume_move(_plan()) == (
         m.volume_move_step_pause.format(applications="bootstrap, cluster, grafana"),
         m.volume_move_step_destination.format(
-            claim="grafana-move",
-            size="5Gi",
-            storage_class="local-path",
-            pod="grafana-dst",
-            node=WORKER_B,
-            policy="grafana-copy",
-            port=7373,
+            claim="grafana-move", size="5Gi", storage_class="local-path"
         ),
         m.volume_move_step_stop.format(workloads="deployment/grafana", pods=POD),
-        m.volume_move_step_source.format(pod="grafana-src", claim=CLAIM, node=CONTROL_PLANE),
-        m.volume_move_step_copy.format(source="grafana-src", destination="grafana-dst", port=7373),
-        m.volume_move_step_compare,
-        m.volume_move_step_retain.format(claim="grafana-move", volume=OLD_VOLUME),
-        m.volume_move_step_delete_pods.format(
-            source="grafana-src", destination="grafana-dst", policy="grafana-copy"
+        m.volume_move_step_copy.format(
+            claim=CLAIM, move_claim="grafana-move", source=CONTROL_PLANE, target=WORKER_B
         ),
+        m.volume_move_step_retain.format(claim="grafana-move", volume=OLD_VOLUME),
+        m.volume_move_step_settle,
         m.volume_move_step_delete_claim.format(namespace=NAMESPACE, claim=CLAIM),
         m.volume_move_step_rebind.format(
             move_claim="grafana-move", namespace=NAMESPACE, claim=CLAIM
@@ -649,17 +614,12 @@ def test_the_steps_of_a_class_change_name_the_new_class(cluster: Cluster) -> Non
     steps = describe_volume_move(_plan(storage_class=LONGHORN))
 
     assert steps[1] == m.volume_move_step_destination.format(
-        claim="grafana-move",
-        size="5Gi",
-        storage_class=LONGHORN,
-        pod="grafana-dst",
-        node=WORKER_A,
-        policy="grafana-copy",
-        port=7373,
+        claim="grafana-move", size="5Gi", storage_class=LONGHORN
     )
-    assert steps[11] == m.volume_move_step_start_any_node.format(
-        workloads="deployment/grafana to 1"
+    assert steps[3] == m.volume_move_step_copy.format(
+        claim=CLAIM, move_claim="grafana-move", source=CONTROL_PLANE, target=WORKER_A
     )
+    assert steps[9] == m.volume_move_step_start_any_node.format(workloads="deployment/grafana to 1")
 
 
 def test_a_class_change_makes_the_move_claim_and_the_claim_again_with_the_new_class(
@@ -711,7 +671,7 @@ def test_an_ended_pod_of_the_claim_is_deleted_before_the_old_claim(
 
     deleted = cluster.changes.index(f"delete pod {ENDED_POD}")
     assert deleted < cluster.changes.index("delete pvc grafana")
-    assert deleted > cluster.changes.index("delete pod grafana-src grafana-dst")
+    assert deleted > cluster.changes.index("patch pv pvc-old reclaim=Retain")
 
 
 def test_the_dry_run_deletes_the_ended_pods_before_the_old_claim(
@@ -845,7 +805,8 @@ def test_a_running_sync_of_a_paused_application_is_waited_for(
     assert first > cluster.changes.index(_pause(False, PAUSE)[-1])
     second = cluster.changes.index(ends[0], first + 1)
     assert cluster.changes[second : second + 6] == ends
-    assert second < cluster.changes.index("delete pod grafana-src grafana-dst")
+    assert second > cluster.changes.index("pv-migrate")
+    assert second < cluster.changes.index("delete pvc grafana")
 
 
 def test_a_sync_that_ends_by_itself_during_the_wait_lets_the_move_go_on(
@@ -920,9 +881,38 @@ def _deletes_claims_on_scale_down(cluster: Cluster) -> tuple[dict[str, Any], str
 
 
 def _leftovers(cluster: Cluster) -> tuple[dict[str, Any], str]:
-    cluster.leftovers = ("pod/grafana-src", "persistentvolumeclaim/grafana-move")
-    return {}, MESSAGES.k8s.volume_move_leftovers.format(
-        names="pod/grafana-src, persistentvolumeclaim/grafana-move"
+    cluster.leftovers = ("persistentvolumeclaim/grafana-move",)
+    return {}, MESSAGES.k8s.volume_move_leftovers.format(names="persistentvolumeclaim/grafana-move")
+
+
+def _no_pv_migrate(cluster: Cluster) -> tuple[dict[str, Any], str]:
+    cluster.pv_migrate_installed = False
+    return {}, MESSAGES.k8s.volume_move_no_pv_migrate
+
+
+def _restricted_without_fs_group(cluster: Cluster) -> tuple[dict[str, Any], str]:
+    """pv-migrate --non-root keeps no owner, so the workload reads the copy only through its
+    fsGroup (#7449, #7451)."""
+    cluster.pod_security = "restricted"
+    cluster.fs_group = None
+    return {"storage_class": LONGHORN}, MESSAGES.k8s.volume_move_restricted_no_fs_group.format(
+        namespace=NAMESPACE, workload="deployment/grafana"
+    )
+
+
+def _restricted_on_local_path(cluster: Cluster) -> tuple[dict[str, Any], str]:
+    """The kubelet gives no fsGroup to the files of a local-path volume."""
+    cluster.pod_security = "restricted"
+    return {}, MESSAGES.k8s.volume_move_restricted_class.format(
+        namespace=NAMESPACE, storage_class="local-path"
+    )
+
+
+def _restricted_on_a_driver_without_fs_group(cluster: Cluster) -> tuple[dict[str, Any], str]:
+    cluster.pod_security = "restricted"
+    cluster.csi_drivers = {LONGHORN_DRIVER: "None"}
+    return {"storage_class": LONGHORN}, MESSAGES.k8s.volume_move_restricted_class.format(
+        namespace=NAMESPACE, storage_class=LONGHORN
     )
 
 
@@ -1005,6 +995,10 @@ def _no_worker_has_the_driver(cluster: Cluster) -> tuple[dict[str, Any], str]:
         _deletes_claims_on_scale_down,
         _leftovers,
         _no_pod_mounts_the_claim,
+        _no_pv_migrate,
+        _restricted_without_fs_group,
+        _restricted_on_local_path,
+        _restricted_on_a_driver_without_fs_group,
     ],
 )
 def test_a_move_that_cannot_run_safely_is_refused_and_changes_nothing(
@@ -1026,18 +1020,16 @@ def test_a_move_that_cannot_run_safely_is_refused_and_changes_nothing(
 # ── A full move ────────────────────────────────────────────────────────────
 
 
-def test_a_move_copies_compares_rebinds_the_claim_and_resumes_argo_cd(
+def test_a_move_copies_with_pv_migrate_rebinds_the_claim_and_resumes_argo_cd(
     cluster: Cluster, process_fake: ProcessFake, tmp_path: Path
 ) -> None:
     result = _move(tmp_path)
 
     assert cluster.changes == [
         *BEFORE_COPY,
-        "copy",
+        "pv-migrate",
         "patch pv pvc-new reclaim=Retain",
         "patch pv pvc-old reclaim=Retain",
-        "delete pod grafana-src grafana-dst",
-        "delete networkpolicy grafana-copy",
         "delete pvc grafana",
         "delete pvc grafana-move",
         "patch pv pvc-new claimRef=monitoring/grafana",
@@ -1046,10 +1038,7 @@ def test_a_move_copies_compares_rebinds_the_claim_and_resumes_argo_cd(
         "scale deployment/grafana --replicas=1",
         *_pause(True, ("grafana", "cluster", "bootstrap")),
     ]
-    assert (result.new_volume, result.digest) == (
-        NEW_VOLUME,
-        CopyDigest(entries=12, files=7, bytes=4096, metadata="a" * 64, content="b" * 64),
-    )
+    assert result.new_volume == NEW_VOLUME
     assert json.loads(result.saved_claim.read_text(encoding="utf-8")) == _claim_object()
 
 
@@ -1085,211 +1074,176 @@ def test_the_claim_is_made_again_without_its_last_applied_configuration_then_get
     assert annotate[-1] == f"kubectl.kubernetes.io/last-applied-configuration={LAST_APPLIED}"
 
 
-def test_the_copy_pods_mount_each_claim_on_its_own_node(
-    cluster: Cluster, process_fake: ProcessFake, tmp_path: Path
-) -> None:
-    _move(tmp_path)
-
-    pods = {
-        item["metadata"]["name"]: item["spec"] for item in cluster.created if item["kind"] == "Pod"
-    }
-    assert pods["grafana-dst"]["nodeSelector"] == {"kubernetes.io/hostname": WORKER_B}
-    assert pods["grafana-src"]["tolerations"] == [
-        {"key": "example.com/dedicated", "operator": "Exists"},
-        {
-            "key": "node.kubernetes.io/unschedulable",
-            "operator": "Exists",
-            "effect": "NoSchedule",
-        },
-    ]
-    assert [
-        (spec["volumes"][0]["persistentVolumeClaim"], spec["containers"][0]["volumeMounts"][0])
-        for spec in (pods["grafana-src"], pods["grafana-dst"])
-    ] == [
-        (
-            {"claimName": CLAIM, "readOnly": True},
-            {"name": "data", "mountPath": "/src", "readOnly": True},
-        ),
-        (
-            {"claimName": "grafana-move", "readOnly": False},
-            {"name": "data", "mountPath": "/dst", "readOnly": False},
-        ),
-    ]
-
-
-def test_the_copy_command_comes_from_copy_argv(
-    cluster: Cluster, process_fake: ProcessFake, tmp_path: Path
-) -> None:
-    """The move streams the command that `copy_argv` builds, so a measure runs the same pipe."""
-    # Imported here, so the file collects on the base commit and this test fails there.
-    from devops_cli.k8s.volume_move import copy_argv
-
-    plan = _plan()
-    _move(tmp_path)
-
-    streamed = next(call.argv for call in process_fake.calls if call.argv[0] == "bash")
-    assert list(streamed) == copy_argv(
-        plan.namespace, plan.source_pod, plan.destination_pod, CONTEXT
-    )
-
-
-def test_the_copy_sends_the_data_from_pod_to_pod_not_through_the_api_server(
-    cluster: Cluster, process_fake: ProcessFake, tmp_path: Path
-) -> None:
-    """The stdout of an exec stream loses data at full speed (#7408), so each exec carries only a
-    script and its result, and tar goes over the pod network to a listener in the destination."""
-    # Imported here, so the file collects on the base commit and this test fails there.
-    from devops_cli.config.constants import (
-        CONST_K8S_VOLUME_MOVE_LISTEN_SCRIPT,
-        CONST_K8S_VOLUME_MOVE_LISTENER,
-        CONST_K8S_VOLUME_MOVE_RESULT_SCRIPT,
-        CONST_K8S_VOLUME_MOVE_SEND_SCRIPT,
-    )
-
-    _move(tmp_path)
-
-    kubectl = ["kubectl", "--context", CONTEXT]
-
-    def exec_in(pod: str, script: str, name: str, *args: str) -> list[str]:
-        return [*kubectl, "exec", pod, "-n", NAMESPACE, "--", "bash", "-c", script, name, *args]
-
-    pod_ip = [*kubectl, "get", "pod", "grafana-dst", "-n", NAMESPACE, "-o"]
-    listen = exec_in(
-        "grafana-dst",
-        CONST_K8S_VOLUME_MOVE_LISTEN_SCRIPT,
-        "volume-move-listen",
-        CONST_K8S_VOLUME_MOVE_LISTENER,
-        "7373",
-        "/dst",
-    )
-    send = exec_in("grafana-src", CONST_K8S_VOLUME_MOVE_SEND_SCRIPT, "volume-move-send")
-    result = exec_in(
-        "grafana-dst", CONST_K8S_VOLUME_MOVE_RESULT_SCRIPT, "volume-move-result", "300"
-    )
-    script = next(call.argv[-1] for call in process_fake.calls if call.argv[0] == "bash")
-    assert script == "\n".join(
-        [
-            "set -eu",
-            f"ip=$({shlex.join([*pod_ip, 'jsonpath={.status.podIP}'])})",
-            shlex.join(listen),
-            shlex.join(send) + ' "$ip" 7373 /src',
-            shlex.join(result),
-        ]
-    )
-    assert not {"-i", "--stdin"} & {*listen, *send, *result}
-
-
-def test_the_source_sends_gnu_tar_to_the_listener_that_extracts_it() -> None:
-    from devops_cli.config.constants import (
-        CONST_K8S_VOLUME_MOVE_LISTENER,
-        CONST_K8S_VOLUME_MOVE_SEND_SCRIPT,
-    )
-
-    assert CONST_K8S_VOLUME_MOVE_SEND_SCRIPT == (
-        'exec 3>"/dev/tcp/$1/$2" && tar -C "$3" --numeric-owner --sparse -cpf - . >&3'
-    )
-    assert 'system("tar", "-C", $dir, "--numeric-owner", "-xpf", "-")' in (
-        CONST_K8S_VOLUME_MOVE_LISTENER
-    )
-
-
-def test_the_copy_policy_lets_the_copy_pods_reach_each_other_on_the_copy_port_only(
+def test_the_copy_runs_pv_migrate_from_the_old_claim_to_the_move_claim(
     cluster: Cluster, tmp_path: Path
 ) -> None:
-    """A namespace that refuses traffic by default still lets the source reach the listener."""
+    """pv-migrate copies with rsync over SSH from a pod with the old claim to a pod with the new
+    claim, through a ClusterIP Service, and removes its pods itself (#7498)."""
     _move(tmp_path)
 
-    labels = {
-        "app.kubernetes.io/managed-by": "devops-cli",
-        "app.kubernetes.io/component": "volume-move",
-    }
-    peers = [{"podSelector": {"matchLabels": labels}}]
-    ports = [{"protocol": "TCP", "port": 7373}]
-    assert next(item for item in cluster.created if item["kind"] == "NetworkPolicy") == {
-        "apiVersion": "networking.k8s.io/v1",
-        "kind": "NetworkPolicy",
-        "metadata": {"name": "grafana-copy", "namespace": NAMESPACE, "labels": labels},
-        "spec": {
-            "podSelector": {"matchLabels": labels},
-            "policyTypes": ["Ingress", "Egress"],
-            "ingress": [{"from": peers, "ports": ports}],
-            "egress": [{"to": peers, "ports": ports}],
+    [(argv, values)] = cluster.copies
+    operation = argv[argv.index("--id") + 1]
+    assert re.fullmatch(r"volume-move-[0-9a-f]{8}", operation)
+    assert argv == [
+        "pv-migrate",
+        "--source-namespace",
+        NAMESPACE,
+        "--source",
+        CLAIM,
+        "--dest-namespace",
+        NAMESPACE,
+        "--dest",
+        "grafana-move",
+        "--strategies",
+        "clusterip",
+        "--id",
+        operation,
+        "--helm-timeout",
+        "300s",
+        "--helm-values",
+        "-",
+        "--show-progress-bar=false",
+        "--source-context",
+        CONTEXT,
+        "--dest-context",
+        CONTEXT,
+    ]
+    # The rsync pod mounts the new claim on the target node, so local-path binds the new volume
+    # there. The sshd pod mounts the old claim on its node, which a cordon often marks (#5305).
+    assert values == {
+        "rsync": {"nodeSelector": {"kubernetes.io/hostname": WORKER_B}},
+        "sshd": {
+            "tolerations": [
+                {"key": "example.com/dedicated", "operator": "Exists"},
+                {
+                    "key": "node.kubernetes.io/unschedulable",
+                    "operator": "Exists",
+                    "effect": "NoSchedule",
+                },
+            ]
         },
     }
 
 
-def test_the_plan_looks_for_the_copy_policy_of_an_earlier_move(
+def test_a_namespace_that_enforces_restricted_copies_with_non_root(
+    cluster: Cluster, tmp_path: Path
+) -> None:
+    """pv-migrate --non-root sets the securityContext that Pod Security restricted asks for on
+    its pods (#7449). As user 10000, rsync cannot chmod the root folder of the new volume, which
+    root owns, so `-p` of `-a` failed with exit 23 on `.` in the live test of #7518: --no-perms
+    makes rsync keep the mode of that folder and give each new file its source mode under the
+    umask of the rsync pod."""
+    cluster.pod_security = "restricted"
+
+    plan = _plan(storage_class=LONGHORN)
+    _move(tmp_path, storage_class=LONGHORN)
+
+    assert plan.non_root
+    [(argv, values)] = cluster.copies
+    assert argv[-2:] == ["--non-root", "--rsync-extra-args=--no-perms"]
+    assert values["rsync"] == {"nodeSelector": {"kubernetes.io/hostname": WORKER_A}}
+
+
+def test_a_copy_as_root_keeps_the_modes_of_rsync_a(cluster: Cluster, tmp_path: Path) -> None:
+    """As root, rsync -a sets the mode of each file and of the root folder of the new volume."""
+    _move(tmp_path)
+
+    [(argv, _values)] = cluster.copies
+    assert not [arg for arg in argv if arg.startswith(("--non-root", "--rsync-extra-args"))]
+
+
+def test_a_namespace_that_does_not_enforce_restricted_copies_as_root(cluster: Cluster) -> None:
+    """A copy as root keeps the owner and the group of each file."""
+    for level in ("privileged", "baseline", ""):
+        cluster.pod_security = level
+        assert not _plan().non_root
+
+
+def test_the_plan_reads_no_class_of_a_move_that_copies_as_root(
     cluster: Cluster, process_fake: ProcessFake
 ) -> None:
     _plan()
 
-    leftovers = next(call.argv for call in process_fake.calls if "pod/grafana-src" in call.argv)
-    assert "networkpolicy/grafana-copy" in leftovers
+    assert not any("storageclass" in call.argv for call in process_fake.calls)
 
 
 # ── Failures before the point of no return: the move undoes its steps ──────
 
 
-def test_a_digest_difference_undoes_every_step(cluster: Cluster, tmp_path: Path) -> None:
-    cluster.destination_digest = OTHER_DIGEST
+def test_a_failed_copy_undoes_every_step(cluster: Cluster, tmp_path: Path) -> None:
+    """pv-migrate removes its own pods when it fails, so the undo starts with the workload."""
+    cluster.copy_fails = True
 
     with pytest.raises(VolumeMoveError) as failed:
         _move(tmp_path)
 
     assert not isinstance(failed.value, VolumeMoveStrandedError)
-    assert cluster.changes == [*BEFORE_COPY, "copy", *UNDO_AFTER_COPY]
+    assert cluster.changes == [*BEFORE_COPY, "pv-migrate", *UNDO_AFTER_COPY]
     assert (failed.value.error_code, failed.value.undo_failures) == ("K8S_VOLUME_MOVE_FAILED", ())
     assert cluster.claim_volume == OLD_VOLUME
 
 
-def test_an_incomplete_digest_undoes_every_step(cluster: Cluster, tmp_path: Path) -> None:
-    cluster.destination_digest = "entries 12\n"
+def test_a_failed_copy_names_the_end_of_the_output_of_pv_migrate(
+    cluster: Cluster, tmp_path: Path
+) -> None:
+    cluster.copy_fails = True
 
     with pytest.raises(VolumeMoveError) as failed:
         _move(tmp_path)
 
-    assert cluster.changes == [*BEFORE_COPY, "copy", *UNDO_AFTER_COPY]
-    assert MESSAGES.k8s.volume_move_digest_unreadable.format(
-        pod="grafana-dst", output="entries 12\n"
-    ) in str(failed.value)
+    assert "rsync job failed with exit code 23" in str(failed.value)
+    assert "rsync progress line 0\n" not in str(failed.value)
 
 
-def test_a_dropped_copy_is_retried_once_on_an_empty_destination(
-    cluster: Cluster, tmp_path: Path
+@pytest.mark.parametrize("stop", ["interrupt_copy", "copy_times_out"])
+def test_a_copy_that_the_run_stops_removes_the_objects_of_pv_migrate_first(
+    cluster: Cluster, tmp_path: Path, stop: str
 ) -> None:
-    cluster.copy_failures = 1
-    progress: list[str] = []
-
-    result = _move(tmp_path, progress)
-
-    assert cluster.changes[len(BEFORE_COPY) : len(BEFORE_COPY) + 4] == [
-        "copy",
-        "empty /dst",
-        "copy",
-        "patch pv pvc-new reclaim=Retain",
-    ]
-    assert result.new_volume == NEW_VOLUME
-    assert any("connection reset by peer" in line for line in progress)
-
-
-def test_a_second_dropped_copy_undoes_every_step(cluster: Cluster, tmp_path: Path) -> None:
-    cluster.copy_failures = 2
+    """pv-migrate has no time to remove its pods when the run stops it, and its rsync pod would
+    hold the move claim."""
+    setattr(cluster, stop, True)
 
     with pytest.raises(VolumeMoveError) as raised:
         _move(tmp_path)
+
+    [(argv, _values)] = cluster.copies
+    operation = argv[argv.index("--id") + 1]
     assert raised.value.error_code == "K8S_VOLUME_MOVE_FAILED"
+    assert cluster.changes == [
+        *BEFORE_COPY,
+        "pv-migrate",
+        f"pv-migrate cleanup {operation}",
+        *UNDO_AFTER_COPY,
+    ]
+    assert raised.value.undone[0] == MESSAGES.k8s.volume_move_undo_cleanup.format(
+        operation=operation
+    )
 
-    assert cluster.changes == [*BEFORE_COPY, "copy", "empty /dst", "copy", *UNDO_AFTER_COPY]
 
-
-def test_an_interrupted_copy_undoes_every_step(cluster: Cluster, tmp_path: Path) -> None:
+def test_the_cleanup_of_pv_migrate_names_the_operation_and_the_namespace(
+    cluster: Cluster, process_fake: ProcessFake, tmp_path: Path
+) -> None:
     cluster.interrupt_copy = True
 
     with pytest.raises(VolumeMoveError) as raised:
         _move(tmp_path)
-    assert raised.value.error_code == "K8S_VOLUME_MOVE_FAILED"
 
-    assert cluster.changes == [*BEFORE_COPY, "copy", *UNDO_AFTER_COPY]
+    assert raised.value.error_code == "K8S_VOLUME_MOVE_FAILED"
+    [(copy, _values)] = cluster.copies
+    operation = copy[copy.index("--id") + 1]
+    cleanup = next(
+        call.argv for call in process_fake.calls if call.argv[:2] == ("pv-migrate", "cleanup")
+    )
+    assert list(cleanup) == [
+        "pv-migrate",
+        "cleanup",
+        operation,
+        "--namespace",
+        NAMESPACE,
+        "--force",
+        "--context",
+        CONTEXT,
+    ]
 
 
 def test_a_failed_request_is_undone_as_if_it_made_its_change(
@@ -1309,38 +1263,32 @@ def test_a_failed_request_is_undone_as_if_it_made_its_change(
     ]
 
 
-def test_an_undo_deletes_the_volume_that_a_class_binds_before_the_pod(
+def test_an_undo_deletes_the_volume_that_a_class_binds_before_the_copy(
     cluster: Cluster, tmp_path: Path
 ) -> None:
     """A class such as `longhorn` binds the temporary claim at once and keeps its volume after a
     delete (reclaim policy Retain), so the undo sets that volume to Delete first (#7416)."""
     cluster.move_claim_volume = NEW_VOLUME
-    cluster.failing = frozenset({"create Pod grafana-dst"})
+    cluster.failing = frozenset({"scale deployment/grafana --replicas=0"})
 
     with pytest.raises(VolumeMoveError) as failed:
         _move(tmp_path)
 
     assert failed.value.error_code == "K8S_VOLUME_MOVE_FAILED"
-    created = cluster.changes.index("create Pod grafana-dst")
-    assert cluster.changes[created + 1 :] == [
-        "delete pod grafana-dst",
-        "delete networkpolicy grafana-copy",
-        "patch pv pvc-new reclaim=Delete",
-        "delete pvc grafana-move",
-        *_pause(True, ("grafana", "cluster", "bootstrap")),
-    ]
+    scaled = cluster.changes.index("scale deployment/grafana --replicas=0")
+    assert cluster.changes[scaled + 1 :] == UNDO_AFTER_COPY
 
 
 def test_an_undo_step_that_fails_is_reported_and_the_others_still_run(
     cluster: Cluster, tmp_path: Path
 ) -> None:
-    cluster.destination_digest = OTHER_DIGEST
+    cluster.copy_fails = True
     cluster.failing = frozenset({"scale deployment/grafana --replicas=1"})
 
     with pytest.raises(VolumeMoveError) as failed:
         _move(tmp_path)
 
-    assert cluster.changes == [*BEFORE_COPY, "copy", *UNDO_AFTER_COPY]
+    assert cluster.changes == [*BEFORE_COPY, "pv-migrate", *UNDO_AFTER_COPY]
     assert [failure.split(":")[0] for failure in failed.value.undo_failures] == [
         MESSAGES.k8s.volume_move_undo_scale.format(workload="deployment/grafana", replicas=1)
     ]
@@ -1371,7 +1319,7 @@ def test_a_failure_after_the_old_claim_is_deleted_leaves_argo_cd_paused(
         OLD_VOLUME,
         NEW_VOLUME,
     )
-    assert error.remaining == describe_volume_move(PLAN)[10:]
+    assert error.remaining == describe_volume_move(PLAN)[8:]
     assert json.loads(error.saved_claim.read_text(encoding="utf-8")) == _claim_object()
 
 
@@ -1383,7 +1331,7 @@ def test_a_pod_off_the_target_node_after_the_move_leaves_argo_cd_paused(
     with pytest.raises(VolumeMoveStrandedError) as stranded:
         _move(tmp_path)
 
-    assert stranded.value.remaining == describe_volume_move(PLAN)[11:]
+    assert stranded.value.remaining == describe_volume_move(PLAN)[9:]
     assert cluster.changes[-1] == "scale deployment/grafana --replicas=1"
 
 
@@ -1406,12 +1354,12 @@ def test_the_dry_run_makes_no_request_and_lists_the_writes_in_order(
         )
 
     order = [
-        first("get", "cronjob", "volume-move"),
         first("get", "pvc", "--ignore-not-found", "-o", "json"),
+        first("get", "namespace", NAMESPACE),
         first("patch", "application", '"enabled": false'),
         first("scale", "--replicas=0"),
-        first("bash", "pipefail"),
-        first("exec", "digest", "/dst"),
+        first("pv-migrate", "clusterip"),
+        first("get", "pvc", f"{CLAIM}-move", "jsonpath"),
         first("patch", "pv", "<new-volume>", "Retain"),
         first("delete", "pvc", f"{CLAIM}-move") - 1,
         first("patch", "pv", "claimRef"),
@@ -1420,26 +1368,31 @@ def test_the_dry_run_makes_no_request_and_lists_the_writes_in_order(
     ]
     assert order == sorted(order)
     assert argvs[order[7]][3:6] == ("delete", "pvc", CLAIM)
-    assert {argv[:3] for argv in argvs} == {
-        ("kubectl", "--context", CONTEXT),
-        ("bash", "-o", "pipefail"),
+    assert {argv[:3] for argv in argvs if argv[0] != "pv-migrate"} == {
+        ("kubectl", "--context", CONTEXT)
     }
 
 
-def test_the_dry_run_makes_the_copy_policy_before_the_pods_and_deletes_it_with_them(
-    process_fake: ProcessFake,
-) -> None:
+def test_the_dry_run_shows_the_copy_as_root_and_with_non_root(process_fake: ProcessFake) -> None:
     requests = dry_run_volume_move(NAMESPACE, CLAIM, parents=PARENTS, context=CONTEXT)
 
-    created = [json.loads(r.stdin)["kind"] for r in requests if r.argv[3] == "create" and r.stdin]
-    deletes = [r.argv[4:6] for r in requests if r.argv[3] == "delete"]
-    assert created[:3] == ["PersistentVolumeClaim", "NetworkPolicy", "Pod"]
-    assert deletes[:4] == [
-        ("pod", "grafana-src"),
-        ("networkpolicy", "grafana-copy"),
-        ("pod", "<ended pod>"),
-        ("pvc", CLAIM),
+    copies = [request for request in requests if request.argv[0] == "pv-migrate"]
+    assert [("--non-root" in request.argv, bool(request.condition)) for request in copies] == [
+        (False, True),
+        (True, True),
     ]
+    assert json.loads(copies[0].stdin or "{}")["rsync"] == {
+        "nodeSelector": {"kubernetes.io/hostname": "<target-hostname>"}
+    }
+    # A move that keeps the class reads that class only for a copy with --non-root.
+    assert [r.condition for r in requests if r.argv[3:5] == ("get", "storageclass")] == [
+        "the namespace enforces Pod Security restricted"
+    ]
+    assert not any(
+        json.loads(request.stdin)["kind"] in ("Pod", "NetworkPolicy")
+        for request in requests
+        if request.argv[0] == "kubectl" and request.stdin
+    )
     assert process_fake.calls == []
 
 
@@ -1462,50 +1415,11 @@ def test_the_dry_run_of_a_class_change_reads_the_class_and_its_nodes_first(
     claims = [
         json.loads(request.stdin)
         for request in requests
-        if request.stdin and '"PersistentVolumeClaim"' in request.stdin
+        if request.argv[0] == "kubectl"
+        and request.stdin
+        and '"PersistentVolumeClaim"' in request.stdin
     ]
     assert [claim["spec"]["storageClassName"] for claim in claims] == [LONGHORN, LONGHORN]
-
-
-def test_plan_volume_move_raises_when_cronjob_missing(cluster: Cluster) -> None:
-    cluster.cronjob_exists = False
-    with pytest.raises(VolumeMoveError) as exc_info:
-        plan_volume_move(NAMESPACE, CLAIM, parents=PARENTS, context=CONTEXT)
-    assert exc_info.value.error_code == "K8S_VOLUME_MOVE_FAILED"
-    assert "volume-move" in str(exc_info.value)
-
-
-def test_the_digest_leaves_out_the_lost_and_found_of_a_new_filesystem() -> None:
-    """A new ext4 volume, such as one of `longhorn`, has `./lost+found`, and a local-path
-    directory has none, so each count and digest leaves it out on both sides (#7414)."""
-    # Imported here, so the file collects on the base commit and this test fails there.
-    from devops_cli.config.constants import CONST_K8S_VOLUME_MOVE_DIGEST_SCRIPT
-
-    finds = [line for line in CONST_K8S_VOLUME_MOVE_DIGEST_SCRIPT.splitlines() if "find " in line]
-
-    assert [line.split("=", 1)[0] for line in finds] == [
-        "entries",
-        "files",
-        "bytes",
-        "metadata",
-        "content",
-    ]
-    assert all("$(find . -path ./lost+found -prune -o " in line for line in finds)
-
-
-def test_copy_pods_use_template_image_and_allow_root(cluster: Cluster, tmp_path: Path) -> None:
-    _move(tmp_path)
-    copy_pods = [
-        obj
-        for obj in cluster.created
-        if obj.get("kind") == "Pod"
-        and obj.get("metadata", {}).get("name") in ("grafana-src", "grafana-dst")
-    ]
-    assert len(copy_pods) == 2
-    for pod in copy_pods:
-        container = pod["spec"]["containers"][0]
-        assert container["image"] == VOLUME_MOVE_IMAGE
-        assert "securityContext" not in container
 
 
 # ── The command ────────────────────────────────────────────────────────────
@@ -1519,9 +1433,35 @@ def test_move_plan_prints_the_steps_and_changes_nothing(cli: Any, cluster: Clust
         result.output
     )
     assert (
-        "9. " + MESSAGES.k8s.volume_move_step_delete_claim.format(namespace=NAMESPACE, claim=CLAIM)
+        "7. " + MESSAGES.k8s.volume_move_step_delete_claim.format(namespace=NAMESPACE, claim=CLAIM)
         in result.output
     )
+    assert " ".join(MESSAGES.k8s.volume_move_plan_copy_root.split()) in " ".join(
+        result.output.split()
+    )
+    assert cluster.changes == []
+
+
+def test_move_plan_in_a_restricted_namespace_says_that_the_copy_keeps_no_owner(
+    cli: Any, cluster: Cluster
+) -> None:
+    cluster.pod_security = "restricted"
+
+    result = cli(
+        "k8s",
+        "volume",
+        "move",
+        "monitoring/grafana",
+        "--storage-class",
+        LONGHORN,
+        "--plan",
+        "--context",
+        CONTEXT,
+    )
+
+    assert result.exit_code == 0, result.output
+    line = MESSAGES.k8s.volume_move_plan_copy_non_root.format(namespace=NAMESPACE)
+    assert " ".join(line.split()) in " ".join(result.output.split())
     assert cluster.changes == []
 
 
@@ -1671,7 +1611,7 @@ def test_move_stranded_prints_the_saved_claim_and_the_paused_applications(
 
 
 def test_move_undone_prints_the_steps_it_undid(cli: Any, cluster: Cluster) -> None:
-    cluster.destination_digest = OTHER_DIGEST
+    cluster.copy_fails = True
 
     result = cli("k8s", "volume", "move", "monitoring/grafana", "--context", CONTEXT)
 
@@ -1680,13 +1620,8 @@ def test_move_undone_prints_the_steps_it_undid(cli: Any, cluster: Cluster) -> No
         MESSAGES.k8s.volume_move_undone_steps.format(
             steps="; ".join(
                 [
-                    MESSAGES.k8s.volume_move_undo_delete.format(kind="pod", name="grafana-src"),
                     MESSAGES.k8s.volume_move_undo_scale.format(
                         workload="deployment/grafana", replicas=1
-                    ),
-                    MESSAGES.k8s.volume_move_undo_delete.format(kind="pod", name="grafana-dst"),
-                    MESSAGES.k8s.volume_move_undo_delete.format(
-                        kind="NetworkPolicy", name="grafana-copy"
                     ),
                     MESSAGES.k8s.volume_move_undo_discard.format(claim="grafana-move"),
                     *(

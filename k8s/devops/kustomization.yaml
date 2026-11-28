@@ -7,7 +7,6 @@ resources:
 - cronjob-stage.yaml
 - cronjob-repos-drift.yaml
 - service-probe.yaml
-- volume-move.yaml
 - networkpolicy.yaml
 - networkpolicy-rag-ingest.yaml
 - networkpolicy-infra.yaml

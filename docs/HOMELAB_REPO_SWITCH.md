@@ -38,11 +38,12 @@ kubectl config set-context --current --namespace argocd
      | jq -r '[.items[] | .status.sync.status + "/" + .status.health.status] | group_by(.) | map("\(.[0]) \(length)") | .[]'
    ```
 
-2. **Paused Applications and volume moves.** Both counts must be 0. A volume move pauses an Application with `automated.enabled: false`, and the bootstrap of step 11 sets it to `true` again.
+2. **Paused Applications and volume moves.** The three counts must be 0. A volume move pauses an Application with `automated.enabled: false`, and the bootstrap of step 11 sets it to `true` again.
 
    ```bash
    kubectl -n argocd get applications -o json | jq '[.items[] | select(.spec.syncPolicy.automated.enabled == false)] | length'
-   kubectl get pods,pvc -A -l app.kubernetes.io/component=volume-move -o name | wc -l
+   kubectl get pvc -A -l app.kubernetes.io/component=volume-move -o name | wc -l
+   kubectl get pods -A -l app.kubernetes.io/name=pv-migrate -o name | wc -l
    ```
 
 3. **Objects that need a prune.** The Applications that have an object to prune, with the kinds of those objects.

@@ -9,7 +9,7 @@ Where the pods that mount local-path claims run, so that their volumes bind on n
 `devops k8s volume move <namespace>/<claim>` SHALL only read until every check passes. When a check fails, it SHALL raise `VolumeMoveRefusedError` (error code `K8S_VOLUME_MOVE_REFUSED`, exit code 1) that names each problem, and SHALL send no request that changes the cluster.
 
 #### Scenario: A precondition fails
-- **WHEN** the claim is `Pending`, or no pod mounts it, or its volume is on a worker node and neither `--to-node` nor `--storage-class` is given, or `--to-node` names a control-plane node or no node, or `--to-node` names the node of the volume and the move keeps the class, or the StatefulSet has `persistentVolumeClaimRetentionPolicy.whenScaled: Delete`, or a pod `<claim>-src` of an earlier move exists
+- **WHEN** the claim is `Pending`, or no pod mounts it, or its volume is on a worker node and neither `--to-node` nor `--storage-class` is given, or `--to-node` names a control-plane node or no node, or `--to-node` names the node of the volume and the move keeps the class, or the StatefulSet has `persistentVolumeClaimRetentionPolicy.whenScaled: Delete`, or a claim `<claim>-move` of an earlier move exists, or `pv-migrate` is not on `PATH`
 - **THEN** the plan raises `VolumeMoveRefusedError` that names the problem, and the cluster gets no request that changes it
 
 #### Scenario: The target class cannot hold the volume
@@ -36,25 +36,14 @@ The plan SHALL find the pods that mount the claim from the volumes of the pod sp
 #### Scenario: The plan of a Deployment's claim
 - **WHEN** the plan reads `monitoring/grafana`, which a pod of the Deployment `grafana` mounts and the Application `grafana` tracks
 - **THEN** the plan names the Deployment `grafana` with one replica and the pause order `bootstrap`, `cluster`, `grafana`
-- **AND** `--plan` prints the thirteen steps with these names and changes nothing
-
-### Requirement: A volume move copies the data and compares the two sides
-The run SHALL make `<claim>-move`, `<claim>-copy` and the pod `<claim>-dst` on the target node, scale the workloads to zero, start `<claim>-src` with the old claim read-only, and copy with GNU tar from pod to pod over the pod network. No exec stream SHALL carry the data. When the copy fails, it SHALL empty `/dst` and copy one more time. It SHALL compare the entries, the files, the bytes of regular files, a metadata digest and a content digest of the two sides.
-
-#### Scenario: A dropped copy
-- **WHEN** the first copy fails with `connection reset by peer`
-- **THEN** the run empties `/dst`, copies one more time, and goes on
-
-#### Scenario: The copy sends no data through an exec stream
-- **WHEN** a move runs its copy
-- **THEN** one bash script reads the IP address of `<claim>-dst`, starts the listener in `<claim>-dst`, runs `tar -C /src --numeric-owner --sparse -cpf -` in `<claim>-src` with its output on `/dev/tcp/<ip>/7373`, and waits for the exit code of the extract, and no `kubectl exec` of the script has `-i`
+- **AND** `--plan` prints the eleven steps with these names and changes nothing
 
 ### Requirement: A volume move binds the claim to the new volume
-After the two sides are equal, the run SHALL set the two volumes to `Retain`, delete the copy pods and `<claim>-copy`, save the old claim to a file, delete it, delete `<claim>-move`, reserve its volume for the claim name, and make the claim again with `spec.volumeName`. The create SHALL leave out the last-applied annotation and the annotations of the volume controllers, and the run SHALL then put the saved last-applied value back.
+After the copy, the run SHALL set the two volumes to `Retain`, end the running syncs of the paused Applications, save the old claim to a file, delete it, delete `<claim>-move`, reserve its volume for the claim name, and make the claim again with `spec.volumeName`. The create SHALL leave out the last-applied annotation and the annotations of the volume controllers, and the run SHALL then put the saved last-applied value back.
 
 #### Scenario: A full move
 - **WHEN** a move of `monitoring/grafana` runs and every request succeeds
-- **THEN** the requests that change the cluster are, in order, the three pauses, the three creates, the scale to zero, the source pod, the copy, the two `Retain` patches, the delete of the copy pods, the delete of `<claim>-copy`, the delete of the claim, the delete of `<claim>-move`, the `claimRef` patch, the create of the claim, the annotate, the scale back and the three resumes
+- **THEN** the requests that change the cluster are, in order, the three pauses, the create of `<claim>-move`, the scale to zero, the pv-migrate copy, the two `Retain` patches, the delete of the claim, the delete of `<claim>-move`, the `claimRef` patch, the create of the claim, the annotate, the scale back and the three resumes
 - **AND** the claim is made with the `volumeName` of the new volume and without the last-applied annotation, and the annotate puts back the saved value
 
 ### Requirement: A volume move starts the workloads on the target node and resumes Argo CD
@@ -67,21 +56,6 @@ After the claim is bound again, the run SHALL scale the workloads back to their 
 #### Scenario: A pod of a class change runs on another node
 - **WHEN** a move to the class `longhorn` succeeds and the scheduler starts the pod of the workload on a node that is not the target node
 - **THEN** the run resumes the paused Applications and the command exits 0
-
-### Requirement: A failure before the old claim is deleted undoes the move
-A failure before the run sends the delete of the old claim, an interrupt included, SHALL run the undo of each change of the move, the last change first, and SHALL raise `VolumeMoveError` (error code `K8S_VOLUME_MOVE_FAILED`) that names each undo step that failed. The run SHALL add each undo before it sends the change. The undo of `<claim>-move` SHALL read its volume when it runs, set the reclaim policy of that volume to `Delete`, and then delete the claim.
-
-#### Scenario: The two sides are different
-- **WHEN** the content digest of `/dst` differs from that of `/src`
-- **THEN** the run deletes the source pod, scales the workload back, deletes the destination pod and `<claim>-copy`, sets the volume of `<claim>-move` to `Delete`, deletes `<claim>-move`, and resumes the Applications in reverse order, and the old claim stays
-
-#### Scenario: A second dropped copy
-- **WHEN** the copy fails two times
-- **THEN** the run undoes the move as above
-
-#### Scenario: A class that binds before the pod and retains its volumes
-- **WHEN** the class of `<claim>-move` binds it at once and has the reclaim policy `Retain`, and the create of `<claim>-dst` fails
-- **THEN** the undo sets the volume of `<claim>-move` to `Delete` before it deletes `<claim>-move`, so no volume of the move stays
 
 ### Requirement: A failure after the old claim is deleted leaves Argo CD paused
 A failure from the delete request of the old claim on SHALL resume no Application, and SHALL raise `VolumeMoveStrandedError` (error code `K8S_VOLUME_MOVE_STRANDED`) with the saved claim file, the paused Applications, the old and the new volume, and the steps that did not run.
@@ -99,67 +73,7 @@ A failure from the delete request of the old claim on SHALL resume no Applicatio
 
 #### Scenario: A dry run
 - **WHEN** `devops k8s volume move monitoring/grafana --dry-run` runs
-- **THEN** no process starts, and the printed requests put the pause before the scale, the copy before the comparison, the delete of the claim before the `claimRef` patch, and the resume last
-
-### Requirement: The source copy pod tolerates a cordon
-`devops k8s volume move` SHALL give the source copy pod a toleration of `node.kubernetes.io/unschedulable` with `operator: Exists` and `effect: NoSchedule`, in addition to the tolerations of the workload pod.
-
-#### Scenario: A move off a cordoned node
-- **WHEN** the source node is cordoned and its workload pod holds no toleration for the unschedulable taint
-- **THEN** the source copy pod schedules on that node and the move completes
-
-### Requirement: A volume move measure plans the copy command of the move
-The measure SHALL plan each copy with `copy_argv` and SHALL compare the two sides with `digest_args` and the digest script `CONST_K8S_VOLUME_MOVE_DIGEST_SCRIPT`.
-
-#### Scenario: The measure plans the copy command of the move
-- **WHEN** The measure plans one copy in its temporary namespace
-- **THEN** The planned command holds the named pipe and the two exec streams, and each side is read with the digest script
-
-### Requirement: A volume move measure runs twenty copies of 100 MiB
-The measure SHALL make 20 copies of 104,857,600 bytes of random source data, one after another, and SHALL write fresh random data to the source claim before each copy.
-
-#### Scenario: Twenty copies of 100 MiB
-- **WHEN** The measure plans its copies with no option
-- **THEN** The plan holds 20 copies of 104857600 bytes
-
-### Requirement: A volume move measure places its two copy pods on two nodes
-The measure SHALL run its source pod on the node that `--source-node` names and its destination pod on the node that `--target-node` names, each through a nodeSelector on the hostname label, and SHALL refuse two equal node names.
-
-#### Scenario: Each copy pod selects its node
-- **WHEN** The measure renders its two pods for the source node node-a and the target node node-b
-- **THEN** The source pod selects node-a, the destination pod selects node-b, and the plan refuses node-a as both nodes
-
-### Requirement: A volume move measure fails a copy whose digest differs
-The measure SHALL compare the content digest of each copy's source with the content digest of its destination, and the report SHALL fail when the two differ.
-
-#### Scenario: A mismatch fails the report
-- **WHEN** The report reads 20 complete copies and one destination digest differs from its source
-- **THEN** The report exits non-zero and names the mismatched copy
-
-### Requirement: A volume move measure reports its complete copies and digest matches
-The report of the measure SHALL print a Markdown table with the number of complete copies and the number of digest matches, and the run SHALL exit non-zero when fewer than 20 copies complete with a matching digest.
-
-#### Scenario: All copies match
-- **WHEN** The report reads 20 complete copies whose digests match
-- **THEN** The report prints 20/20 complete copies and 20/20 digest matches, and the run exits 0
-
-#### Scenario: One copy is short
-- **WHEN** The report reads 19 complete copies and one short copy
-- **THEN** The run exits non-zero and names the short copy
-
-### Requirement: A volume move measure removes its temporary namespace
-The measure SHALL create one temporary namespace and SHALL delete it when the run ends, whether the copies passed or failed.
-
-#### Scenario: A failed copy still cleans up
-- **WHEN** A copy fails during a run against the fake cluster
-- **THEN** The run sends the delete of the temporary namespace and exits non-zero
-
-### Requirement: The dry run of a volume move measure makes no request
-The dry run of the measure SHALL start no process and SHALL print the requests of a run in order.
-
-#### Scenario: The dry run lists the requests
-- **WHEN** The dry run runs for two named nodes
-- **THEN** It prints the create of the namespace, the two claims, the two pods and the 20 copies, and it starts no process
+- **THEN** no process starts, and the printed requests put the read of the namespace before the pause, the pause before the scale, the pv-migrate copy as root and with `--non-root`, each with its condition, after the scale, the delete of the claim before the `claimRef` patch, and the resume last
 
 ### Requirement: A product pod on a claim requires a node off the control plane
 Each pod of a manifest of `k8s/devops/` that mounts a PersistentVolumeClaim SHALL have a required node affinity in which every node selector term holds the expression `node-role.kubernetes.io/control-plane` `DoesNotExist`.
@@ -191,20 +105,6 @@ With a class change and without `--to-node`, the plan SHALL pick, from the worke
 - **WHEN** the volume of the claim is on a worker node and `--storage-class` is given without `--to-node`
 - **THEN** the plan picks a target node and does not refuse the move
 
-### Requirement: The comparison of a volume move leaves out the top-level lost+found
-The digest script of a volume move SHALL leave out the top-level `lost+found` of each side in each count and each digest. It SHALL count a directory with that name lower in the tree.
-
-#### Scenario: A new ext4 volume
-- **WHEN** a move copies a `local-path` claim to a new volume of the class `longhorn`, whose filesystem root holds an empty `lost+found`
-- **THEN** the two sides have the same entries, files, bytes, metadata digest and content digest, and the move goes on
-
-### Requirement: The copy pods of a volume move reach each other through a NetworkPolicy of the move
-The run SHALL make the NetworkPolicy `<claim>-copy`, which selects the pods with the labels of the copy pods and allows them ingress from and egress to those pods on TCP port 7373 only, before it makes `<claim>-dst`. It SHALL delete the policy with the copy pods, and the undo SHALL delete it. The plan SHALL refuse a `<claim>-copy` of an earlier move as a leftover.
-
-#### Scenario: A namespace that refuses traffic by default
-- **WHEN** the namespace of the claim has a NetworkPolicy that selects every pod and allows no ingress and no egress
-- **THEN** the source copy pod reaches the listener of the destination copy pod on port 7373, and the copy ends
-
 ### Requirement: A volume move leaves out the pods that have ended
 The plan SHALL leave out a pod that mounts the claim and whose phase is `Succeeded` or `Failed`. The stop step SHALL not wait for it, and the check after the start SHALL not read it.
 
@@ -224,11 +124,11 @@ The plan SHALL leave out a pod that mounts the claim and whose phase is `Succeed
 - **THEN** the plan raises `VolumeMoveRefusedError` that names the four access modes, and the cluster gets no request that changes it
 
 ### Requirement: A volume move waits for the running syncs of the paused Applications
-After the pause, and again before the delete of the copy pods, the run SHALL end each sync operation of a paused Application whose phase is `Running` or `Terminating`, by a patch of `status.operationState.phase` to `Terminating`, and SHALL wait up to 600 s for the phase `Failed`. An operation that still runs after the wait SHALL fail the step before the point of no return.
+After the pause, and again before the delete of the old claim, the run SHALL end each sync operation of a paused Application whose phase is `Running` or `Terminating`, by a patch of `status.operationState.phase` to `Terminating`, and SHALL wait up to 600 s for the phase `Failed`. An operation that still runs after the wait SHALL fail the step before the point of no return.
 
 #### Scenario: A sync that still runs after the pause
 - **WHEN** the paused Applications have a sync operation in the phase `Running`, with or without `finishedAt`
-- **THEN** the run ends each of them and waits for the phase `Failed`, after the pause and again before the delete of the copy pods, and only then deletes the old claim
+- **THEN** the run ends each of them and waits for the phase `Failed`, after the pause and again after the copy, and only then deletes the old claim
 
 #### Scenario: A sync that does not end
 - **WHEN** the wait for an ended sync operation times out and its phase is still `Running`
@@ -243,15 +143,59 @@ Right before the delete of the old claim, the run SHALL read the pods that name 
 
 #### Scenario: An ended pod of an old ReplicaSet
 - **WHEN** a pod of an old ReplicaSet names the claim and has the phase `Succeeded`
-- **THEN** the run deletes that pod after the copy pods and before the old claim, and the move ends
+- **THEN** the run deletes that pod after the `Retain` patches and before the old claim, and the move ends
 
 ### Requirement: A volume move can make the new claim larger
 `devops k8s volume move <namespace>/<claim> --size <quantity>` SHALL make `<claim>-move` and the claim made again with that storage request. The plan SHALL refuse a size that is not a Kubernetes quantity or that is under the size of the old claim, and a size equal to it SHALL be a move that keeps the size. `--plan` SHALL print the size before and after the move.
 
 #### Scenario: Data larger than the claim
 - **WHEN** a `local-path` claim of 1Gi holds 1.2 GiB, and the move runs with `--storage-class longhorn --size 2Gi`
-- **THEN** both new claims request 2Gi, the copy fits, and the two sides are equal
+- **THEN** both new claims request 2Gi, the copy fits, and pv-migrate ends with exit code 0
 
 #### Scenario: A smaller size
 - **WHEN** the move of a claim of 5Gi runs with `--size 1Gi`
 - **THEN** the plan raises `VolumeMoveRefusedError` that names both sizes, and the cluster gets no request that changes it
+
+### Requirement: A volume move copies the data with pv-migrate
+The run SHALL copy the old claim to `<claim>-move` with one `pv-migrate --strategies clusterip` call, with an `--id` of the form `volume-move-<8 hexadecimal digits>` and the Helm values on stdin (`--helm-values -`). The values SHALL put the rsync pod on the target node, and give the sshd pod the tolerations of the workload pod and of a cordon. After the copy, the run SHALL read the volume of `<claim>-move`.
+
+#### Scenario: The copy of a move
+- **WHEN** a move of `monitoring/grafana` to the worker node `worker-b` runs its copy, and the pod of the workload tolerates `example.com/dedicated`
+- **THEN** pv-migrate gets the source `monitoring/grafana`, the destination `monitoring/grafana-move`, the strategy `clusterip` and the context, and its values put the rsync pod on `worker-b` and give the sshd pod the toleration of the workload pod and of a cordon
+
+### Requirement: The undo of a stopped copy removes the objects of pv-migrate
+When the run stops pv-migrate, by an interrupt or by the time bound, the undo SHALL run `pv-migrate cleanup <operation> --namespace <namespace> --force` before the other undo steps. When pv-migrate ends by itself, it removes its objects, and the undo SHALL not run `pv-migrate cleanup`.
+
+#### Scenario: A stopped copy
+- **WHEN** an interrupt or the time bound stops pv-migrate
+- **THEN** the undo runs `pv-migrate cleanup` with the operation of the copy first, then the other undo steps
+
+#### Scenario: A failed copy
+- **WHEN** pv-migrate exits 23 after many lines of log
+- **THEN** the undo runs no `pv-migrate cleanup`, and the error names the end of the output of pv-migrate
+
+### Requirement: A volume move in a namespace that enforces restricted copies without root
+The plan SHALL read the label `pod-security.kubernetes.io/enforce` of the namespace. When it is `restricted`, the copy SHALL add `--non-root` and `--rsync-extra-args=--no-perms`, and the plan SHALL refuse each workload whose pod template has no `fsGroup`, and a new class whose provisioner is not a CSIDriver or whose CSIDriver has `fsGroupPolicy: None`. A move that keeps the class SHALL read the class of the old claim. `--plan` SHALL print whether pv-migrate runs as root or with `--non-root`.
+
+#### Scenario: A move to longhorn in a restricted namespace
+- **WHEN** the namespace enforces `restricted`, the Deployment sets an `fsGroup`, and the move runs with `--storage-class longhorn`, whose CSIDriver has `fsGroupPolicy: ReadWriteOnceWithFSType`
+- **THEN** the pv-migrate call ends with `--non-root --rsync-extra-args=--no-perms`
+
+#### Scenario: A workload with no fsGroup
+- **WHEN** the namespace enforces `restricted` and the pod template of the Deployment has no `fsGroup`
+- **THEN** the plan raises `VolumeMoveRefusedError` that names the namespace and the Deployment, and the cluster gets no request that changes it
+
+#### Scenario: A class that gives no fsGroup
+- **WHEN** the namespace enforces `restricted` and the move keeps the class `local-path`, or the CSIDriver of the new class has `fsGroupPolicy: None`
+- **THEN** the plan raises `VolumeMoveRefusedError` that names the namespace and the class, and the cluster gets no request that changes it
+
+### Requirement: A failure before the old claim is deleted undoes each step of the move
+A failure before the run sends the delete of the old claim, an interrupt included, SHALL run the undo of each change of the move, the last change first, and SHALL raise `VolumeMoveError` (error code `K8S_VOLUME_MOVE_FAILED`) that names each undo step that failed. The run SHALL add each undo before it sends the change. The undo of `<claim>-move` SHALL read its volume when it runs, set the reclaim policy of that volume to `Delete`, and then delete the claim.
+
+#### Scenario: The copy fails
+- **WHEN** pv-migrate exits with an error
+- **THEN** the run scales the workload back, sets the volume of `<claim>-move` to `Delete`, deletes `<claim>-move`, and resumes the Applications in reverse order, and the old claim stays
+
+#### Scenario: A class that binds before the copy and retains its volumes
+- **WHEN** the class of `<claim>-move` binds it at once and has the reclaim policy `Retain`, and the scale to zero fails
+- **THEN** the undo sets the volume of `<claim>-move` to `Delete` before it deletes `<claim>-move`, so no volume of the move stays

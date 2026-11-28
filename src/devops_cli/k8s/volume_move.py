@@ -5,11 +5,13 @@ a volume of that class: when a CSIDriver has the name of the provisioner of the 
 whose CSINode lists that driver.
 
 `plan_volume_move` only reads: the claim, its volume, the nodes, the pods that mount the claim and
-their workloads, the leftovers of an earlier move and the Argo CD Applications. It refuses a move
-that cannot run safely, and returns the plan with the real names. `run_volume_move` runs the steps
-that `describe_volume_move` names, the procedure of `k8s/README.md` (Local-Path Volume Placement):
-it pauses Argo CD from the top down, copies the data with GNU tar from pod to pod, compares
-the two sides, and binds the claim to the new volume.
+their workloads, the Pod Security level of the namespace, the leftovers of an earlier move and the
+Argo CD Applications. It refuses a move that cannot run safely, and returns the plan with the real
+names. `run_volume_move` runs the steps that `describe_volume_move` names, the procedure of
+`k8s/README.md` (Local-Path Volume Placement): it pauses Argo CD from the top down, copies the data
+with pv-migrate (#7498), and binds the claim to the new volume. pv-migrate copies with rsync over
+SSH from a pod with the old claim to a pod with the new claim, and rsync checks each file that it
+sends.
 
 Until the run sends the delete of the old claim, a failure undoes each change the run made, in
 reverse order. From that request on, a failure leaves Argo CD paused and raises
@@ -25,15 +27,17 @@ from __future__ import annotations
 import itertools
 import json
 import shlex
+import shutil
 import subprocess
+import uuid
 from collections.abc import Callable, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from typing import Any
 
-from devops_cli.config.commands import BIN_BASH, build_kubectl_cmd
+from devops_cli.config.commands import BIN_PV_MIGRATE, build_kubectl_cmd
 from devops_cli.config.constants import (
     CONST_ARGOCD_OPERATION_PHASES_RUNNING,
     CONST_ARGOCD_TRACKING_ID_ANNOTATION,
@@ -46,6 +50,8 @@ from devops_cli.config.constants import (
     CONST_K8S_LAST_APPLIED_ANNOTATION,
     CONST_K8S_POD_PHASE_RUNNING,
     CONST_K8S_POD_PHASES_ENDED,
+    CONST_K8S_POD_SECURITY_ENFORCE_LABEL,
+    CONST_K8S_POD_SECURITY_RESTRICTED,
     CONST_K8S_RECLAIM_DELETE,
     CONST_K8S_RECLAIM_RETAIN,
     CONST_K8S_RECREATED_CLAIM_METADATA_KEYS,
@@ -54,24 +60,13 @@ from devops_cli.config.constants import (
     CONST_K8S_SUBDOMAIN_RE,
     CONST_K8S_UNSCHEDULABLE_TAINT,
     CONST_K8S_VOLUME_MOVE_CLAIM_SUFFIX,
-    CONST_K8S_VOLUME_MOVE_COPY_PORT,
-    CONST_K8S_VOLUME_MOVE_DESTINATION_DIR,
-    CONST_K8S_VOLUME_MOVE_DESTINATION_SUFFIX,
-    CONST_K8S_VOLUME_MOVE_DIGEST_SCRIPT,
     CONST_K8S_VOLUME_MOVE_LABELS,
-    CONST_K8S_VOLUME_MOVE_LISTEN_SCRIPT,
-    CONST_K8S_VOLUME_MOVE_LISTENER,
-    CONST_K8S_VOLUME_MOVE_POLICY_SUFFIX,
-    CONST_K8S_VOLUME_MOVE_RESULT_SCRIPT,
-    CONST_K8S_VOLUME_MOVE_SEND_SCRIPT,
-    CONST_K8S_VOLUME_MOVE_SOURCE_DIR,
-    CONST_K8S_VOLUME_MOVE_SOURCE_SUFFIX,
+    CONST_K8S_VOLUME_MOVE_OPERATION_PREFIX,
 )
 from devops_cli.config.defaults import (
     DEFAULT_ARGOCD_NAMESPACE,
     DEFAULT_K8S_VOLUME_MOVE_COPY_TIMEOUT_SECONDS,
     DEFAULT_K8S_VOLUME_MOVE_DETAIL_CHARS,
-    DEFAULT_K8S_VOLUME_MOVE_EXTRACT_WAIT_SECONDS,
     DEFAULT_K8S_VOLUME_MOVE_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_K8S_VOLUME_MOVE_ROLLOUT_SECONDS,
     DEFAULT_K8S_VOLUME_MOVE_SYNC_WAIT_SECONDS,
@@ -89,8 +84,21 @@ from devops_cli.lang import MESSAGES
 Progress = Callable[[str], None]
 
 # The index, in `describe_volume_move`, of the step that deletes the old claim.
-POINT_OF_NO_RETURN_INDEX = 8
-_DIGEST_FIELDS = ("entries", "files", "bytes", "metadata", "content")
+POINT_OF_NO_RETURN_INDEX = 6
+# The strategy of pv-migrate: rsync over SSH through a ClusterIP Service, from a pod with the old
+# claim on its node to a pod with the new claim on the target node. The `mount` strategy would put
+# both claims in one pod, so a local-path move would bind the new volume on the old node.
+_PV_MIGRATE_STRATEGY = "clusterip"
+# The fsGroupPolicy of a CSIDriver with which the kubelet gives no fsGroup to the files of a volume.
+_FS_GROUP_POLICY_NONE = "None"
+# The rsync options of a copy with `--non-root`. pv-migrate then runs rsync as user 10000, which
+# cannot chmod the root folder of the new volume: root owns it. With `-p` of `-a`, rsync tries,
+# and ends with exit 23 on `.` (`failed to set permissions`), in each of its tries (#7518). With
+# `--no-perms`, rsync keeps the mode of a folder that exists, and gives each new file the mode of
+# its source under the umask of the rsync pod (022): no write bit for the group and the others,
+# and no setuid, setgid or sticky bit. The kubelet gives the group its read and write bits back,
+# with the fsGroup of the workload, when the workload mounts the volume.
+_PV_MIGRATE_NON_ROOT_RSYNC_ARGS = "--no-perms"
 
 
 @dataclass(frozen=True)
@@ -128,7 +136,9 @@ class VolumeMovePlan:
     source_tolerations: tuple[dict[str, Any], ...] = ()
     applications: tuple[str, ...] = ()
     paused: tuple[str, ...] = ()
-    image: str = ""
+    # True when the namespace enforces Pod Security restricted: pv-migrate copies as a user that
+    # is not root (`--non-root`), and keeps no owner and no group of a file (#7449).
+    non_root: bool = False
     # The class of the new volume when the move changes the class; empty when it keeps the class.
     target_storage_class: str = ""
     # The access modes of the new claims when the move changes them; empty when it keeps them.
@@ -161,32 +171,6 @@ class VolumeMovePlan:
         """The temporary claim that gets the new volume on the target node."""
         return f"{self.claim}{CONST_K8S_VOLUME_MOVE_CLAIM_SUFFIX}"
 
-    @property
-    def source_pod(self) -> str:
-        """The copy pod that mounts the old claim read-only."""
-        return f"{self.claim}{CONST_K8S_VOLUME_MOVE_SOURCE_SUFFIX}"
-
-    @property
-    def copy_policy(self) -> str:
-        """The temporary NetworkPolicy that lets the source copy pod reach the destination."""
-        return f"{self.claim}{CONST_K8S_VOLUME_MOVE_POLICY_SUFFIX}"
-
-    @property
-    def destination_pod(self) -> str:
-        """The copy pod that mounts the temporary claim on the target node."""
-        return f"{self.claim}{CONST_K8S_VOLUME_MOVE_DESTINATION_SUFFIX}"
-
-
-@dataclass(frozen=True)
-class CopyDigest:
-    """One side of the copy: its counts and digests, as the digest script prints them."""
-
-    entries: int
-    files: int
-    bytes: int
-    metadata: str
-    content: str
-
 
 @dataclass(frozen=True)
 class VolumeMoveResult:
@@ -195,7 +179,6 @@ class VolumeMoveResult:
     plan: VolumeMovePlan
     new_volume: str
     saved_claim: Path
-    digest: CopyDigest
 
 
 @dataclass(frozen=True)
@@ -211,13 +194,25 @@ class _WorkloadState:
     workload: Workload
     when_scaled: str
     application: str | None
+    fs_group: int | None = None
 
 
 # ── kubectl ──────────────────────────────────────────────────────────────────
 
 
-def _run(argv: Sequence[str], request: str, *, stdin: str | None = None, timeout: float) -> str:
-    """Run one request through `run_subprocess` and return its stdout, raising when it fails."""
+def _run(
+    argv: Sequence[str],
+    request: str,
+    *,
+    stdin: str | None = None,
+    timeout: float,
+    tail: bool = False,
+) -> str:
+    """Run one request through `run_subprocess` and return its stdout, raising when it fails.
+
+    A failure keeps the start of the error output, or its end with `tail`: pv-migrate logs each
+    step before its error.
+    """
     try:
         result = run_subprocess(list(argv), input=stdin, quiet=True, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
@@ -226,11 +221,12 @@ def _run(argv: Sequence[str], request: str, *, stdin: str | None = None, timeout
         ) from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()
+        limit = DEFAULT_K8S_VOLUME_MOVE_DETAIL_CHARS
         raise VolumeMoveError(
             MESSAGES.k8s.volume_move_request_failed.format(
                 request=request,
                 code=result.returncode,
-                detail=detail[:DEFAULT_K8S_VOLUME_MOVE_DETAIL_CHARS],
+                detail=detail[-limit:] if tail else detail[:limit],
             )
         )
     return result.stdout or ""
@@ -266,28 +262,6 @@ def _read_json(args: Sequence[str], context: str | None) -> dict[str, Any]:
             )
         ) from exc
     return decoded if isinstance(decoded, dict) else {}
-
-
-def read_volume_move_image(context: str | None = None) -> str:
-    """Read the copy container image from suspended CronJob devops/volume-move in the cluster."""
-    data = _read_json(
-        ["get", "cronjob", "volume-move", "-n", "devops", "--ignore-not-found", "-o", "json"],
-        context,
-    )
-    if not data:
-        raise VolumeMoveError(MESSAGES.k8s.job_cronjob_missing.format(cronjob="volume-move"))
-    pod_spec = (
-        data.get("spec", {})
-        .get("jobTemplate", {})
-        .get("spec", {})
-        .get("template", {})
-        .get("spec", {})
-    )
-    containers = pod_spec.get("containers") or []
-    container = next((c for c in containers if c.get("name") == "copy"), None)
-    if not container or not container.get("image"):
-        raise VolumeMoveError("CronJob devops/volume-move has no copy container with an image")
-    return str(container["image"])
 
 
 def _wait_args(target: str, namespace: str, condition: str, seconds: int) -> list[str]:
@@ -343,80 +317,60 @@ def _delete_args(kind: str, names: Sequence[str], namespace: str, *, missing_ok:
     return [*args, "--ignore-not-found"] if missing_ok else args
 
 
-def digest_args(pod: str, namespace: str, directory: str) -> list[str]:
-    return [
-        "exec",
-        pod,
-        "-n",
-        namespace,
-        "--",
-        "bash",
-        "-c",
-        CONST_K8S_VOLUME_MOVE_DIGEST_SCRIPT,
-        "digest",
-        directory,
-    ]
+def pv_migrate_values(plan: VolumeMovePlan) -> dict[str, Any]:
+    """The Helm values of the pv-migrate chart for the copy.
 
-
-def empty_args(pod: str, namespace: str) -> list[str]:
-    return [
-        "exec",
-        pod,
-        "-n",
-        namespace,
-        "--",
-        "find",
-        CONST_K8S_VOLUME_MOVE_DESTINATION_DIR,
-        "-mindepth",
-        "1",
-        "-delete",
-    ]
-
-
-def copy_argv(
-    namespace: str, source_pod: str, destination_pod: str, context: str | None
-) -> list[str]:
-    """The copy as one bash script: GNU tar from pod to pod over the pod network (#7408).
-
-    The stdout of an exec stream through the API server lost data at full speed, so no data goes
-    through an exec stream. The script reads the IP address of the destination pod, starts a
-    listener in that pod that gives one connection to `tar -x`, lets the source pod send `tar -c`
-    to it, and waits for the exit code of the extract. Each exec stream carries only a script and
-    its result. `run_subprocess` starts one program, so bash runs the four requests; `set -eu`
-    stops at the first one that fails, and `shlex.join` quotes every word of each request.
+    The rsync pod mounts the new claim: its node selector puts it on the target node, so a
+    local-path class binds the new volume there. The sshd pod mounts the old claim, so the volume
+    holds it on the old node. That node is often cordoned, and the workload pod has no toleration
+    for the taint of a cordon, so the sshd pod tolerates it in addition to the tolerations of the
+    workload pod (#5305).
     """
-    port = str(CONST_K8S_VOLUME_MOVE_COPY_PORT)
+    cordon = {"key": CONST_K8S_UNSCHEDULABLE_TAINT, "operator": "Exists", "effect": "NoSchedule"}
+    return {
+        "rsync": {"nodeSelector": {CONST_K8S_HOSTNAME_LABEL: plan.target_hostname}},
+        "sshd": {"tolerations": [*plan.source_tolerations, cordon]},
+    }
 
-    def kubectl(*args: str) -> str:
-        return shlex.join(build_kubectl_cmd(list(args), context))
 
-    def exec_in(pod: str, script: str, name: str, *args: str) -> str:
-        return kubectl("exec", pod, "-n", namespace, "--", "bash", "-c", script, name, *args)
+def pv_migrate_argv(plan: VolumeMovePlan, context: str | None, operation: str) -> list[str]:
+    """The pv-migrate copy from the old claim to `<claim>-move`, with the values on stdin.
 
-    pod_ip = kubectl(
-        "get", "pod", destination_pod, "-n", namespace, "-o", "jsonpath={.status.podIP}"
-    )
-    script = [
-        "set -eu",
-        f"ip=$({pod_ip})",
-        exec_in(
-            destination_pod,
-            CONST_K8S_VOLUME_MOVE_LISTEN_SCRIPT,
-            "volume-move-listen",
-            CONST_K8S_VOLUME_MOVE_LISTENER,
-            port,
-            CONST_K8S_VOLUME_MOVE_DESTINATION_DIR,
-        ),
-        exec_in(source_pod, CONST_K8S_VOLUME_MOVE_SEND_SCRIPT, "volume-move-send")
-        + f' "$ip" {port} {CONST_K8S_VOLUME_MOVE_SOURCE_DIR}',
-        exec_in(
-            destination_pod,
-            CONST_K8S_VOLUME_MOVE_RESULT_SCRIPT,
-            "volume-move-result",
-            str(DEFAULT_K8S_VOLUME_MOVE_EXTRACT_WAIT_SECONDS),
-        ),
+    `--id` names the operation, so that the undo can remove what pv-migrate left. `--non-root`
+    gives each pod the securityContext of Pod Security restricted, and then rsync gets
+    `--no-perms` (`_PV_MIGRATE_NON_ROOT_RSYNC_ARGS`).
+    """
+    argv = [
+        BIN_PV_MIGRATE,
+        "--source-namespace",
+        plan.namespace,
+        "--source",
+        plan.claim,
+        "--dest-namespace",
+        plan.namespace,
+        "--dest",
+        plan.move_claim,
+        "--strategies",
+        _PV_MIGRATE_STRATEGY,
+        "--id",
+        operation,
+        "--helm-timeout",
+        f"{DEFAULT_K8S_VOLUME_MOVE_WAIT_SECONDS}s",
+        "--helm-values",
+        "-",
+        "--show-progress-bar=false",
     ]
-    return [BIN_BASH, "-o", "pipefail", "-c", "\n".join(script)]
+    if context:
+        argv += ["--source-context", context, "--dest-context", context]
+    if not plan.non_root:
+        return argv
+    return [*argv, "--non-root", f"--rsync-extra-args={_PV_MIGRATE_NON_ROOT_RSYNC_ARGS}"]
+
+
+def pv_migrate_cleanup_argv(namespace: str, context: str | None, operation: str) -> list[str]:
+    """The removal of what the pv-migrate operation made, also while its rsync pod runs."""
+    argv = [BIN_PV_MIGRATE, "cleanup", operation, "--namespace", namespace, "--force"]
+    return [*argv, "--context", context] if context else argv
 
 
 def delete_old_volume_command(plan: VolumeMovePlan, context: str | None) -> str:
@@ -443,87 +397,6 @@ def _move_claim_manifest(plan: VolumeMovePlan) -> dict[str, Any]:
             "volumeMode": plan.volume_mode,
             "resources": {"requests": {"storage": plan.new_size}},
         },
-    }
-
-
-def _copy_policy_manifest(plan: VolumeMovePlan) -> dict[str, Any]:
-    """A NetworkPolicy that lets the copy pods reach each other on the copy port, and no more.
-
-    A namespace that refuses traffic by default still lets the source reach the listener. The
-    policy allows both directions: a pod that a policy selects for egress needs an egress rule too.
-    """
-    peers = [{"podSelector": {"matchLabels": dict(CONST_K8S_VOLUME_MOVE_LABELS)}}]
-    ports = [{"protocol": "TCP", "port": CONST_K8S_VOLUME_MOVE_COPY_PORT}]
-    return {
-        "apiVersion": "networking.k8s.io/v1",
-        "kind": "NetworkPolicy",
-        "metadata": {
-            "name": plan.copy_policy,
-            "namespace": plan.namespace,
-            "labels": dict(CONST_K8S_VOLUME_MOVE_LABELS),
-        },
-        "spec": {
-            "podSelector": {"matchLabels": dict(CONST_K8S_VOLUME_MOVE_LABELS)},
-            "policyTypes": ["Ingress", "Egress"],
-            "ingress": [{"from": peers, "ports": ports}],
-            "egress": [{"to": peers, "ports": ports}],
-        },
-    }
-
-
-def _copy_pod_manifest(plan: VolumeMovePlan, *, destination: bool) -> dict[str, Any]:
-    """A pod that sleeps with one claim mounted, for the exec streams of the copy.
-
-    The source pod mounts the old claim read-only, and its volume holds it on the old node. The
-    destination pod selects the target node, where local-path makes the new volume.
-    """
-    name, claim, path = (
-        (plan.destination_pod, plan.move_claim, CONST_K8S_VOLUME_MOVE_DESTINATION_DIR)
-        if destination
-        else (plan.source_pod, plan.claim, CONST_K8S_VOLUME_MOVE_SOURCE_DIR)
-    )
-    image = plan.image or read_volume_move_image()
-    spec: dict[str, Any] = {
-        "restartPolicy": "Never",
-        "terminationGracePeriodSeconds": 0,
-        "automountServiceAccountToken": False,
-        "containers": [
-            {
-                "name": "copy",
-                "image": image,
-                "command": ["sleep", "infinity"],
-                "volumeMounts": [{"name": "data", "mountPath": path, "readOnly": not destination}],
-            }
-        ],
-        "volumes": [
-            {
-                "name": "data",
-                "persistentVolumeClaim": {"claimName": claim, "readOnly": not destination},
-            }
-        ],
-    }
-    if destination:
-        spec["nodeSelector"] = {CONST_K8S_HOSTNAME_LABEL: plan.target_hostname}
-    else:
-        # The source node is often cordoned, and the workload pod has no toleration for the taint
-        # that a cordon adds, so the source copy pod must carry one itself (#5305).
-        spec["tolerations"] = [
-            *plan.source_tolerations,
-            {
-                "key": CONST_K8S_UNSCHEDULABLE_TAINT,
-                "operator": "Exists",
-                "effect": "NoSchedule",
-            },
-        ]
-    return {
-        "apiVersion": "v1",
-        "kind": "Pod",
-        "metadata": {
-            "name": name,
-            "namespace": plan.namespace,
-            "labels": dict(CONST_K8S_VOLUME_MOVE_LABELS),
-        },
-        "spec": spec,
     }
 
 
@@ -733,10 +606,13 @@ def _read_workload(kind: str, name: str, namespace: str, context: str | None) ->
     found = _read_json(["get", kind, name, "-n", namespace, "-o", "json"], context)
     spec = found.get("spec") or {}
     retention = spec.get("persistentVolumeClaimRetentionPolicy") or {}
+    pod_security = (((spec.get("template") or {}).get("spec") or {}).get("securityContext")) or {}
+    fs_group = pod_security.get("fsGroup")
     return _WorkloadState(
         workload=Workload(kind=kind, name=name, replicas=int(spec.get("replicas", 1))),
         when_scaled=retention.get("whenScaled", ""),
         application=_tracked_application(found),
+        fs_group=int(fs_group) if fs_group is not None else None,
     )
 
 
@@ -755,17 +631,21 @@ def _retention_problems(states: Sequence[_WorkloadState], claim: str) -> list[st
     ]
 
 
+def _leftover_args(namespace: str, claim: str) -> list[str]:
+    move_claim = f"{claim}{CONST_K8S_VOLUME_MOVE_CLAIM_SUFFIX}"
+    return ["get", "pvc", move_claim, "-n", namespace, "--ignore-not-found", "-o", "name"]
+
+
 def _leftover_problems(namespace: str, claim: str, context: str | None) -> list[str]:
-    names = [
-        f"pod/{claim}{CONST_K8S_VOLUME_MOVE_SOURCE_SUFFIX}",
-        f"pod/{claim}{CONST_K8S_VOLUME_MOVE_DESTINATION_SUFFIX}",
-        f"pvc/{claim}{CONST_K8S_VOLUME_MOVE_CLAIM_SUFFIX}",
-        f"networkpolicy/{claim}{CONST_K8S_VOLUME_MOVE_POLICY_SUFFIX}",
-    ]
-    found = _kubectl(
-        ["get", *names, "-n", namespace, "--ignore-not-found", "-o", "name"], context
-    ).split()
+    found = _kubectl(_leftover_args(namespace, claim), context).split()
     return [MESSAGES.k8s.volume_move_leftovers.format(names=", ".join(found))] if found else []
+
+
+def _enforces_restricted(namespace: str, context: str | None) -> bool:
+    """True when the namespace enforces Pod Security restricted, which refuses a pod as root."""
+    found = _read_json(["get", "namespace", namespace, "-o", "json"], context)
+    labels = (found.get("metadata") or {}).get("labels") or {}
+    return labels.get(CONST_K8S_POD_SECURITY_ENFORCE_LABEL) == CONST_K8S_POD_SECURITY_RESTRICTED
 
 
 def _free_bytes(node: str, context: str | None) -> int:
@@ -778,11 +658,14 @@ class _TargetClass:
     """The class of a class change, its provisioner, and the nodes that can attach its volumes.
 
     `nodes` is None when the provisioner is not a CSI driver: it does not limit the nodes.
+    `fs_group` is True when the kubelet gives the fsGroup of a pod to the files of a volume of
+    the class: the provisioner is a CSI driver whose fsGroupPolicy is not `None`.
     """
 
     name: str
     driver: str
     nodes: frozenset[str] | None
+    fs_group: bool = False
 
     def attaches(self, node: _Node) -> bool:
         return self.nodes is None or node.name in self.nodes
@@ -800,7 +683,8 @@ def _target_class(storage_class: str, context: str | None) -> _TargetClass | str
     if not found:
         return MESSAGES.k8s.volume_move_unknown_storage_class.format(storage_class=storage_class)
     driver = str(found.get("provisioner") or "")
-    if not _read_json(["get", "csidriver", driver, "--ignore-not-found", "-o", "json"], context):
+    csi = _read_json(["get", "csidriver", driver, "--ignore-not-found", "-o", "json"], context)
+    if not csi:
         return _TargetClass(name=storage_class, driver=driver, nodes=None)
     items = _read_json(["get", "csinodes", "-o", "json"], context).get("items") or []
     nodes = frozenset(
@@ -810,7 +694,33 @@ def _target_class(storage_class: str, context: str | None) -> _TargetClass | str
             listed.get("name") == driver for listed in (item.get("spec") or {}).get("drivers") or []
         )
     )
-    return _TargetClass(name=storage_class, driver=driver, nodes=nodes)
+    policy = (csi.get("spec") or {}).get("fsGroupPolicy")
+    return _TargetClass(
+        name=storage_class, driver=driver, nodes=nodes, fs_group=policy != _FS_GROUP_POLICY_NONE
+    )
+
+
+def _non_root_problems(
+    namespace: str, states: Sequence[_WorkloadState], new_class: _TargetClass | str, name: str
+) -> list[str]:
+    """The problems of a copy as a user that is not root, in a namespace that enforces restricted.
+
+    pv-migrate `--non-root` keeps no owner and no group of a file, so a workload reads the copy
+    only through its fsGroup, and only on a volume to whose files the kubelet gives the fsGroup.
+    """
+    m = MESSAGES.k8s
+    problems = [
+        m.volume_move_restricted_no_fs_group.format(
+            namespace=namespace, workload=state.workload.ref
+        )
+        for state in states
+        if state.fs_group is None
+    ]
+    if not (isinstance(new_class, _TargetClass) and new_class.fs_group):
+        problems.append(
+            m.volume_move_restricted_class.format(namespace=namespace, storage_class=name)
+        )
+    return problems
 
 
 def _named_target_problem(
@@ -943,6 +853,9 @@ def plan_volume_move(
         )
     states = _workloads(pods, namespace, claim, context)
     problems = _retention_problems(states, claim) + _leftover_problems(namespace, claim, context)
+    if shutil.which(BIN_PV_MIGRATE) is None:
+        problems.append(MESSAGES.k8s.volume_move_no_pv_migrate)
+    non_root = _enforces_restricted(namespace, context)
     old_class = spec.get("storageClassName", "")
     old_modes = tuple(spec.get("accessModes") or ())
     if access_mode and access_mode not in CONST_K8S_ACCESS_MODES:
@@ -966,6 +879,11 @@ def plan_volume_move(
     )
     if isinstance(target, str):
         problems.append(target)
+    if non_root and not isinstance(new_class, str):
+        name = change or old_class
+        problems += _non_root_problems(
+            namespace, states, new_class or _target_class(name, context), name
+        )
     applications = tuple(
         sorted(
             {
@@ -980,7 +898,6 @@ def plan_volume_move(
     if isinstance(target, str) or problems:
         raise _refuse(namespace, claim, problems)
     node, free = target
-    image = read_volume_move_image(context)
     return VolumeMovePlan(
         namespace=namespace,
         claim=claim,
@@ -999,7 +916,7 @@ def plan_volume_move(
         source_tolerations=tuple((pods[0].get("spec") or {}).get("tolerations") or ()),
         applications=applications,
         paused=paused,
-        image=image,
+        non_root=non_root,
         target_storage_class=change,
         target_access_modes=new_modes,
         target_size=new_size,
@@ -1016,28 +933,17 @@ def describe_volume_move(plan: VolumeMovePlan) -> tuple[str, ...]:
         if plan.paused
         else m.volume_move_step_no_pause,
         m.volume_move_step_destination.format(
-            claim=plan.move_claim,
-            size=plan.new_size,
-            storage_class=plan.new_storage_class,
-            policy=plan.copy_policy,
-            port=CONST_K8S_VOLUME_MOVE_COPY_PORT,
-            pod=plan.destination_pod,
-            node=plan.target_node,
+            claim=plan.move_claim, size=plan.new_size, storage_class=plan.new_storage_class
         ),
         m.volume_move_step_stop.format(workloads=workloads, pods=", ".join(plan.pods)),
-        m.volume_move_step_source.format(
-            pod=plan.source_pod, claim=plan.claim, node=plan.source_node
-        ),
         m.volume_move_step_copy.format(
-            source=plan.source_pod,
-            destination=plan.destination_pod,
-            port=CONST_K8S_VOLUME_MOVE_COPY_PORT,
+            claim=plan.claim,
+            move_claim=plan.move_claim,
+            source=plan.source_node,
+            target=plan.target_node,
         ),
-        m.volume_move_step_compare,
         m.volume_move_step_retain.format(claim=plan.move_claim, volume=plan.old_volume),
-        m.volume_move_step_delete_pods.format(
-            source=plan.source_pod, destination=plan.destination_pod, policy=plan.copy_policy
-        ),
+        m.volume_move_step_settle,
         m.volume_move_step_delete_claim.format(namespace=plan.namespace, claim=plan.claim),
         m.volume_move_step_rebind.format(
             move_claim=plan.move_claim, namespace=plan.namespace, claim=plan.claim
@@ -1053,33 +959,6 @@ def describe_volume_move(plan: VolumeMovePlan) -> tuple[str, ...]:
 
 
 # ── The run ──────────────────────────────────────────────────────────────────
-
-
-def _parse_digest(output: str, pod: str) -> CopyDigest:
-    values = {key: value for key, _, value in (line.partition(" ") for line in output.splitlines())}
-    try:
-        return CopyDigest(
-            entries=int(values["entries"]),
-            files=int(values["files"]),
-            bytes=int(values["bytes"]),
-            metadata=values["metadata"],
-            content=values["content"],
-        )
-    except (KeyError, ValueError) as exc:
-        raise VolumeMoveError(
-            MESSAGES.k8s.volume_move_digest_unreadable.format(
-                pod=pod, output=output[:DEFAULT_K8S_VOLUME_MOVE_DETAIL_CHARS]
-            )
-        ) from exc
-
-
-def _differences(source: CopyDigest, destination: CopyDigest) -> str:
-    left, right = asdict(source), asdict(destination)
-    return "; ".join(
-        f"{name} {left[name]} and {right[name]}"
-        for name in _DIGEST_FIELDS
-        if left[name] != right[name]
-    )
 
 
 def _save_claim(saved: dict[str, Any], save_dir: Path, plan: VolumeMovePlan) -> Path:
@@ -1107,7 +986,10 @@ class _MoveRun:
     new_volume: str = ""
     saved: dict[str, Any] = field(default_factory=dict)
     saved_claim: Path = Path()
-    digest: CopyDigest = field(default_factory=lambda: CopyDigest(0, 0, 0, "", ""))
+    # The `--id` of the pv-migrate operation of this run.
+    operation: str = field(
+        default_factory=lambda: f"{CONST_K8S_VOLUME_MOVE_OPERATION_PREFIX}{uuid.uuid4().hex[:8]}"
+    )
     past_point_of_no_return: bool = False
 
     # ── helpers ──
@@ -1171,12 +1053,6 @@ class _MoveRun:
         if volume:
             self._set_reclaim(volume, CONST_K8S_RECLAIM_DELETE)
         self._delete("pvc", plan.move_claim, missing_ok=True)
-
-    def _undo_delete(self, kind: str, name: str, label: str) -> None:
-        self._on_undo(
-            MESSAGES.k8s.volume_move_undo_delete.format(kind=label, name=name),
-            partial(self._delete, kind, name, missing_ok=True),
-        )
 
     # ── steps ──
     # Each step adds the undo of a change before it asks for the change: a request can fail after
@@ -1254,13 +1130,53 @@ class _MoveRun:
             self._discard_move_claim,
         )
         self._create(_move_claim_manifest(plan))
-        self._undo_delete("networkpolicy", plan.copy_policy, "NetworkPolicy")
-        self._create(_copy_policy_manifest(plan))
-        self._undo_delete("pod", plan.destination_pod, "pod")
-        self._create(_copy_pod_manifest(plan, destination=True))
-        self._wait(
-            f"pod/{plan.destination_pod}", "condition=Ready", DEFAULT_K8S_VOLUME_MOVE_WAIT_SECONDS
+
+    def stop_workloads(self) -> None:
+        for workload in self.plan.workloads:
+            self._on_undo(
+                MESSAGES.k8s.volume_move_undo_scale.format(
+                    workload=workload.ref, replicas=workload.replicas
+                ),
+                partial(self._scale, workload, workload.replicas),
+            )
+            self._scale(workload, 0)
+        for pod in self.plan.pods:
+            self._wait(f"pod/{pod}", "delete", DEFAULT_K8S_VOLUME_MOVE_WAIT_SECONDS)
+
+    def _cleanup_copy(self) -> None:
+        self._run_pv_migrate(
+            pv_migrate_cleanup_argv(self.plan.namespace, self.context, self.operation),
+            timeout=_wait_timeout(DEFAULT_K8S_VOLUME_MOVE_WAIT_SECONDS),
         )
+
+    def _run_pv_migrate(
+        self, argv: Sequence[str], *, timeout: float, stdin: str | None = None
+    ) -> None:
+        _run(argv, BIN_PV_MIGRATE, stdin=stdin, timeout=timeout, tail=True)
+
+    def copy(self) -> None:
+        """Copy the old claim to `<claim>-move` with pv-migrate, then read the new volume.
+
+        pv-migrate removes its pods and the other objects of its operation when it ends, also
+        when it fails. When the run stops it, an interrupt or the time bound, it has no time for
+        that, and its rsync pod would hold `<claim>-move`: then the undo removes them first.
+        """
+        plan = self.plan
+        try:
+            self._run_pv_migrate(
+                pv_migrate_argv(plan, self.context, self.operation),
+                stdin=json.dumps(pv_migrate_values(plan)),
+                timeout=DEFAULT_K8S_VOLUME_MOVE_COPY_TIMEOUT_SECONDS,
+            )
+        except (KeyboardInterrupt, VolumeMoveError) as exc:
+            if isinstance(exc, KeyboardInterrupt) or isinstance(
+                exc.__cause__, subprocess.TimeoutExpired
+            ):
+                self._on_undo(
+                    MESSAGES.k8s.volume_move_undo_cleanup.format(operation=self.operation),
+                    self._cleanup_copy,
+                )
+            raise
         self.new_volume = self._kubectl(
             [
                 "get",
@@ -1276,72 +1192,6 @@ class _MoveRun:
             raise VolumeMoveError(
                 MESSAGES.k8s.volume_move_unbound_copy.format(claim=plan.move_claim)
             )
-
-    def stop_workloads(self) -> None:
-        for workload in self.plan.workloads:
-            self._on_undo(
-                MESSAGES.k8s.volume_move_undo_scale.format(
-                    workload=workload.ref, replicas=workload.replicas
-                ),
-                partial(self._scale, workload, workload.replicas),
-            )
-            self._scale(workload, 0)
-        for pod in self.plan.pods:
-            self._wait(f"pod/{pod}", "delete", DEFAULT_K8S_VOLUME_MOVE_WAIT_SECONDS)
-
-    def start_source(self) -> None:
-        self._undo_delete("pod", self.plan.source_pod, "pod")
-        self._create(_copy_pod_manifest(self.plan, destination=False))
-        self._wait(
-            f"pod/{self.plan.source_pod}", "condition=Ready", DEFAULT_K8S_VOLUME_MOVE_WAIT_SECONDS
-        )
-
-    def _stream(self) -> None:
-        _run(
-            copy_argv(
-                self.plan.namespace,
-                self.plan.source_pod,
-                self.plan.destination_pod,
-                self.context,
-            ),
-            "the copy",
-            timeout=DEFAULT_K8S_VOLUME_MOVE_COPY_TIMEOUT_SECONDS,
-        )
-
-    def copy(self) -> None:
-        """Copy once, and once more on an empty destination when the stream stops (#1634)."""
-        try:
-            self._stream()
-        except VolumeMoveError as exc:
-            self.progress(MESSAGES.k8s.volume_move_copy_retry.format(reason=exc))
-            self._kubectl(
-                empty_args(self.plan.destination_pod, self.plan.namespace),
-                timeout=DEFAULT_K8S_VOLUME_MOVE_COPY_TIMEOUT_SECONDS,
-            )
-            self._stream()
-
-    def _side(self, pod: str, directory: str) -> CopyDigest:
-        output = self._kubectl(
-            digest_args(pod, self.plan.namespace, directory),
-            timeout=DEFAULT_K8S_VOLUME_MOVE_COPY_TIMEOUT_SECONDS,
-        )
-        return _parse_digest(output, pod)
-
-    def compare(self) -> None:
-        source = self._side(self.plan.source_pod, CONST_K8S_VOLUME_MOVE_SOURCE_DIR)
-        destination = self._side(self.plan.destination_pod, CONST_K8S_VOLUME_MOVE_DESTINATION_DIR)
-        if source != destination:
-            raise VolumeMoveError(
-                MESSAGES.k8s.volume_move_digest_differs.format(
-                    fields=_differences(source, destination)
-                )
-            )
-        self.digest = source
-        self.progress(
-            MESSAGES.k8s.volume_move_digest_equal.format(
-                entries=source.entries, files=source.files, bytes=source.bytes
-            )
-        )
 
     def _retain(self, volume: str, prior: str) -> None:
         if prior == CONST_K8S_RECLAIM_RETAIN:
@@ -1359,10 +1209,8 @@ class _MoveRun:
         self._retain(self.new_volume, new_policy)
         self._retain(self.plan.old_volume, self.plan.old_reclaim_policy)
 
-    def delete_copy_pods(self) -> None:
+    def settle(self) -> None:
         self._settle()
-        self._delete("pod", self.plan.source_pod, self.plan.destination_pod)
-        self._delete("networkpolicy", self.plan.copy_policy)
 
     def delete_old_claim(self) -> None:
         """Save the claim as it is now, then delete it: the point of no return."""
@@ -1457,11 +1305,9 @@ class _MoveRun:
             self.pause,
             self.make_destination,
             self.stop_workloads,
-            self.start_source,
             self.copy,
-            self.compare,
             self.retain_volumes,
-            self.delete_copy_pods,
+            self.settle,
             self.delete_old_claim,
             self.rebind,
             self.recreate_claim,
@@ -1515,10 +1361,7 @@ class _MoveRun:
             except (VolumeMoveError, KeyboardInterrupt) as exc:
                 raise self.failure(exc, number, steps) from exc
         return VolumeMoveResult(
-            plan=self.plan,
-            new_volume=self.new_volume,
-            saved_claim=self.saved_claim,
-            digest=self.digest,
+            plan=self.plan, new_volume=self.new_volume, saved_claim=self.saved_claim
         )
 
 
@@ -1562,7 +1405,6 @@ def _placeholder_plan(
         pods=("<pod>",),
         applications=("<application>",),
         paused=(*parents, "<application>"),
-        image="<template image>",
         target_storage_class=storage_class or "",
         target_access_modes=(access_mode,) if access_mode else (),
         target_size=size or "",
@@ -1614,26 +1456,35 @@ def _dry_run_class_reads(storage_class: str, context: str | None) -> list[Planne
     ]
 
 
+def _dry_run_own_class_reads(context: str | None) -> list[PlannedRequest]:
+    """The class of the claim and its CSIDriver: whether the kubelet gives a pod's fsGroup to the
+    files, for a copy with `--non-root` that keeps the class."""
+    restricted = "the namespace enforces Pod Security restricted"
+    return [
+        _planned(
+            ["get", "storageclass", "<storage-class>", "--ignore-not-found", "-o", "json"],
+            context,
+            "the StorageClass of the claim",
+            condition=restricted,
+        ),
+        _planned(
+            ["get", "csidriver", "<provisioner>", "--ignore-not-found", "-o", "json"],
+            context,
+            "the CSIDriver of the provisioner of the class",
+            condition=restricted,
+        ),
+    ]
+
+
 def _dry_run_reads(
     plan: VolumeMovePlan, to_node: str | None, context: str | None
 ) -> list[PlannedRequest]:
     ns, claim = plan.namespace, plan.claim
     node = to_node or "<worker-node>"
-    leftovers = [
-        f"pod/{plan.source_pod}",
-        f"pod/{plan.destination_pod}",
-        f"pvc/{plan.move_claim}",
-        f"networkpolicy/{plan.copy_policy}",
-    ]
     nodes = "for each worker node that is Ready and schedulable" + (
         " and can attach a volume of the class" if plan.changes_class else ""
     )
     return [
-        _planned(
-            ["get", "cronjob", "volume-move", "-n", "devops", "--ignore-not-found", "-o", "json"],
-            context,
-            "the copy container image of suspended CronJob devops/volume-move",
-        ),
         _planned(
             ["get", "pvc", claim, "-n", ns, "--ignore-not-found", "-o", "json"],
             context,
@@ -1655,12 +1506,14 @@ def _dry_run_reads(
             "a workload that mounts the claim",
             repeat="for each Deployment or StatefulSet",
         ),
+        _planned(_leftover_args(ns, claim), context, "the claim of an earlier move"),
         _planned(
-            ["get", *leftovers, "-n", ns, "--ignore-not-found", "-o", "name"],
+            ["get", "namespace", ns, "-o", "json"],
             context,
-            "leftovers of an earlier move",
+            f"the Pod Security level of namespace {ns}",
         ),
         *_dry_run_class_reads(plan.target_storage_class, context),
+        *([] if plan.changes_class else _dry_run_own_class_reads(context)),
         _planned(
             ["get", "--raw", f"/api/v1/nodes/{node}/proxy/stats/summary"],
             context,
@@ -1677,27 +1530,37 @@ def _dry_run_reads(
 
 
 def _dry_run_copy(plan: VolumeMovePlan, context: str | None) -> list[PlannedRequest]:
-    ns = plan.namespace
-    stream = tuple(copy_argv(ns, plan.source_pod, plan.destination_pod, context))
-    retry = "the copy fails one time"
+    """The pv-migrate copy as root, or with `--non-root` in a namespace that enforces restricted."""
+    operation = "<operation>"
+    values = json.dumps(pv_migrate_values(plan), indent=2)
+    non_root = replace(plan, non_root=True)
     return [
-        PlannedRequest(method=BIN_BASH, target="the copy", argv=stream),
-        _planned(
-            empty_args(plan.destination_pod, ns),
-            context,
-            f"pod {plan.destination_pod}",
-            condition=retry,
+        PlannedRequest(
+            method=BIN_PV_MIGRATE,
+            target=f"the copy from claim {plan.claim} to claim {plan.move_claim}",
+            argv=tuple(pv_migrate_argv(plan, context, operation)),
+            stdin=values,
+            condition="the namespace does not enforce Pod Security restricted",
         ),
-        PlannedRequest(method=BIN_BASH, target="the copy", argv=stream, condition=retry),
-        _planned(
-            digest_args(plan.source_pod, ns, CONST_K8S_VOLUME_MOVE_SOURCE_DIR),
-            context,
-            f"pod {plan.source_pod}",
+        PlannedRequest(
+            method=BIN_PV_MIGRATE,
+            target=f"the copy from claim {plan.claim} to claim {plan.move_claim}",
+            argv=tuple(pv_migrate_argv(non_root, context, operation)),
+            stdin=values,
+            condition="the namespace enforces Pod Security restricted",
         ),
         _planned(
-            digest_args(plan.destination_pod, ns, CONST_K8S_VOLUME_MOVE_DESTINATION_DIR),
+            [
+                "get",
+                "pvc",
+                plan.move_claim,
+                "-n",
+                plan.namespace,
+                "-o",
+                "jsonpath={.spec.volumeName}",
+            ],
             context,
-            f"pod {plan.destination_pod}",
+            "the new volume",
         ),
     ]
 
@@ -1789,45 +1652,12 @@ def _dry_run_writes(plan: VolumeMovePlan, context: str | None) -> list[PlannedRe
             f"claim {plan.move_claim}",
             stdin=_move_claim_manifest(plan),
         ),
-        _planned(
-            ["create", "-f", "-", "-o", "name"],
-            context,
-            f"NetworkPolicy {plan.copy_policy}",
-            stdin=_copy_policy_manifest(plan),
-        ),
-        _planned(
-            ["create", "-f", "-", "-o", "name"],
-            context,
-            f"pod {plan.destination_pod}",
-            stdin=_copy_pod_manifest(plan, destination=True),
-        ),
-        _planned(
-            _wait_args(f"pod/{plan.destination_pod}", ns, "condition=Ready", wait),
-            context,
-            "the destination pod",
-        ),
-        _planned(
-            ["get", "pvc", plan.move_claim, "-n", ns, "-o", "jsonpath={.spec.volumeName}"],
-            context,
-            "the new volume",
-        ),
         _planned(_scale_args(workload, ns, 0), context, "a workload", repeat="for each workload"),
         _planned(
             _wait_args("pod/<pod>", ns, "delete", wait),
             context,
             "a pod",
             repeat="for each pod that mounts the claim",
-        ),
-        _planned(
-            ["create", "-f", "-", "-o", "name"],
-            context,
-            f"pod {plan.source_pod}",
-            stdin=_copy_pod_manifest(plan, destination=False),
-        ),
-        _planned(
-            _wait_args(f"pod/{plan.source_pod}", ns, "condition=Ready", wait),
-            context,
-            "the source pod",
         ),
         *_dry_run_copy(plan, context),
         _planned(
@@ -1848,16 +1678,6 @@ def _dry_run_writes(plan: VolumeMovePlan, context: str | None) -> list[PlannedRe
             condition="its policy is not Retain",
         ),
         *_dry_run_settle(context),
-        _planned(
-            _delete_args("pod", (plan.source_pod, plan.destination_pod), ns, missing_ok=False),
-            context,
-            "the copy pods",
-        ),
-        _planned(
-            _delete_args("networkpolicy", (plan.copy_policy,), ns, missing_ok=False),
-            context,
-            f"NetworkPolicy {plan.copy_policy}",
-        ),
         _planned(
             ["get", "pvc", claim, "-n", ns, "-o", "json"],
             context,
@@ -1953,19 +1773,17 @@ def dry_run_volume_move(
 
 __all__ = [
     "POINT_OF_NO_RETURN_INDEX",
-    "CopyDigest",
     "VolumeMovePlan",
     "VolumeMoveResult",
     "Workload",
-    "copy_argv",
     "delete_old_volume_command",
     "describe_volume_move",
-    "digest_args",
     "dry_run_volume_move",
-    "empty_args",
     "parse_claim_ref",
     "plan_volume_move",
-    "read_volume_move_image",
+    "pv_migrate_argv",
+    "pv_migrate_cleanup_argv",
+    "pv_migrate_values",
     "rebound_claim",
     "run_volume_move",
 ]

@@ -97,7 +97,7 @@ Each pod that mounts a claim sets this affinity, in its manifest under `k8s/devo
 
 ### Move a volume to another node
 
-`devops k8s volume move <namespace>/<claim>` copies the data of a claim to a new volume on a worker node, and binds the claim to that volume. The workload stops while the copy runs. Move one volume at a time.
+`devops k8s volume move <namespace>/<claim>` copies the data of a claim to a new volume on a worker node, and binds the claim to that volume. The workload stops while the copy runs. Move one volume at a time. The copy is [pv-migrate](https://github.com/utkuozdemir/pv-migrate) (Apache-2.0), which the devtools image installs: the plan refuses a move when `pv-migrate` is not on `PATH`.
 
 ```bash
 devops k8s volume move monitoring/grafana --plan
@@ -106,22 +106,22 @@ devops k8s volume move logging/storage-loki-0 --to-node <worker-node>
 devops k8s volume move llm/qdrant-storage-qdrant-0 --storage-class longhorn
 ```
 
-`--plan` only reads, and prints each step with the real names. `--dry-run` makes no request, and prints the requests of a move. Without `--to-node`, the command moves a volume from the control-plane node to the worker node with the most free disk (`node.fs.availableBytes` in the kubelet's `/stats/summary`). A volume on a worker node moves only to the node that `--to-node` names. The command refuses a claim that is not `Bound`, a target on the control-plane node, a StatefulSet that deletes its claims when it scales down (`persistentVolumeClaimRetentionPolicy.whenScaled: Delete`), and the leftovers of an earlier move: the pods `<claim>-src` and `<claim>-dst`, the claim `<claim>-move` and the NetworkPolicy `<claim>-copy`.
+`--plan` only reads, and prints each step with the real names. `--dry-run` makes no request, and prints the requests of a move. Without `--to-node`, the command moves a volume from the control-plane node to the worker node with the most free disk (`node.fs.availableBytes` in the kubelet's `/stats/summary`). A volume on a worker node moves only to the node that `--to-node` names. The command refuses a claim that is not `Bound`, a target on the control-plane node, a StatefulSet that deletes its claims when it scales down (`persistentVolumeClaimRetentionPolicy.whenScaled: Delete`), and the claim `<claim>-move` of an earlier move.
 
 The move does these steps, and prints each one:
 
-1. It pauses automated sync from the top down: the root Applications of the setting `argocd.root_applications` (`bootstrap`, `cluster`), then each Application that tracks the claim or the workloads that mount it (Pausing an Application, below). If it did not, self-heal would start the workload again during the copy. A pause does not stop a sync operation that already runs, such as the retry of a sync that failed on the immutable class of the claim, and such an operation can make a deleted claim again from git. So after the pause, and again before it deletes the copy pods, the move ends each sync operation of a paused Application that still runs, as `argocd app terminate-op` does, and waits until it is `Failed` (up to 10 minutes). Between two attempts, such an operation has `finishedAt` and still the phase `Running`.
-2. It makes the claim `<claim>-move`, with the size of the old claim and its class (or the class that `--storage-class` names), the NetworkPolicy `<claim>-copy`, and the pod `<claim>-dst` on the target node. local-path binds the new volume on that node. The NetworkPolicy selects the two copy pods and lets them reach each other on TCP port 7373, in both directions, and on no other port. So a namespace that refuses traffic by default still lets the copy pass.
-3. It scales the workloads that mount the claim to zero. It finds them from the volumes of the pod specs, not from labels. It leaves out a pod that has ended (phase `Succeeded` or `Failed`), such as a pod that the shutdown of its node ended: it holds no volume, and a scale to zero does not delete it. Then it starts the pod `<claim>-src`, which mounts the old claim read-only. Its volume keeps it on the old node, so one pod cannot mount the two claims.
-4. It copies from pod to pod over the pod network with GNU tar in the copy container of suspended CronJob `devops/volume-move`, which keeps the owners, the modes and the sparse files. A short exec starts a listener in `<claim>-dst` (Perl `IO::Socket::INET`, port 7373) that gives one connection to `tar -x`. A second exec makes `<claim>-src` send `tar -c` to the IP address of `<claim>-dst` (bash `/dev/tcp`), and a third exec waits for the exit code of the extract. No data goes through an exec stream: through the API server, the stdout of an exec stream lost data at full speed (#7408). When the copy fails, it empties the destination and copies one more time.
-5. It compares the two sides: the number of entries, the number of files, the bytes of the regular files (not `du`, which counts directory blocks), a digest of the metadata (`%y %m %U:%G %P` of each entry) and a digest of the content. It leaves out the top-level `lost+found` of each side: mkfs makes it on a new ext4 volume, such as one of `longhorn`, and a local-path volume has none. It stops at a difference.
-6. It sets the two volumes to `Retain`, deletes the copy pods and the NetworkPolicy `<claim>-copy`, saves the old claim as a JSON file in `k8s/volume-move/` under the data directory, deletes the pods of the claim that have ended (the claim protection counts them, so the delete of the claim would wait for them), and deletes the old claim. This is the point of no return.
+1. It pauses automated sync from the top down: the root Applications of the setting `argocd.root_applications` (`bootstrap`, `cluster`), then each Application that tracks the claim or the workloads that mount it (Pausing an Application, below). If it did not, self-heal would start the workload again during the copy. A pause does not stop a sync operation that already runs, such as the retry of a sync that failed on the immutable class of the claim, and such an operation can make a deleted claim again from git. So after the pause, and again before it deletes the old claim, the move ends each sync operation of a paused Application that still runs, as `argocd app terminate-op` does, and waits until it is `Failed` (up to 10 minutes). Between two attempts, such an operation has `finishedAt` and still the phase `Running`.
+2. It makes the claim `<claim>-move`, with the size of the old claim and its class (or the class that `--storage-class` names).
+3. It scales the workloads that mount the claim to zero. It finds them from the volumes of the pod specs, not from labels. It leaves out a pod that has ended (phase `Succeeded` or `Failed`), such as a pod that the shutdown of its node ended: it holds no volume, and a scale to zero does not delete it.
+4. It copies the old claim to `<claim>-move` with `pv-migrate --strategies clusterip` (#7498). pv-migrate installs its chart as one Helm release, operation `volume-move-<8 hex digits>`: an sshd pod that mounts the old claim read-only, on the old node, and an rsync Job that mounts `<claim>-move` and pulls the data over SSH through a ClusterIP Service. The values on stdin put the rsync pod on the target node (`nodeSelector`), so local-path binds the new volume there, and give the sshd pod the tolerations of the workload pod and of a cordon. pv-migrate makes an allow-all NetworkPolicy for each of its pods, so a namespace that refuses traffic by default lets the copy pass. rsync (`-a`) keeps the modes, the times and the symbolic links, checks each file that it sends, and tries again up to 10 times. It copies a hard link as a separate file and writes a sparse file in full, so give a larger `--size` when the data then does not fit. pv-migrate refuses a claim that a running pod mounts, and removes its release at the end, also when it fails. Then the move reads the new volume of `<claim>-move`.
+5. It sets the two volumes to `Retain`, and ends each sync operation of a paused Application that still runs (step 1).
+6. It saves the old claim as a JSON file in `k8s/volume-move/` under the data directory, deletes the pods of the claim that have ended (the claim protection counts them, so the delete of the claim would wait for them), and deletes the old claim. This is the point of no return.
 7. It deletes `<claim>-move`, reserves its volume for the claim name (`claimRef`), and makes the claim again from the saved one, with `spec.volumeName` and the class of the new volume. It leaves out the annotation `kubectl.kubernetes.io/last-applied-configuration`, and puts the saved value back after the create. `kubectl create` writes the whole new object, `volumeName` included, into that annotation when the manifest has it. Argo CD then tries to remove `volumeName`, and the API server refuses the change (`spec is immutable after creation`).
 8. It scales the workloads back, makes sure that their pods run on the target node (with a class change, that they run on a node that the scheduler selects), and turns on automated sync again: the Application, `cluster`, then `bootstrap`.
 
-Before the point of no return, a failure undoes each change of the move, the last change first. The undo deletes the new volume too: it sets the reclaim policy of the volume of `<claim>-move` to `Delete` before it deletes that claim, because a class with the policy `Retain`, such as `longhorn`, keeps the volume of a deleted claim. From the point of no return on, a failure leaves Argo CD paused, because a self-heal would make an empty claim. The command then prints the saved claim and the steps that did not run.
+Before the point of no return, a failure undoes each change of the move, the last change first. When the run stops pv-migrate (an interrupt, or the bound of one hour), pv-migrate has no time to remove its release, so the undo runs `pv-migrate cleanup <operation> --force` first: else its rsync pod would hold `<claim>-move`. The undo deletes the new volume too: it sets the reclaim policy of the volume of `<claim>-move` to `Delete` before it deletes that claim, because a class with the policy `Retain`, such as `longhorn`, keeps the volume of a deleted claim. From the point of no return on, a failure leaves Argo CD paused, because a self-heal would make an empty claim. The command then prints the saved claim and the steps that did not run.
 
-The copy pods run as root, so that tar keeps the owners. The namespace must allow that: its Pod Security level is `privileged` or `baseline`.
+pv-migrate runs its pods as root, so that rsync keeps the owner and the group of each file. A namespace with the label `pod-security.kubernetes.io/enforce: restricted` refuses such a pod. There, the move adds `--non-root`: pv-migrate gives its pods the security context that `restricted` asks for, runs them as user 10000, and keeps no owner and no group of a file. User 10000 cannot set the mode of the root folder of the new volume, which root owns, so `rsync -a` would end with exit 23 (`failed to set permissions on "/dest/."`). So the move also gives rsync `--no-perms` (`--rsync-extra-args=--no-perms`): the root folder keeps its mode, and each new file and folder gets the mode of its source under the umask 022 of the rsync pod: no write bit for the group and the others, and no setuid, setgid or sticky bit of the source. A new folder takes the setgid bit of its parent folder. The workloads then read the files only through their `fsGroup`: on a volume of a CSI driver whose `fsGroupPolicy` is not `None`, the kubelet gives each file and folder that group each time a pod mounts the volume, adds the bits 0660 to each file and the setgid bit and 0770 to each folder. So after such a move, each file is writable by the group whatever its source mode (a file of 0444 becomes 0664), and each folder has 2775. So in such a namespace the plan refuses a workload whose pod template has no `fsGroup`, and a class with no such driver, such as `local-path`. To keep the owners, move the claim while the namespace enforces `baseline`. pv-migrate as user 10000 also cannot read a file that only its owner can read, and then the copy fails and the move undoes its steps.
 
 The old volume stays `Released`, with its data, until a person deletes it. The command prints the command that deletes it: with the reclaim policy `Delete`, local-path deletes the volume and its directory on the node.
 
@@ -146,29 +146,6 @@ When a move stops after the point of no return, the old claim is gone, the new v
 1. Make the claim again from the saved file with `spec.volumeName: <new-pv>`, and, after a class change, `spec.storageClassName: <class>`. Leave out `kubectl.kubernetes.io/last-applied-configuration` and the annotations of the volume controllers (`pv.kubernetes.io/*`, `volume.kubernetes.io/*`, `volume.beta.kubernetes.io/*`). Then put the saved last-applied value back with `kubectl annotate pvc <claim> -n <namespace> --overwrite kubectl.kubernetes.io/last-applied-configuration=<value>`.
 2. Scale the workloads back to their replicas, and make sure that their pods run on the target node (after a class change, that they run).
 3. Turn on automated sync again: the Application, then `bootstrap`, which restores `cluster`, which restores the others from git.
-
-#### Measure the copy path
-
-The module `src/devops_cli/k8s/volume_move_measure.py` measures the reliability of the copy path between two nodes. It plans the same copy command as `devops k8s volume move` and compares the two sides with the SHA-256 digest script.
-
-```bash
-uv run python -m devops_cli.k8s.volume_move_measure --source-node <source-node> --target-node <target-node>
-```
-
-Options:
-- `--source-node`: The node of the source claim (required).
-- `--target-node`: The node of the destination claim (required). The two node names must differ.
-- `--context`: The kubectl context of the cluster.
-- `--storage-class`: The storage class of the two claims (defaults to `local-path`).
-- `--dry-run`: List the planned requests in order and make no request.
-
-The measure creates one temporary namespace (`volume-move-measure`) with two 1 Gi claims and two pods. The source pod runs on `--source-node` and the destination pod runs on `--target-node`. It runs 20 copies of 100 MiB (104,857,600 bytes) of random data:
-1. It writes fresh random data to the source claim.
-2. It empties the destination claim.
-3. It runs the copy pipe.
-4. It reads the SHA-256 digest of both sides and compares them.
-
-The run deletes the temporary namespace when it ends, whether the copies pass or fail. The report prints a Markdown table with the count of complete copies and digest matches. At least 20 copies must complete with a matching digest (20/20 complete copies and 20/20 digest matches), else the command exits non-zero. A person runs the live measure against the cluster and records the 20/20 numbers in #3953.
 
 ## Service levels
 
@@ -553,7 +530,6 @@ k8s/
 │   ├── cronworkflow-infra-drift.yaml # CronWorkflow infra-drift: runs WorkflowTemplate infra-drift each day
 │   ├── workflowtemplate-infra-drift.yaml # WorkflowTemplate infra-drift
 │   ├── service-probe.yaml    # Suspended CronJob, the template of the service probe pods
-│   ├── volume-move.yaml      # Suspended CronJob, the template of the copy pods of `devops k8s volume move`
 │   ├── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out; skips the crawl4ai, searxng, renovate, planner run and valkey-roadmap pods. Lets each Argo Workflow pod reach the API server on TCP 6443
 │   ├── networkpolicy-infra.yaml # Lets the infra pods reach the cluster nodes on TCP 22
 │   ├── networkpolicy-rag-ingest.yaml # Lets the rag-ingest pods reach Qdrant on TCP 6333

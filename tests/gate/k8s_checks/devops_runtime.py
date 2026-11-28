@@ -83,18 +83,13 @@ def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when
     searxng = {c for c in containers if c[1] in ("searxng", "render-settings")}
     containers -= searxng
     assert ({c[0] for c in searxng}, len({c[2] for c in searxng})) == ({"Deployment"}, 1)
-    # Suspended CronJob templates `service-probe` and `volume-move` pin third-party images by tag
-    # and digest (#6411), and Renovate updates the pins.
+    # Suspended CronJob template `service-probe` pins a third-party image by tag and digest
+    # (#6411), and Renovate updates the pin.
     probe = next(c for c in containers if c[1] == "probe")
     assert probe[0] == "CronJob"
     assert probe[2].startswith("busybox:")
     assert "@sha256:" in probe[2]
     containers.discard(probe)
-    copy_container = next(c for c in containers if c[1] == "copy")
-    assert copy_container[0] == "CronJob"
-    assert copy_container[2].startswith("debian:")
-    assert "@sha256:" in copy_container[2]
-    containers.discard(copy_container)
     # Deployment `valkey-roadmap` runs the two images of the shared Valkey base of dan-petty/infra,
     # which pins each by tag and digest (#7294). A new release tag of the base updates the pins.
     valkey = {c for c in containers if c[1] in ("valkey", "exporter")}

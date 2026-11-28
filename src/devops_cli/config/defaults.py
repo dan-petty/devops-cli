@@ -1348,18 +1348,16 @@ DEFAULT_K8S_DOCTOR_EGRESS_PROBE_SECONDS: int = 5
 # ── Kubernetes Local-Path Volume Move Defaults (#2186) ───────────────────────
 # A plain kubectl request: a read, a patch, a create, a scale or a delete without a wait.
 DEFAULT_K8S_VOLUME_MOVE_REQUEST_TIMEOUT_SECONDS: float = 120.0
-# How long `kubectl wait` waits for a pod to be Ready or gone, a delete and a claim to bind.
+# How long `kubectl wait` waits for a pod to be gone, a delete and a claim to bind, and how long
+# pv-migrate waits for its pods (`--helm-timeout`).
 DEFAULT_K8S_VOLUME_MOVE_WAIT_SECONDS: int = 300
 # How long the workloads may take to be ready again after the move.
 DEFAULT_K8S_VOLUME_MOVE_ROLLOUT_SECONDS: int = 600
-# The bound of one copy and of one side's digest, which read every byte of the volume.
+# The bound of the pv-migrate copy, which reads every byte of the volume (#7498).
 DEFAULT_K8S_VOLUME_MOVE_COPY_TIMEOUT_SECONDS: float = 3600.0
 # How long a volume move waits for a sync operation of a paused Argo CD Application to end: an
 # operation retries up to 5 times with a backoff of up to 3 minutes (#7464).
 DEFAULT_K8S_VOLUME_MOVE_SYNC_WAIT_SECONDS: int = 600
-# How long the copy waits for the extract in the destination copy pod after the source has sent
-# the whole archive: the extract then only writes the last of its input.
-DEFAULT_K8S_VOLUME_MOVE_EXTRACT_WAIT_SECONDS: int = 300
 # The characters of kubectl's error output that a failure message keeps.
 DEFAULT_K8S_VOLUME_MOVE_DETAIL_CHARS: int = 400
 

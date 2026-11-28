@@ -1055,7 +1055,7 @@ devops k8s volume reclaim [OPTIONS] <name>
 
 ### `devops k8s volume move`
 
-**Move the data of a local-path claim to a new volume on another node or of another storage class, and bind the claim to it. The move pauses Argo CD from the top down, stops the workloads that mount the claim, copies the data with GNU tar from pod to pod, compares the two sides, binds the claim to the new volume, starts the workloads and resumes Argo CD. Before it deletes the old claim, a failure undoes its steps; after that, a failure leaves Argo CD paused and names the saved claim. The old volume stays, with reclaim policy Retain, until a person deletes it.**
+**Move the data of a local-path claim to a new volume on another node or of another storage class, and bind the claim to it. The move pauses Argo CD from the top down, stops the workloads that mount the claim, copies the data with pv-migrate (rsync over SSH from pod to pod), binds the claim to the new volume, starts the workloads and resumes Argo CD. In a namespace that enforces Pod Security restricted, pv-migrate runs with --non-root and rsync with --no-perms, so a file keeps no owner. Before it deletes the old claim, a failure undoes its steps; after that, a failure leaves Argo CD paused and names the saved claim. The old volume stays, with reclaim policy Retain, until a person deletes it.**
 
 ```bash
 devops k8s volume move [OPTIONS] <claim>
