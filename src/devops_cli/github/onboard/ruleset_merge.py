@@ -183,15 +183,17 @@ def _merge_parameters(
 
 def _add_live_rule(merged: dict[str, Any], rule: Mapping[str, Any], check_rule: str) -> list[str]:
     """Add a live rule that the baseline lacks to `merged`, and give the warning lines of its
-    parameters, or of the rule itself when it holds none."""
+    parameters, or of the rule itself when it holds none. The required checks rule gives no line
+    of its own: the change line of row 10 names each of its checks."""
+    kind = str(rule.get("type"))
     added = copy.deepcopy(dict(rule))
-    parameters, lines = _merge_parameters(
-        str(rule.get("type")), {}, rule.get("parameters") or {}, check_rule
-    )
+    parameters, lines = _merge_parameters(kind, {}, rule.get("parameters") or {}, check_rule)
     if parameters or "parameters" in rule:
         added["parameters"] = parameters
     merged["rules"].append(added)
-    return lines or [_kept_rule_line(str(rule.get("type")))]
+    if lines or kind == check_rule:
+        return lines
+    return [_kept_rule_line(kind)]
 
 
 def _without_file_parameters(

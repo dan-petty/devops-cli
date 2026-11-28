@@ -164,6 +164,19 @@ def test_merge_keeps_a_live_required_checks_rule(
     )
 
 
+def test_merge_names_no_live_required_checks_rule_that_holds_only_checks() -> None:
+    from devops_cli.github.onboard.ruleset_merge import merge_live_ruleset
+
+    # The baseline has no required checks rule, and the live rule holds only its checks, which the
+    # change line of row 10 names.
+    live = _ruleset(_rule(_CHECKS, required_status_checks=[{"context": "Lint"}]))
+
+    merged, warnings = merge_live_ruleset(_ruleset(_rule("deletion")), live, _CHECKS)
+
+    assert _contexts(merged) == ["Lint"]
+    assert warnings == ()
+
+
 def test_merge_takes_the_baseline_value_of_a_weaker_live_parameter() -> None:
     from devops_cli.github.onboard.ruleset_merge import merge_live_ruleset
 
