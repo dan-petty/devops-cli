@@ -255,7 +255,8 @@ spec:
     # The NetworkPolicies select pods by this label (networkpolicy-egress.yaml admits the label of
     # the Service to the API server), so the label of a Job pod stays the label of a Job. The
     # component `roadmap-stage` admits a pod to SearXNG (searxng/networkpolicy-client.yaml), so
-    # only the pod of a stage Job carries it.
+    # only the pod of a stage Job carries it, and `project-review` (Argo project-review workflow,
+    # Prometheus/Loki egress in homelab#276) is refused on non-stage Service Jobs (#7402).
     - expression: >-
         has(object.spec.template.metadata) && has(object.spec.template.metadata.labels) &&
         "app.kubernetes.io/name" in object.spec.template.metadata.labels &&
@@ -265,8 +266,11 @@ spec:
         (object.spec.template.metadata.labels["app.kubernetes.io/name"] == "devops-cli-job" &&
         (variables.stage ==
         ("app.kubernetes.io/component" in object.spec.template.metadata.labels &&
-        object.spec.template.metadata.labels["app.kubernetes.io/component"] == "roadmap-stage"))))
-      message: The pod label app.kubernetes.io/name must be devops-cli-job, or devops-cli-planner-run for a planner run Job with no component label, and the pod label app.kubernetes.io/component is roadmap-stage on the pod of a stage Job and on no other pod.
+        object.spec.template.metadata.labels["app.kubernetes.io/component"] == "roadmap-stage")) &&
+        (variables.stage ||
+        !("app.kubernetes.io/component" in object.spec.template.metadata.labels) ||
+        object.spec.template.metadata.labels["app.kubernetes.io/component"] != "project-review")))
+      message: The pod label app.kubernetes.io/name must be devops-cli-job, or devops-cli-planner-run for a planner run Job with no component label, and the pod label app.kubernetes.io/component is roadmap-stage on the pod of a stage Job and on no other pod, and is never project-review.
       reason: Forbidden
     # Fields that reach beyond the pod: a priority class can preempt other pods, and a node name
     # skips the scheduler.
