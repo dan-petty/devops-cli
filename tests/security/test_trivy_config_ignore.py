@@ -33,3 +33,12 @@ def test_the_other_trivy_scans_keep_the_plain_ignore_file(tmp_path: Path) -> Non
     cmd = TrivyScanner().build_command(tmp_path, cwd=tmp_path)
 
     assert "--ignorefile" not in cmd
+    assert "--skip-dirs" not in cmd
+
+
+def test_the_config_scan_skips_virtualenv_directories(tmp_path: Path) -> None:
+    """`trivy config` skips `.venv` and nested virtualenvs so third-party packages are ignored."""
+    cmd = TrivyConfigScanner().build_command(tmp_path, cwd=tmp_path)
+
+    skip_dirs = [cmd[idx + 1] for idx, token in enumerate(cmd) if token == "--skip-dirs"]
+    assert skip_dirs == [".venv", "**/.venv"]
