@@ -1092,3 +1092,16 @@ def test_cleanup_in_new_data_folder_respects_repo_filter_and_keeps_others(tmp_pa
     assert fake_qdrant.count_points("devops_docs", {"project_name": "owner/gone"}) == 0
     assert fake_qdrant.count_points("devops_code", {"project_name": "owner/b"}) == 1
     assert fake_qdrant.count_points("devops_code", {"project_name": "workstation-proj"}) == 1
+
+
+def test_project_state_store_methods_fail_soft_on_qdrant_error(tmp_path: Path) -> None:
+    """Qdrant errors in read/write/list project state fail soft and return empty defaults."""
+    fake_qdrant = FakeQdrantClient()
+    fake_qdrant.fail_operation("scroll_points", "set_payload", "scroll_payloads")
+    indexer = WorkspaceIndexer(
+        qdrant=cast(Any, fake_qdrant), embedder=FixedVectorEngine(), cache_dir=tmp_path
+    )
+
+    assert indexer.read_project_state("owner/repo") == {}
+    indexer.write_project_state("owner/repo", head="abc", branch="main", visibility="public")
+    assert indexer.list_project_names() == set()
