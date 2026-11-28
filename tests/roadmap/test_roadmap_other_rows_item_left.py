@@ -13,16 +13,11 @@ import pytest
 from devops_cli.exceptions.git import GitHubNotAnIssueError
 from devops_cli.github.metrics import get_item_age_metrics
 from devops_cli.github.release_title import RELEASE_CONFIG_PATH
-from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE
+from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, STAGE_TEMPLATE
 from devops_cli.k8s.cluster_job_api import ClusterJobs
 from devops_cli.roadmap.failure import FailureClass, StepName
+from devops_cli.roadmap.implement import implement_submit
 from devops_cli.roadmap.implement.implement import parse_implement_filters, plan_implement
-from devops_cli.roadmap.implement.implement_submit import (
-    _fresh,
-    _note_needs_fix,
-    _report_ended,
-    _submit_selected_targets,
-)
 from devops_cli.roadmap.intake.intake import apply_intake
 from devops_cli.roadmap.open_row import run_open_round
 from devops_cli.roadmap.planned import PlannedChanges
@@ -34,13 +29,14 @@ from devops_cli.roadmap.refine.refine import (
 )
 from devops_cli.roadmap.retitle import RetitleReply, apply_retitle, plan_retitle
 from devops_cli.roadmap.return_item import plan_return
-from devops_cli.roadmap.stage.stage import StageFailure, _record_failures
+from devops_cli.roadmap.stage import stage as stage_mod
+from devops_cli.roadmap.stage.stage import StageFailure
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
-from devops_cli.roadmap.stage.stage_submit import STAGE_TEMPLATE, job_name_of, run_stage_round
+from devops_cli.roadmap.stage.stage_submit import job_name_of, run_stage_round
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL, Verification
+from devops_cli.roadmap.steps import open as open_mod
 from devops_cli.roadmap.steps.fix_plan import FixPlanResult, run_fix_plan
-from devops_cli.roadmap.steps.open import _record_pr_marks, _sync_status
 from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.stores.listing_snapshot import FileSnapshotStore, IncrementalListing
 from devops_cli.roadmap.stores.store import (
@@ -110,7 +106,7 @@ def test_implement_submit_fresh_raises_github_not_an_issue_not_lookup_error() ->
     store.leave(gone)
 
     with pytest.raises(GitHubNotAnIssueError) as err:
-        _fresh(store, gone)
+        implement_submit._fresh(store, gone)
 
     assert err.value.number == gone
 
@@ -188,14 +184,14 @@ def test_implement_row_skips_item_that_left_and_continues(
         store.set_marks(g2, {ImplementRecordKey.JOB: "devops-cli-runner-report-gone"})
         store.leave(gone2)
         jobs = ClusterJobs()
-        reported = _report_ended(store, jobs, {}, REPO)
+        reported = implement_submit._report_ended(store, jobs, {}, REPO)
         cronjob = cronjob_template(RUNNER_TEMPLATE)
         cluster.custom_objects.objects[CRONJOBS] = [cronjob]
-        created, _ = _submit_selected_targets(
+        created, _ = implement_submit._submit_selected_targets(
             store,
             jobs,
             REPO,
-            plan.selected,
+            list(plan.selected),
             "example-roadmap",
             stage_repo.clone,
             planned,
@@ -215,7 +211,9 @@ def test_implement_row_skips_item_that_left_and_continues(
         store.leave(gone3)
         from devops_cli.roadmap.implement.implement import ImplementPlan, NeedsFix
 
-        noted = _note_needs_fix(store, ImplementPlan(REPO, needs_fix=(NeedsFix(g3, 99),)))
+        noted = implement_submit._note_needs_fix(
+            store, ImplementPlan(REPO, needs_fix=(NeedsFix(g3, 99),))
+        )
 
     assert (
         [t.item.number for t in plan.selected],
@@ -241,6 +239,7 @@ def test_stage_row_skips_item_that_left_and_continues(
     cluster: FakeCluster,
     github_api: GitHubApiFake,
     config: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """`run_stage_round` and `_record_failures` skip an item that left without failing (#7363)."""
@@ -273,13 +272,13 @@ def test_stage_row_skips_item_that_left_and_continues(
             store.leave(gone)
         return orig_set_field(item, field, value, marks=marks, **kwargs)
 
-    store.set_field = _fail_gone_claim  # type: ignore[method-assign]
+    monkeypatch.setattr(store, "set_field", _fail_gone_claim)
 
     with caplog.at_level(logging.WARNING):
         result = run_stage_round(store, repo=REPO, source=stage_repo.clone, jobs=jobs, now=NOW)
-        store.set_field = orig_set_field  # type: ignore[method-assign]
+        monkeypatch.undo()
         store.leave(gone_fail)
-        _record_failures(
+        stage_mod._record_failures(
             store,
             [
                 StageFailure(
@@ -327,6 +326,7 @@ def test_stage_row_skips_item_that_left_and_continues(
 def test_watch_row_skips_item_that_left_and_continues(
     github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """`watch_round` skips an item that left when setting marks or syncing status (#7363)."""
@@ -388,7 +388,7 @@ def test_watch_row_skips_item_that_left_and_continues(
             store.leave(gone)
         orig_set_marks(item, marks, **kwargs)
 
-    store.set_marks = _leave_before_watch_write  # type: ignore[method-assign]
+    monkeypatch.setattr(store, "set_marks", _leave_before_watch_write)
 
     with caplog.at_level(logging.WARNING):
         res: WatchRoundResult = watch_round(
@@ -413,6 +413,7 @@ def test_watch_row_skips_item_that_left_and_continues(
 def test_open_row_and_open_steps_skip_item_that_left_and_continue(
     stage_repo: StageRepo,
     github_api: GitHubApiFake,
+    monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """`run_open_round` and `open` mark/status helpers leave out an item that left (#7363)."""
@@ -471,8 +472,8 @@ def test_open_row_and_open_steps_skip_item_that_left_and_continue(
 
     with caplog.at_level(logging.WARNING):
         store.leave(gone)
-        _record_pr_marks(store, gone, "delivery", 201, b_gone)
-        _sync_status(store, gone, "delivery")
+        open_mod._record_pr_marks(store, gone, "delivery", 201, b_gone)
+        open_mod._sync_status(store, gone, "delivery")
         gone_mid = store.seed_issue(
             "fix(ci): open mid gone", fields={ItemField.PRIORITY: "P1-High"}
         )
@@ -501,7 +502,7 @@ def test_open_row_and_open_steps_skip_item_that_left_and_continue(
                 store.leave(gone_mid)
             orig_set_marks(item, marks, **kwargs)
 
-        store.set_marks = _leave_mid  # type: ignore[method-assign]
+        monkeypatch.setattr(store, "set_marks", _leave_mid)
         github_api.route(
             "GET",
             f"/repos/{REPO}/pulls?head=example:{b_mid}&state=open",
@@ -612,6 +613,7 @@ def test_fix_plan_row_skips_item_that_left_and_completes_next_item(
     github_api: GitHubApiFake,
     model_fake: ModelFake,
     openspec_fake: OpenSpecFake,
+    monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """`run_fix_plan` skips an item that left mid-attempt and completes the next candidate (#7363)."""
@@ -650,7 +652,7 @@ def test_fix_plan_row_skips_item_that_left_and_completes_next_item(
             store.leave(gone)
         orig_set_marks(item, marks, **kwargs)
 
-    store.set_marks = _leave_on_start  # type: ignore[method-assign]
+    monkeypatch.setattr(store, "set_marks", _leave_on_start)
     verifier = ModelFake()
     verifier.answer(
         Verification(findings=[finding(DefectType.CRITERION_DROPPED)]), later_review(GONE)
@@ -727,7 +729,7 @@ def test_github_store_closures_drops_left_issue_and_raises_not_an_issue(
 
     store = GitHubRoadmapStore(
         "acme/widgets",
-        runner=_runner_with_graphql_error,  # type: ignore[arg-type]
+        runner=_runner_with_graphql_error,
         session=RunnerSession(fake),
         listing=listing,
     )
