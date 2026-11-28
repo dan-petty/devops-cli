@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.232.3](https://github.com/dan-petty/devops-cli/compare/v0.232.2...v0.232.3) (2026-11-28)
+
+
+### Code Refactoring
+
+* **k8s:** replace the volume move copy with pv-migrate ([#7518](https://github.com/dan-petty/devops-cli/issues/7518)) ([2669c9e](https://github.com/dan-petty/devops-cli/commit/2669c9e0ace72728aa1dcc861ed383f73a8a2039))
+
 ## [0.232.2](https://github.com/dan-petty/devops-cli/compare/v0.232.1...v0.232.2) (2026-11-28)
 
 
