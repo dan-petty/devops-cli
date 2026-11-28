@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.232.7](https://github.com/dan-petty/devops-cli/compare/v0.232.6...v0.232.7) (2026-11-28)
+
+
+### Bug Fixes
+
+* **research:** read advisory ranges with no operator or a suffix ([#7551](https://github.com/dan-petty/devops-cli/issues/7551)) ([10f4546](https://github.com/dan-petty/devops-cli/commit/10f4546cd0af29a86d2788f1d3a199c206fdd851))
+
 ## [0.232.6](https://github.com/dan-petty/devops-cli/compare/v0.232.5...v0.232.6) (2026-11-28)
 
 
