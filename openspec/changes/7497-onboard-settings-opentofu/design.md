@@ -6,14 +6,15 @@
 
 ## Decisions
 
-### D1. The root, the module and the state
+### D1. The roots, the module and the state
 
-- **Module:** dan-petty/infra `tf/modules/github-repository`, at a release tag. ADR 0032 section 8 put the shared module in infra. A root pins it with `?ref=vX.Y.Z`, and Renovate updates the pin.
-- **Root:** dan-petty/homelab `tf/github/dan-petty`, one root for each owner account. A provider block names one owner (ADR 0026, context), and the roots name private repositories (ADR 0032, section 8). homelab#360 adds `tf/github/retric-ai` later.
-- **State:** the `kubernetes` backend of OpenTofu, namespace `tofu-state`, `secret_suffix = "github-dan-petty"`. The backend keeps the state in Secret `tfstate-default-github-dan-petty` and locks with a Lease. The planned values of devops-cli are 7,844 bytes (2,130 gzip), so 11 repositories stay far below the 1 MiB limit of a Secret.
+- **Module:** dan-petty/infra `tf/modules/github-repository` (dan-petty/infra#240). The public root calls it by a local path. The private root pins a release tag with `?ref=vX.Y.Z`, and Renovate updates the pin.
+- **Public root:** dan-petty/infra `tf/github/dan-petty`, with the 9 public repositories of the account (dan-petty/infra#241). infra is public, and GitHub gives required reviewers to an environment of a public repository on each plan ("Deployments and environments": "If you are on a GitHub Free, GitHub Pro, or GitHub Team plan, required reviewers are only available for public repositories"). ADR 0032 section 8 kept the roots out of infra because they name private repositories. This root names none, so ADR 0041 amends that section.
+- **Private root:** dan-petty/homelab `tf/github/dan-petty-private`, with homelab and the site repository (dan-petty/homelab#643). A public root would show their names in its code, its logs and its plan comments. The private-data guard of infra also refuses the real domain (`scripts/private-data-scan.sh`, rule `private-domain` from `PRIVATE_DOMAINS`), and the site repository has that name.
+- **State:** the `kubernetes` backend of OpenTofu in namespace `tofu-state`, with `secret_suffix = "github-dan-petty"` and `"github-dan-petty-private"`. The backend keeps each state in Secret `tfstate-default-<suffix>` and locks with a Lease. The planned values of devops-cli are 7,844 bytes (2,130 gzip), so each state stays far below the 1 MiB limit of a Secret.
 - **Pins:** `required_version` and the provider version are exact, and `.terraform.lock.hcl` is in git, as in `tf/examples/` of infra.
 
-One root for each account gives one plan, one state and one drift step for each account.
+One root for each account and visibility gives one plan and one state for each, and keeps each private name in a private repository.
 
 ### D2. The facts of each repository
 
@@ -79,16 +80,21 @@ devops-cli:
 
 - Provider v6.13.0 has 0 write-only attributes and 0 ephemeral resources (`tofu providers schema -json`). `github_actions_environment_secret` keeps `value` or `value_encrypted` in the state, and `github_repository_webhook` keeps `configuration.secret`.
 - So no root declares a secret resource or a webhook. The release key stays with row 6, which seals it and sends it through `gh` with the key from the keyring (`settings_rows.py:551-626`). The webhook stays with row 12 until #4417. This is decision 4 of ADR 0026.
-- The state then holds no secret value. RBAC of namespace `tofu-state` protects it: the owner writes it, and the drift identity of homelab#523 gets `get` and `list` only. State encryption is deferred: a passphrase is one more secret that the owner and the drift Job must hold, and it protects nothing that is secret.
-- A check of homelab CI keeps it so: `! git grep -nE 'resource "github_(actions_(environment_)?secret|actions_organization_secret|dependabot_secret|codespaces_secret|repository_webhook)"' -- tf/github`.
+- The state then holds no secret value. RBAC of namespace `tofu-state` protects it: the ServiceAccount of the runner scale set of D7 writes it, and the drift identity of homelab#523 gets `get` and `list` only. State encryption is deferred: a passphrase is one more secret that the owner and the drift Job must hold, and it protects nothing that is secret.
+- A check of the CI of each root (dan-petty/infra#241, dan-petty/homelab#359) keeps it so: `! git grep -nE 'resource "github_(actions_(environment_)?secret|actions_organization_secret|dependabot_secret|codespaces_secret|repository_webhook)"' -- tf/github`.
 
-### D7. An agent plans, and the owner applies
+### D7. CI applies, and the owner approves each apply
 
-- An agent changes `repositories.yaml` or the module in a pull request, and runs `devops tf plan <homelab>/tf/github/dan-petty -lock=false`. The guard of `tf-github-agent-guard` gives `tofu` a token of the read-only App `devops-settings-reader`. `devops tf apply` exits 1 for an agent at the default access `plan`.
-- With that token, GitHub sends no merge settings, so the plan shows `false -> true` for them (upstream #3382). The agent reads the other lines. The plan of the owner and of the drift Job use a token that reads them.
-- The owner approves a change by reading the plan and confirming `devops tf apply` in a person terminal with the owner's login. `tofu apply` asks for `yes`.
-- An apply in CI does not fit. Agents merge every homelab pull request (homelab#538), so an apply on merge lets an agent change a setting, which AGENTS.md gives only to a person. GitHub gives required reviewers to no private repository on the Free, Pro or Team plan ("Deployments and environments"), so no environment gate can stop the job. A write key in CI is also a standing credential with Administration write on each repository.
-- The drift Job of #5328 needs the permission set of `CONST_GITHUB_APP_DRIFT_TOKEN_PERMISSIONS` (#6888), not the reader App, or each night shows the merge settings as drift. It runs `tofu plan -detailed-exitcode -lock=false` only.
+The owner accepted this flow on 2026-11-28 ("proceed as recommended", after the merge of #7521): no person runs `tofu apply` in a terminal, CI applies, and the owner approves each apply with one click.
+
+- **Where the jobs run.** A GitHub-hosted runner cannot reach the API server of the cluster, which holds the state. The S3 gateway of SeaweedFS is a ClusterIP Service behind `k8s/object-store/networkpolicy.yaml` of homelab, with no tunnel route. So the jobs run on a second runner scale set of actions-runner-controller, registered to dan-petty/infra (dan-petty/homelab#642), with ephemeral gVisor pods as `k8s/arc-runners/values.yaml` of homelab has. The scale set `runner-homelab` serves only homelab (`githubConfigUrl`), and a runner of a personal account serves one repository.
+- **Kube credentials.** The pods run as one ServiceAccount with a projected token. A Role in `tofu-state` gives it `get`, `list`, `create`, `update` and `patch` on `secrets`, and `get`, `create`, `update` and `delete` on `leases`, and nothing else. Its NetworkPolicy admits the API server and public HTTPS only.
+- **The risk of a self-hosted runner on a public repository.** GitHub says that "self-hosted runners should almost never be used for public repositories" ("Secure use reference"), because a fork pull request can run code on them. The owner sets the fork approval of infra to `all_external_contributors` (`PUT /repos/{owner}/{repo}/actions/permissions/fork-pr-contributor-approval`). A pod lives for one job, reaches only `tofu-state`, and holds no key that writes to GitHub outside the approved job. The import blocks rebuild a lost or changed state.
+- **Pull request.** The job runs `tofu plan -refresh=false -lock=false`: the change of the pull request against the state, with no read of the live settings, so the merge settings show no false change (#3382). tfcmt v4.14.21 (MIT) posts it, the tool of #7503. The reader App gives the token for the read of a new import.
+- **Push to `main`.** One job runs in environment `github-settings` of infra. Its required reviewer is the owner, and its branch policy is `main`. "A workflow job cannot access environment secrets until approval is granted by a reviewer" ("Secure use reference"). Only this environment holds the key of the writer App `devops-settings-writer`, which a person creates. After the approval, the job mints a token, runs `tofu plan` and `tofu apply` on both roots, and posts the result with tfcmt. One concurrency group runs one apply at a time. For the private root, the job checks out homelab, masks each private name with `::add-mask::`, and posts the plan only to homelab. A merge in homelab that changes that root starts the job with `workflow_dispatch`.
+- **Agents.** An agent writes the pull request and reads the plan comment. It cannot apply: the key of the writer App is only in the approved job. Agents use the gh login of the owner, so #7534 makes `devops gh api` refuse an agent's review of a pending deployment (`POST repos/{owner}/{repo}/actions/runs/{run_id}/pending_deployments`), as it refuses the settings routes. `devops tf apply` still refuses an agent.
+- **Who approves.** The owner, with one click on the pending deployment in the GitHub UI, after the plan comment of the pull request.
+- **Drift.** #5328 stays in the cluster. It plans both roots with the token of `CONST_GITHUB_APP_DRIFT_TOKEN_PERMISSIONS` (#6888), because the reader App gets no merge settings (#3382). In infra, that token would need a key outside the approved environment.
 
 ### D8. What stays in `devops repos onboard`
 
@@ -96,7 +102,7 @@ Row numbers stay, so `--only` lists, scripts and documents keep their meaning. R
 
 | Row | After the change |
 | --- | --- |
-| 0 Preflight | Stays. A missing repository fails with the step: add it to `tf/github/<owner>`, and the owner applies. |
+| 0 Preflight | Stays. A missing repository fails with the step: add it to a root of OpenTofu, and the owner approves the apply. |
 | 1 Create | Goes: `github_repository` creates the repository. |
 | 2 Repository | Goes: `github_repository`. |
 | 3 Security | Keeps private vulnerability reporting (#2399), immutable releases (#2746) and the default setup (pull request #3315). The alerts and the workflow permissions go. |
@@ -125,16 +131,18 @@ Deleted code, estimated from the function ranges at 70dc18c65:
 
 ### D9. Migration order
 
-1. The owner accepts ADR 0041 (the merge of this pull request).
-2. dan-petty/infra: the module, its `tofu test`, `tflint` and `trivy config`, and a release.
-3. dan-petty/homelab: the CI check of homelab#359, extended with `tflint`, `trivy config` and the secret check of D6.
-4. dan-petty/homelab: the root with one probe repository (dan-petty/dotfiles: public, no environment). An agent merges it.
-5. The owner runs `tofu init`, then `tofu plan`, which must print `N to import, 0 to add, 0 to change, 0 to destroy`, then `tofu apply`. Then `tofu plan -detailed-exitcode` exits 0.
-6. The owner runs the script of D5 for each repository whose `main` holds `code_quality` or `code_coverage`.
-7. dan-petty/homelab: the other repositories, devops-cli last, each import proved as in step 5.
-8. devops-cli: the build pull request of this change. It goes after step 7, so no setting is without a writer.
-9. dan-petty/github-workflows: delete the settings file, the schema and the two questions, and release. The consumers take the release through Renovate, and `copier update` deletes `github/repository.yaml` in each repository.
-10. #5328: the drift Workflow runs the plan of each root (D7).
+1. The owner accepts ADR 0041.
+2. #7534: `devops gh api` refuses an agent's review of a pending deployment.
+3. dan-petty/infra#240: the module, its `tofu test`, `tflint` and `trivy config`, and a release.
+4. dan-petty/homelab#642: the runner scale set of infra and its access to `tofu-state`.
+5. dan-petty/infra#241: the root with no entry, its checks and its workflow. The owner creates the writer App, environment `github-settings` with the owner as reviewer, the secrets and the fork approval.
+6. dan-petty/infra#242: the probe dan-petty/dotfiles (public, no environment). The plan comment says `N to import, 0 to add, 0 to change, 0 to destroy`. The owner approves the apply, and then `tofu plan -detailed-exitcode` exits 0.
+7. The owner runs the script of D5 for each repository whose `main` holds `code_quality` or `code_coverage`.
+8. dan-petty/infra#243: the other public repositories, devops-cli last, each import proved as in step 6.
+9. dan-petty/homelab#643: the private root, proved as in step 6.
+10. devops-cli: the build pull request of this change (#7497). It goes after steps 6 to 9, so no setting is without a writer.
+11. dan-petty/github-workflows#11: delete the settings file, the schema and the two questions, and release. Renovate brings the release, and `copier update` deletes `github/repository.yaml` in each consumer.
+12. #5328: the drift job plans both roots.
 
 ### D10. Related items
 
@@ -142,6 +150,7 @@ Deleted code, estimated from the function ranges at 70dc18c65:
 - #7309, #7310, #7406 and #7411 are faults of the template pull request (audit rank 16). This change does not touch them.
 - #5325 returns to its stack form: the Pages site, `github-pages` and the collaborators of devops-cli go into the root, and dan-petty/infra#175 and #188 move there.
 - #5329 (remove `devops gh branch-protection`) and #5311 (the plan of the settings as code) stay open.
+- dan-petty/homelab#359 now checks only the private root, and dan-petty/homelab#360 (the root of retric-ai) follows the same split by visibility.
 
 ## Rejected alternatives
 
@@ -155,5 +164,12 @@ Deleted code, estimated from the function ranges at 70dc18c65:
 - **`lifecycle { ignore_changes = all }` on `main`.** Upstream users of #3664 do this, but then the plan shows no change of `main`, also not the removal of a required check.
 - **`Mastercard/restapi` 3.0.0 for the five calls.** It is maintained and Apache-2.0 (release of 2026-02-27). Four of the five endpoints are toggles with `PUT` and `DELETE` and no ID, or `PATCH` only, so each object needs method overrides. No read-only plan of these objects ran, so their drift behavior is not proved. Deferred, not refused.
 - **The reader App for the drift Job.** It cannot read the merge settings (#3382, #6888), so each night would show drift.
-- **An apply by CI with an App token, gated by an environment.** D7: agents merge homelab pull requests, and a private repository has no required reviewers on the Free, Pro or Team plan.
+- **The owner applies from a terminal.** The owner chose one approval in the GitHub UI for each apply (D7).
+- **The root in homelab with an environment gate.** homelab is private, and GitHub gives required reviewers to no private repository on the Free, Pro or Team plan.
+- **An apply on merge with no approval.** The `main` rulesets of infra and homelab need 0 approvals (`required_approving_review_count: 0`), and agents merge with the gh login of the owner, so a merge is no person gate.
+- **GitHub-hosted runners with the `kubernetes` backend.** They cannot reach the API server of the cluster.
+- **An S3 backend on the SeaweedFS of the cluster, behind the tunnel.** The S3 gateway is internal (D7). A public route would put the object store, which holds other buckets, on the internet with key authentication only, because the S3 backend of OpenTofu sends no Cloudflare Access headers. A bucket outside the cluster (R2 or S3) with OpenTofu state encryption is deferred until the owner has one.
+- **Runs with no state, from the import blocks only.** A resource that the configuration no longer lists is in no plan, and the server IDs of a new ruleset or policy must go back into `repositories.yaml`.
+- **A plan with a refresh in the pull request job.** It needs a token that reads the merge settings (Contents write) outside the approved environment, or it shows them as `false -> true` (#3382).
+- **The public root with the private repositories, their names masked.** The names stay in the code of a public repository, and the private-data guard of infra refuses the real domain (D1).
 - **OpenTofu state encryption with `pbkdf2`.** D6: the state holds no secret value, and the passphrase is one more secret.

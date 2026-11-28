@@ -6,7 +6,8 @@
 
 ## What Changes
 
-- A new decision record, ADR 0041, replaces ADR 0035 and amends decisions 1, 4 and 7 of ADR 0026. OpenTofu holds each repository setting that provider 6.13.0 can hold. One root for each owner account in dan-petty/homelab (`tf/github/<owner>`) calls the module `tf/modules/github-repository` of dan-petty/infra. The owner applies.
+- A new decision record, ADR 0041, replaces ADR 0035, amends decisions 1, 3, 4 and 7 of ADR 0026, and amends section 8 of ADR 0032. OpenTofu holds each repository setting that provider 6.13.0 can hold. The root of the public repositories of an owner account is in dan-petty/infra (`tf/github/<owner>`), next to the module `tf/modules/github-repository`. The root of its private repositories is in dan-petty/homelab (`tf/github/<owner>-private`).
+- CI applies, and the owner approves each apply: a pull request gets its plan as a tfcmt comment, and a push to `main` of infra runs the apply in environment `github-settings`, whose required reviewer is the owner (design D7).
 - ADR 0026 gets the new amendment. This pull request holds the plan and the proposed record only, with no code. When the owner accepts the decision, the same pull request makes ADR 0041 supersede ADR 0035, moves the five citations of ADR 0035 in `src/` and `tests/` (which `tests/invariants/test_adr_superseded_citations.py` requires), and changes row ACC-3 of `docs/guidelines/production-readiness.md` with its entry in `READINESS_ROWS` (task 1.3).
 - The build pull request of this change deletes these parts of `devops repos onboard`, because a root holds their settings:
   - row 1 (create), row 2 (repository) and row 5 (environment);
@@ -34,7 +35,7 @@
 
 - This pull request: `docs/adr/0041-opentofu-holds-the-repository-settings.md` (new), `docs/adr/0026-github-settings-are-opentofu-code-the-owner-applies.md`, `docs/adr/README.md` and this change folder. On acceptance (task 1.3): `docs/adr/0035-the-onboard-command-owns-the-repository-settings.md`, `docs/guidelines/production-readiness.md`, `src/devops_cli/roadmap/project_review/readiness.py` and the five files that cite ADR 0035.
 - The build pull request: `src/devops_cli/github/onboard/`, `src/devops_cli/commands/repos.py`, `src/devops_cli/lang/en/help.py`, `tests/github/onboard/`, `tests/commands/test_repos_onboard.py`, `tests/support/github_repository.py`, `k8s/devops/cronjob-repos-drift.yaml`, `docs/repos/onboard.md`, `docs/CLUSTER.md`, `docs/commands/repos.md`, `docs/CLI_REFERENCE.md` and `k8s/README.md`.
-- Other repositories: dan-petty/infra (the module), dan-petty/homelab (the root, its CI and the import), dan-petty/github-workflows (the template loses `github/repository.yaml.jinja`, `github-repository.schema.json` and the questions `required_checks` and `code_coverage`).
+- Other repositories: dan-petty/infra (the module, the public root, its workflow and the imports), dan-petty/homelab (the runner scale set of infra and the private root), dan-petty/github-workflows (the template loses `github/repository.yaml.jinja`, `github-repository.schema.json` and the questions `required_checks` and `code_coverage`).
 - Size: `src/devops_cli/github/onboard/` has 3,702 lines (`wc -l` at 70dc18c65). The build deletes about 1,040 of them and adds about 60 (an estimate from the function ranges; task 3.6 measures it). `tests/github/onboard/` has 84 tests; about 34 go (the 11 of `test_onboard_ruleset_merge.py` and about 23 of `test_onboard_rows.py`, by test name). The template change deletes 510 lines (119 of `repository.yaml.jinja`, 391 of the schema).
 
 ## Feasibility
@@ -57,4 +58,4 @@ OpenTofu (MPL-2.0) with integrations/terraform-provider-github v6.13.0 (MIT) cov
 ## Dependencies
 
 - The owner accepts ADR 0041: the merge of this pull request.
-- The module in dan-petty/infra, the root `tf/github/dan-petty` in dan-petty/homelab, and the import of each repository by the owner, before the build pull request of devops-cli (design, "Migration order").
+- #7534, dan-petty/infra#240 to #243, dan-petty/homelab#642 and #643, before the build pull request of devops-cli. dan-petty/github-workflows#11 and #5328 come after it (design, "Migration order").

@@ -176,7 +176,7 @@ The links to the OpenSpec change, the spec, the settings and the issue.
 | [0029](0029-the-roadmap-service-serves-a-read-only-api.md) | The roadmap Service serves a read-only API | accepted | 2026-11-17 |  |
 | [0030](0030-roadmap-steps-run-their-agent-apart-from-the-app-key.md) | Roadmap steps run their agent apart from the App key | proposed | 2026-11-21 | amended by 0036 |
 | [0031](0031-review-scanners-run-in-the-runner-pod.md) | Review scanners run in the runner pod | accepted | 2026-11-21 |  |
-| [0032](0032-infrastructure-templates-live-in-four-homes.md) | Infrastructure templates live in four homes | accepted | 2026-11-21 | amends 0026, 0027 |
+| [0032](0032-infrastructure-templates-live-in-four-homes.md) | Infrastructure templates live in four homes | accepted | 2026-11-21 | amends 0026, 0027; amended by 0041 |
 | [0033](0033-service-secrets-come-from-external-secrets-operator.md) | Service Secrets come from External Secrets Operator | accepted | 2026-11-21 |  |
 | [0034](0034-the-object-store-is-seaweedfs-with-its-operator.md) | The object store is SeaweedFS with its operator | accepted | 2026-11-21 |  |
 | [0035](0035-the-onboard-command-owns-the-repository-settings.md) | The onboard command owns the repository settings | accepted | 2026-11-22 | amends 0026 |
@@ -185,6 +185,6 @@ The links to the OpenSpec change, the spec, the settings and the issue.
 | [0038](0038-owner-decisions-on-what-agents-may-do.md) | Owner decisions on what agents may do | accepted | 2026-11-05 |  |
 | [0039](0039-homepage-is-the-cluster-start-page.md) | Homepage is the cluster start page | accepted | 2026-11-25 |  |
 | [0040](0040-renovate-pins-product-refs-to-release-tags.md) | Renovate pins product refs to release tags after cutover | accepted | 2026-11-25 | amends 0013 |
-| [0041](0041-opentofu-holds-the-repository-settings.md) | OpenTofu holds the repository settings that the provider can hold | proposed | 2026-11-28 | amends 0026 |
+| [0041](0041-opentofu-holds-the-repository-settings.md) | OpenTofu holds the repository settings that the provider can hold | proposed | 2026-11-28 | amends 0026, 0032 |
 
 <!-- ADR_INDEX_END -->
