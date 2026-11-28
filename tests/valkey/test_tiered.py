@@ -278,3 +278,37 @@ def test_delitem_in_memory_and_shared(
 
     del facts["item"]
     assert "item" not in facts
+
+
+def test_unset_valkey_url_serves_local_tier_without_error_metrics(
+    isolate_devops_cli_config: Any,
+    otlp: FakeCollector,
+    unexpected_loopback_connects: list[str],
+) -> None:
+    """With `valkey.url` unset, reads and writes use the local tier with no connection or error."""
+    from devops_cli.config.settings import reset_settings_cache
+
+    text = "\n".join(
+        line
+        for line in isolate_devops_cli_config.read_text(encoding="utf-8").splitlines()
+        if not line.startswith("valkey:") and not line.startswith("  url: valkey://")
+    )
+    isolate_devops_cli_config.write_text(text + "\n", encoding="utf-8")
+    reset_settings_cache()
+
+    facts = _facts()
+    fact = _Fact(name="local", stars=7)
+    try:
+        facts["local"] = fact
+        loaded = facts["local"]
+        dials = list(unexpected_loopback_connects)
+    finally:
+        unexpected_loopback_connects.clear()
+
+    assert (loaded, dials, _errors(otlp), _reads(otlp), _writes(otlp)) == (
+        fact,
+        [],
+        {},
+        {("fact", "memory"): 1.0},
+        {("fact", "skipped"): 1.0},
+    )

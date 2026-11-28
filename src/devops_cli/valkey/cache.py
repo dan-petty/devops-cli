@@ -297,13 +297,16 @@ def _tier_over(
     return ValkeyCacheTier(client)
 
 
-def _configured_cache_tier(settings: Settings) -> ValkeyCacheTier:
-    """A cache tier over the Valkey that `valkey.url` names, as the user of `valkey.username`.
+def _configured_cache_tier(settings: Settings) -> ValkeyCacheTier | None:
+    """A cache tier over the Valkey that `valkey.url` names, as the user of `valkey.username`;
+    None when `valkey.url` is unset or empty.
 
     A command waits `valkey.timeout`. A `valkey.url` that is not valid raises
     `ConfigurationError`, which names the setting.
     """
     cfg = settings.valkey
+    if not cfg.url:
+        return None
     credentials = _SettingsValkeyCredentialProvider(
         lambda: settings.valkey.username, lambda: get_valkey_password(settings)
     )

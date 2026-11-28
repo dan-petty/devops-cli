@@ -607,3 +607,29 @@ def test_a_silent_valkey_times_out_and_opens_the_breaker(
         False,
         {("get", "timeout"): 1.0, ("get", "open"): 1.0, ("set", "open"): 2.0},
     )
+
+
+@pytest.mark.usefixtures("keyring_store")
+def test_an_unset_valkey_url_disables_the_shared_tier_with_no_warning_or_dial(
+    isolate_devops_cli_config: Path,
+    caplog: pytest.LogCaptureFixture,
+    unexpected_loopback_connects: list[str],
+    otlp: FakeCollector,
+) -> None:
+    """When `valkey.url` is unset, `shared_cache_tier()` returns None with no warning, dial, or metric."""
+    from devops_cli.config.settings import reset_settings_cache
+    from devops_cli.valkey.cache import shared_cache_tier
+
+    text = "\n".join(
+        line
+        for line in isolate_devops_cli_config.read_text(encoding="utf-8").splitlines()
+        if not line.startswith("valkey:") and not line.startswith("  url: valkey://")
+    )
+    isolate_devops_cli_config.write_text(text + "\n", encoding="utf-8")
+    reset_settings_cache()
+
+    with caplog.at_level(logging.WARNING, logger=_TIER_LOGGER):
+        tiers = (shared_cache_tier(), shared_cache_tier())
+    dials = list(unexpected_loopback_connects)
+
+    assert (tiers, caplog.records, dials, _errors(otlp)) == ((None, None), [], [], {})

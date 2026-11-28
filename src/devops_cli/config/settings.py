@@ -222,7 +222,6 @@ from devops_cli.config.defaults import (
     DEFAULT_TLS_DATA_DIR,
     DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS,
     DEFAULT_VALKEY_TIMEOUT_SECONDS,
-    DEFAULT_VALKEY_URL,
     DEFAULT_WORKSPACE_FILE,
     BrainDigestMode,
     DecisionMode,
@@ -555,7 +554,7 @@ class ValkeyConfig(BaseModel):
 
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     url: Annotated[str | None, Variable()] = Field(
-        default=DEFAULT_VALKEY_URL,
+        default=None,
         description=(
             "The Valkey endpoint, such as `valkeys://example.com:6380/0`: the scheme, the host, the "
             "port and the database. The scheme `valkeys` connects over TLS and checks the "
@@ -578,12 +577,15 @@ class ValkeyConfig(BaseModel):
 
     @property
     def endpoint(self) -> ValkeyEndpoint:
-        """The endpoint of `url`, or of the default URL when `url` is unset or empty.
-
-        A URL that is not valid raises `ConfigurationError` naming `valkey.url`.
-        """
+        """The endpoint of `url`, or `ConfigurationError` naming `valkey.url` when unset or empty."""
+        if not self.url:
+            raise ConfigurationError(
+                "valkey.url is not set. `devops k8s configure-urls` or "
+                "`devops config set valkey.url` writes it.",
+                key="valkey.url",
+            )
         return parse_valkey_url(
-            self.url or DEFAULT_VALKEY_URL,
+            self.url,
             setting="valkey.url",
             written_by="`devops k8s configure-urls` or `devops config set valkey.url`",
         )

@@ -25,7 +25,12 @@ from devops_cli.ai.run_store import (
 )
 from devops_cli.commands.valkey import app
 from devops_cli.config.defaults import DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS
-from devops_cli.config.settings import ValkeyConfig, load_settings, save_settings
+from devops_cli.config.settings import (
+    ValkeyConfig,
+    load_settings,
+    reset_settings_cache,
+    save_settings,
+)
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.exceptions.valkey import (
     ValkeyAuthenticationError,
@@ -368,13 +373,36 @@ class TestValkeyUrl:
             {"key": "valkey.url"},
         )
 
+    def test_default_valkey_url_constant_is_absent(self) -> None:
+        import devops_cli.config.defaults as defaults
+
+        assert not hasattr(defaults, "DEFAULT_VALKEY_URL")
+        assert ValkeyConfig().url is None
+
     @pytest.mark.parametrize(
         "saved", [{}, {"url": ""}, {"url": None}], ids=["unset", "empty", "null"]
     )
-    def test_an_unset_url_is_the_default_endpoint(self, saved: dict[str, Any]) -> None:
-        assert ValkeyConfig.model_validate(saved).endpoint == ValkeyEndpoint(
-            scheme="valkey", host="localhost", port=6379, db=0
+    def test_an_unset_url_is_refused(self, saved: dict[str, Any]) -> None:
+        with pytest.raises(ConfigurationError) as raised:
+            _ = ValkeyConfig.model_validate(saved).endpoint
+        assert (
+            raised.value.exit_code,
+            raised.value.error_code,
+            raised.value.details,
+            "valkey.url" in str(raised.value),
+        ) == (1, "CONFIGURATION_ERROR", {"key": "valkey.url"}, True)
+
+    def test_valkey_ping_fails_naming_valkey_url_when_unset(
+        self, cli: Callable[..., Any], isolate_devops_cli_config: Path
+    ) -> None:
+        data = yaml.safe_load(isolate_devops_cli_config.read_text(encoding="utf-8")) or {}
+        data.pop("valkey", None)
+        isolate_devops_cli_config.write_text(
+            yaml.safe_dump(data, sort_keys=False), encoding="utf-8"
         )
+        reset_settings_cache()
+        result = cli("valkey", "ping")
+        assert (result.exit_code, "valkey.url" in result.output) == (1, True)
 
     def test_an_environment_url_replaces_the_url_of_the_file(
         self, config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch

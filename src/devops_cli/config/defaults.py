@@ -746,7 +746,6 @@ DEFAULT_EMBEDDING_INPUT_TYPE: Literal["query", "document"] = "query"
 DEFAULT_EMBEDDING_CURRENCY: str = "USD"
 
 # ── Valkey Defaults ─────────────────────────────────────────────────────────
-DEFAULT_VALKEY_URL: str = f"valkey://localhost:{DEFAULT_VALKEY_PORT}/0"
 DEFAULT_VALKEY_TIMEOUT_SECONDS: float = 2.0
 # The circuit breaker of the Valkey cache tier (`devops_cli.valkey.cache`, #2073). One failed
 # command opens it: a failed command can cost the full `valkey.timeout`, and a miss costs only the
