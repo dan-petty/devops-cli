@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.231.0](https://github.com/dan-petty/devops-cli/compare/v0.230.0...v0.231.0) (2026-11-28)
+
+
+### Features
+
+* **k8s:** set the size of the new claim in volume move ([#7491](https://github.com/dan-petty/devops-cli/issues/7491)) ([15ac474](https://github.com/dan-petty/devops-cli/commit/15ac4744f2464347c6cedd844ab6f6458e0fdff2)), closes [#7484](https://github.com/dan-petty/devops-cli/issues/7484)
+
+
+### Bug Fixes
+
+* **k8s:** end a retrying Argo CD sync in volume move ([#7490](https://github.com/dan-petty/devops-cli/issues/7490)) ([d530ee0](https://github.com/dan-petty/devops-cli/commit/d530ee0bdf68cc5825d9dcc670544f51ed4b638b))
+
 ## [0.230.0](https://github.com/dan-petty/devops-cli/compare/v0.229.5...v0.230.0) (2026-11-27)
 
 
