@@ -10,6 +10,8 @@ import httpx2
 import pytest
 
 from devops_cli.research.advisories import (
+    _osv_findings,
+    _plan,
     advisory_requests,
     find_advisories,
     resolve_action_commits,
@@ -824,3 +826,109 @@ def test_an_open_range_uses_patched_versions_and_reads_v_bare_and_stable_ranges(
     )
 
     assert ([f.advisory_id for f in report.findings], report.failures) == (expected_ids, [])
+
+
+def test_plan_queues_mapped_osv_pair_keeps_github_and_skips_unpinned() -> None:
+    ollama = Component(
+        kind=ComponentKind.CONTAINER_IMAGE,
+        ecosystem=Ecosystem.DOCKER,
+        name="ollama/ollama",
+        version="0.40.18",
+        file="Dockerfile",
+        line=1,
+        osv_ecosystem="Go",
+        osv_name="github.com/ollama/ollama",
+    )
+    unpinned_pin = Component(
+        kind=ComponentKind.TOOL,
+        ecosystem=Ecosystem.UNKNOWN,
+        name="ubuntu",
+        version="",
+        file="external",
+        line=0,
+        osv_ecosystem="Ubuntu",
+        osv_name="linux",
+    )
+    watch = WatchList(
+        watch=[
+            WatchEntry(
+                ecosystem=Ecosystem.DOCKER,
+                name="ollama/ollama",
+                repo="ollama/ollama",
+                osv_ecosystem="Go",
+                osv_name="github.com/ollama/ollama",
+            )
+        ]
+    )
+
+    solo_plan = _plan(Inventory(components=[ollama], summary=summarize([ollama])), WatchList())
+    both_plan = _plan(
+        Inventory(components=[ollama, unpinned_pin], summary=summarize([ollama, unpinned_pin])),
+        watch,
+    )
+
+    assert (
+        list(solo_plan.osv),
+        solo_plan.not_covered,
+        list(both_plan.osv),
+        list(both_plan.repositories),
+        both_plan.unpinned,
+        both_plan.not_covered,
+    ) == (
+        [("github.com/ollama/ollama", "0.40.18", "Go")],
+        {},
+        [("github.com/ollama/ollama", "0.40.18", "Go")],
+        [("ollama/ollama", None)],
+        1,
+        {},
+    )
+
+
+def test_osv_findings_uses_mapped_package_name_not_component_name(web: WebFake) -> None:
+    component = Component(
+        kind=ComponentKind.CONTAINER_IMAGE,
+        ecosystem=Ecosystem.DOCKER,
+        name="ollama/ollama",
+        version="0.40.18",
+        file="Dockerfile",
+        line=1,
+        osv_ecosystem="Go",
+        osv_name="github.com/ollama/ollama",
+    )
+    plan = _plan(Inventory(components=[component], summary=summarize([component])), WatchList())
+    batch_reply = {"results": [{"vulns": [{"id": "GO-2026-5750"}]}]}
+    vuln_reply = {
+        "id": "GO-2026-5750",
+        "aliases": ["CVE-2026-7020"],
+        "summary": "Mapped Go module vulnerability",
+        "severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}],
+        "affected": [
+            {
+                "package": {"name": "github.com/ollama/ollama", "ecosystem": "Go"},
+                "ranges": [
+                    {"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "0.40.19"}]}
+                ],
+            }
+        ],
+    }
+    web.respond("POST", OSVClient.BATCH_URL, 200, batch_reply)
+    web.respond("GET", f"{OSVClient.RECORD_URL}/GO-2026-5750", 200, vuln_reply)
+
+    findings, failures = _osv_findings(plan, OSVClient())
+
+    assert (
+        failures,
+        [(f.component.name, f.advisory_id, f.fixed_version) for f in findings],
+        web.recorded[0].json,
+    ) == (
+        [],
+        [("ollama/ollama", "GO-2026-5750", "0.40.19")],
+        {
+            "queries": [
+                {
+                    "package": {"name": "github.com/ollama/ollama", "ecosystem": "Go"},
+                    "version": "0.40.18",
+                }
+            ]
+        },
+    )

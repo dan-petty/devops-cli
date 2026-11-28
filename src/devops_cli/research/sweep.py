@@ -36,6 +36,7 @@ from devops_cli.research.models import (
     SweepReport,
     SweepResult,
 )
+from devops_cli.research.watch import WatchList
 from devops_cli.roadmap.intake.intake import (
     CandidateOutcome,
     Filer,
@@ -149,16 +150,16 @@ def _search_request(repo: str) -> PlannedRequest:
     )
 
 
-def sweep_dry_run(inventory: Inventory, repo: str) -> SweepReport:
+def sweep_dry_run(inventory: Inventory, repo: str, watch: WatchList | None = None) -> SweepReport:
     """What a real sweep of `inventory` requests, listed in order. It makes no request.
 
-    The findings come from OSV, so the requests of intake are those for one placeholder candidate:
-    a real run makes them for each actionable finding.
+    The findings come from OSV and the watch list, so the requests of intake are those for one
+    placeholder candidate: a real run makes them for each actionable finding.
     """
     placeholder = NewCandidate(title=MESSAGES.research.sweep_placeholder_title, body="")
     intake = dry_run_intake(repo, new=placeholder)
     planned = [
-        *advisory_requests(inventory),
+        *advisory_requests(inventory, watch),
         _search_request(repo),
         *intake.requests,
         *intake.writes,
