@@ -247,6 +247,10 @@ jobs:
     permissions:
       contents: read
       pull-requests: read # paths-filter reads the changed files from the REST API
+    # The job installs only the group `coverage` (step `Set up uv toolchain`), so no `uv run` of
+    # the job syncs the project and its other groups (#7544).
+    env:
+      UV_NO_SYNC: "1"
 
     steps:
       - name: Detect Plan-Only Changes
@@ -279,12 +283,17 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      # The job runs only coverage and diff-cover, so it installs only their group of uv.lock, with
+      # no bytecode compile and no tooling cache (#7544).
       - name: Set up uv toolchain
         if: needs.test-shard.result == 'success' && steps.changes.outputs.outside_plan != 'false'
         uses: ./.github/actions/setup-toolchain
         with:
           cache-suffix: test
           save-uv-cache: "false"
+          compile-bytecode: "false"
+          tooling-cache-paths: ""
+          dependency-group: coverage
 
       - name: Download Coverage Data
         if: needs.test-shard.result == 'success' && steps.changes.outputs.outside_plan != 'false'

@@ -113,7 +113,7 @@ dev = [
     "ty==0.0.112",
     "types-PyYAML==6.0.12.20261122",
     "pytest-cov==7.1.0",
-    "diff-cover==11.0.5",
+    {include-group = "coverage"},
     "pytest-xdist==3.8.0",
     "pytest-randomly==5.1.0",
     "pytest-timeout==2.4.0",
@@ -139,6 +139,12 @@ dev = [
     # Required by complexity_fact (#6380): declaring it in dev ensures plain `uv run` test
     # environments install lizard so review_window contract and review-facts suites stay reproducible.
     "lizard==1.26.1",
+]
+# The tools of the CI job `Tests & Coverage`, which joins the coverage data of the test shards and
+# checks the floors (#7544). The job installs only this group, and the dev group includes it.
+coverage = [
+    "coverage==7.17.5",
+    "diff-cover==11.0.5",
 ]
 # The docs site builder (#5152). Zensical is a beta from 0.1.0, so the pin is exact.
 docs = [

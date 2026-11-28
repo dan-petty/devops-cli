@@ -928,11 +928,16 @@ review = [
 ]
 
 [package.dev-dependencies]
+coverage = [
+    { name = "coverage" },
+    { name = "diff-cover" },
+]
 dev = [
     { name = "ast-grep-cli" },
     { name = "bandit" },
     { name = "cel-expr-python" },
     { name = "coloraide" },
+    { name = "coverage" },
     { name = "deptry" },
     { name = "diff-cover" },
     { name = "fakeredis", extra = ["lua", "valkey"] },
@@ -1052,11 +1057,16 @@ requires-dist = [
 provides-extras = ["review"]
 
 [package.metadata.requires-dev]
+coverage = [
+    { name = "coverage", specifier = "==7.17.5" },
+    { name = "diff-cover", specifier = "==11.0.5" },
+]
 dev = [
     { name = "ast-grep-cli", specifier = "==0.51.3" },
     { name = "bandit", specifier = "==1.9.4" },
     { name = "cel-expr-python", specifier = "==0.1.4" },
     { name = "coloraide", specifier = "==8.17" },
+    { name = "coverage", specifier = "==7.17.5" },
     { name = "deptry", specifier = "==0.25.1" },
     { name = "diff-cover", specifier = "==11.0.5" },
     { name = "fakeredis", extras = ["lua", "valkey"], specifier = "==2.41.0" },
