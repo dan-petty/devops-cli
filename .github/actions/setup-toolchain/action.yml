@@ -30,6 +30,13 @@ inputs:
       compile the modules they import anyway and the sync compile costs 7 to 15 s (#4727).
     required: false
     default: "true"
+  dependency-group:
+    description: >-
+      Install only this dependency group of uv.lock, with no project and no other group. Empty
+      installs every group and extra. The job `Tests & Coverage` runs only coverage and diff-cover,
+      and the full sync took 21 to 31 s of its time (#7544).
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -64,14 +71,19 @@ runs:
       shell: bash
       env:
         COMPILE_BYTECODE: ${{ inputs.compile-bytecode }}
+        DEPENDENCY_GROUP: ${{ inputs.dependency-group }}
         # This step installs packages, so uv's malware check stays on (#4881).
         UV_MALWARE_CHECK: "1"
       run: |
-        if [ "$COMPILE_BYTECODE" = "true" ]; then
-          uv sync --locked --all-groups --all-extras --compile-bytecode
+        if [ -n "$DEPENDENCY_GROUP" ]; then
+          set -- --only-group "$DEPENDENCY_GROUP"
         else
-          uv sync --locked --all-groups --all-extras
+          set -- --all-groups --all-extras
         fi
+        if [ "$COMPILE_BYTECODE" = "true" ]; then
+          set -- "$@" --compile-bytecode
+        fi
+        uv sync --locked "$@"
 
     - name: Initialize workspace directories
       shell: bash
