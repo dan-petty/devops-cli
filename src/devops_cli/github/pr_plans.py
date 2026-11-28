@@ -7,7 +7,7 @@ from devops_cli.config.constants import (
     CONST_PR_EVIDENCE_MARKER,
     CONST_ROADMAP_LABELS_PATH,
 )
-from devops_cli.config.defaults import DEFAULT_PR_MONITOR_TIMEOUT_SECONDS
+from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE, DEFAULT_PR_MONITOR_TIMEOUT_SECONDS
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.github.check_verdict import pr_checks_args
 from devops_cli.github.pr_threads import (
@@ -401,6 +401,19 @@ def plan_pr_close(
     ]
 
 
+def _branch_rules_request(target_repo: str, *, repeat: str = "") -> PlannedRequest:
+    """The read of the rules of the base branch, which the merge-readiness verdict sends only
+    when the head reports no check (#7508)."""
+    target = f"repos/{target_repo}/rules/branches/<base-ref>"
+    return PlannedRequest(
+        method="GET",
+        target=target,
+        argv=(CONST_GH_CLI, "api", f"{target}?per_page={DEFAULT_GH_REST_PER_PAGE}"),
+        condition="the head reports no check",
+        repeat=repeat,
+    )
+
+
 def plan_pr_monitor(
     number: int | None,
     interval: int = 60,
@@ -426,6 +439,7 @@ def plan_pr_monitor(
             argv=tuple(pr_checks_args(num_str, repo)),
             repeat=repeat_desc,
         ),
+        _branch_rules_request(target_repo, repeat=repeat_desc),
         PlannedRequest(
             method="GRAPHQL",
             target="reviewThreads",
@@ -465,6 +479,7 @@ def plan_pr_check_readiness(
             target=f"repos/{target_repo}/pulls/{num_str}/checks",
             argv=tuple(pr_checks_args(num_str, repo)),
         ),
+        _branch_rules_request(target_repo),
         PlannedRequest(
             method="GRAPHQL",
             target="reviewThreads",

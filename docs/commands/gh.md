@@ -1066,10 +1066,9 @@ devops gh pr create [OPTIONS]
 
 Mark a draft pull request as ready for review once draft readiness allows it.
 
-It exits 1 for a refusal and 8 while a check runs. A head commit with no check waits for one,
-unless no workflow at the head can start a check on the pull request: none runs on pull
-requests, or branch and path filters skip this one. Then the command says so and marks the
-pull request ready with no --force. For an implement pull request, it names each unticked task
+It exits 1 for a refusal and 8 while a check runs. `gh pr checks` reads the checks. A head
+commit with no check waits for one, unless the rules of the base branch require no check.
+Then the command says so and marks the pull request ready with no --force. For an implement pull request, it names each unticked task
 group. Every other blocker of the merge-readiness verdict prints as a warning. --force skips
 the readiness check. It sets the Status of the roadmap item the pull request closes to In
 Review.

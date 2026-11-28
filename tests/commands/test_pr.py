@@ -38,7 +38,6 @@ from tests.support.fakes.roadmap_store import (
     encode_job_record,
     with_record,
 )
-from tests.support.recorded_check_runs import REPLACED_CHECK, pr_5357_head_runs
 
 pytestmark = pytest.mark.usefixtures("roadmap_store")
 
@@ -57,6 +56,20 @@ _ISSUE_704 = {
     "labels": {"nodes": [{"name": "priority/p2-medium"}]},
 }
 _THREADS = "GetReviewThreads"
+_PR_CHECKS = f"gh pr checks 335 --json name,state,bucket,workflow,link --repo {_REPO}"
+_RULES = f"/repos/{_REPO}/rules/branches/main?per_page=100"
+
+
+def _check(name: str, state: str = "SUCCESS", bucket: str = "pass") -> dict[str, str]:
+    """One entry of the list that `gh pr checks --json name,state,bucket,workflow,link` prints."""
+    return {"name": name, "state": state, "bucket": bucket, "workflow": "CI", "link": ""}
+
+
+def _listed(*listed: dict[str, str]) -> ProcessAnswer:
+    """The answer of `gh pr checks`: the list, or the error of a head with no check."""
+    if listed:
+        return ProcessAnswer(stdout=json.dumps(list(listed)))
+    return ProcessAnswer(returncode=1, stderr="no checks reported on the 'feat/x' branch\n")
 
 
 _BODY = (
@@ -111,11 +124,8 @@ class _GitHub:
     def __init__(self, api: GitHubApiFake, gh: ProcessFake) -> None:
         self.api, self.gh = api, gh
         self.pull(_pr())
-        self.checks({"name": "CI", "status": "completed", "conclusion": "success"})
-        self.answer(
-            "/status",
-            ProcessAnswer(stdout=json.dumps({"state": "success", "statuses": []})),
-        )
+        self.checks(_check("CI"))
+        self.rules("CI")
         self.files(_ARCHIVE_704)
         self.answer(_THREADS, ProcessAnswer(stdout=_threads_page()))
         self.answer("contents/openspec/changes", ProcessAnswer())
@@ -132,12 +142,15 @@ class _GitHub:
             ProcessAnswer(stdout=json.dumps(payload)),
         )
 
-    def checks(self, *runs: dict[str, Any]) -> None:
-        self.api.route(
-            "GET",
-            f"/repos/{_REPO}/commits/{_HEAD}/check-runs?per_page=100",
-            github_json({"total_count": len(runs), "check_runs": list(runs)}),
-        )
+    def checks(self, *listed: dict[str, str]) -> None:
+        """Answer `gh pr checks` with `listed`, or as gh answers a head with no check."""
+        self.answer(_PR_CHECKS, _listed(*listed))
+
+    def rules(self, *required: str) -> None:
+        """Answer the rules of `main`, with a rule that requires `required` when it names any."""
+        checks = [{"context": name} for name in required]
+        rule = {"type": "required_status_checks", "parameters": {"required_status_checks": checks}}
+        self.api.route("GET", _RULES, github_json([rule] if required else []))
 
     def files(self, *files: dict[str, str]) -> None:
         route_compare_files(self.api, _REPO, "main", _HEAD, *files, merge_base=_MERGE_BASE)
@@ -158,7 +171,7 @@ def _readiness(cli: Callable[..., Any], *flags: str) -> tuple[int, str]:
 
 
 def _running(github: _GitHub) -> None:
-    github.checks({"name": "Tests & Coverage", "status": "in_progress", "conclusion": None})
+    github.checks(_check("Tests & Coverage", "IN_PROGRESS", "pending"))
 
 
 @pytest.mark.parametrize(
@@ -220,7 +233,7 @@ def _running(github: _GitHub) -> None:
             "PR #335 is in draft status and cannot be merged as-is.",
         ),
         (
-            lambda g: g.checks({"name": "CodeQL", "status": "completed", "conclusion": "failure"}),
+            lambda g: g.checks(_check("CodeQL", "FAILURE", "fail")),
             (),
             1,
             "PR #335 has 1 failing check(s): CodeQL.",
@@ -234,7 +247,7 @@ def _running(github: _GitHub) -> None:
         ),
         (
             lambda g: g.answer(
-                "/status", ProcessAnswer(returncode=1, stderr="HTTP 500: Server Error")
+                _PR_CHECKS, ProcessAnswer(returncode=1, stderr="HTTP 500: Server Error")
             ),
             (),
             1,
@@ -382,7 +395,6 @@ def test_a_pr_touching_a_suppressed_file_warns_and_still_passes(
 
 _REVIEWS = f"/repos/{_REPO}/pulls/335/reviews?per_page=100"
 _TIMELINE = f"/repos/{_REPO}/issues/335/timeline?per_page=100"
-_CHECK_RUNS = f"/repos/{_REPO}/commits/{_HEAD}/check-runs?per_page=100"
 _APPROVAL = {
     "id": 1,
     "user": {"login": "maintainer"},
@@ -418,11 +430,11 @@ def _monitor(cli: Callable[..., Any], *flags: str) -> tuple[int, str]:
 
 
 def _failing(github: _GitHub) -> None:
-    github.checks({"name": "CodeQL", "status": "completed", "conclusion": "failure"})
+    github.checks(_check("CodeQL", "FAILURE", "fail"))
 
 
 def _unread(github: _GitHub) -> None:
-    github.answer("/status", ProcessAnswer(returncode=1, stderr="HTTP 500: Server Error"))
+    github.answer(_PR_CHECKS, ProcessAnswer(returncode=1, stderr="HTTP 500: Server Error"))
 
 
 def _open_thread(github: _GitHub) -> None:
@@ -461,51 +473,14 @@ def _ready(cli: Callable[..., Any], *flags: str) -> tuple[int, str]:
     return result.exit_code, " ".join(result.output.split())
 
 
-_WORKFLOWS_DIR = f"/repos/{_REPO}/contents/.github/workflows?ref={_HEAD}"
-_PULL_REQUEST_WORKFLOW = """name: CI
-on:
-  pull_request:
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - run: "true"
-"""
-_PUSH_ONLY_WORKFLOW = """name: Release
-on: [push, workflow_dispatch]
-jobs:
-  release:
-    runs-on: ubuntu-latest
-    steps:
-      - run: "true"
-"""
-
-
-def _no_checks(github: _GitHub, workflows: int | None) -> None:
-    """The head commit reports no check run and no commit status. `workflows` says what the head
-    holds: 0 no workflow at all, 1 a push-only workflow, 2 a pull-request workflow, and None an
-    unread workflow folder."""
+def _no_checks(github: _GitHub, required: bool | None) -> None:
+    """The head reports no check. `required` says what the rules of `main` do: True require a
+    check, False require none, and None cannot be read."""
     github.checks()
-    github.answer(
-        "/status",
-        ProcessAnswer(stdout=json.dumps({"state": "pending", "statuses": [], "total_count": 0})),
-    )
-    if workflows == 0:
+    if required is None:
+        github.api.route("GET", _RULES, github_json({"message": "Forbidden"}, status=403))
         return
-    if workflows is None:
-        github.api.route("GET", _WORKFLOWS_DIR, github_json({"message": "Forbidden"}, status=403))
-        return
-    name, text = (
-        ("ci.yml", _PULL_REQUEST_WORKFLOW)
-        if workflows == 2
-        else ("release.yml", _PUSH_ONLY_WORKFLOW)
-    )
-    github.api.route(
-        "GET",
-        _WORKFLOWS_DIR,
-        github_json([{"type": "file", "name": name, "path": f".github/workflows/{name}"}]),
-    )
-    route_file(github.api, _REPO, f".github/workflows/{name}", _HEAD, text)
+    github.rules(*(["CI"] if required else []))
 
 
 _SCENARIOS = {
@@ -514,9 +489,9 @@ _SCENARIOS = {
     "failing-check": _failing,
     "checks-unread": _unread,
     "unresolved-thread": _open_thread,
-    "no-ci": lambda g: _no_checks(g, 0),
-    "checks-not-started": lambda g: _no_checks(g, 2),
-    "workflows-unread": lambda g: _no_checks(g, None),
+    "no-ci": lambda g: _no_checks(g, False),
+    "checks-not-started": lambda g: _no_checks(g, True),
+    "rules-unread": lambda g: _no_checks(g, None),
 }
 
 
@@ -530,7 +505,7 @@ _SCENARIOS = {
         ("unresolved-thread", 0, True),
         ("no-ci", 0, True),
         ("checks-not-started", 8, False),
-        ("workflows-unread", 8, False),
+        ("rules-unread", 8, False),
     ],
 )
 def test_pr_ready_exits_on_the_checks_of_the_verdict(
@@ -538,8 +513,8 @@ def test_pr_ready_exits_on_the_checks_of_the_verdict(
 ) -> None:
     """`pr ready` blocks only on the checks: 1 when one failed or could not be read, 8 while one
     runs. A draft is what it marks ready, and an open thread is a warning. A head commit with no
-    check waits for one while the repository has a workflow to start it, and is ready when the
-    repository has none (#3767)."""
+    check waits for one while the rules of the base branch require a check or cannot be read,
+    and is ready when they require none (#3767, #7508)."""
     setup = _SCENARIOS[scenario]
     if setup is not None:
         setup(draft)
@@ -547,101 +522,30 @@ def test_pr_ready_exits_on_the_checks_of_the_verdict(
     assert (exit_code, _readied(draft)) == (code, marked), output
 
 
-@pytest.mark.parametrize(
-    ("newer_fails", "code"),
-    [(False, 0), (True, 1)],
-    ids=["newer-run-passed", "newer-run-failed"],
-)
-def test_pr_ready_and_check_readiness_agree_on_the_latest_run_of_each_check(
-    cli: Callable[..., Any], draft: _GitHub, newer_fails: bool, code: int
-) -> None:
-    """The head of pull request 5357 had a failed run and a newer passed run of Fail-to-Pass
-    Check in two check suites. `pr ready` and then `check-readiness` judge only the latest run of
-    each check: both pass that head, and both refuse it and name the check when the newer run
-    failed (#5383)."""
-    draft.checks(*pr_5357_head_runs(newer_fails=newer_fails))
-
-    ready_code, ready_output = _ready(cli)
-    readiness_code, readiness_output = _readiness(cli)
-
-    assert (
-        ready_code,
-        readiness_code,
-        REPLACED_CHECK in ready_output,
-        REPLACED_CHECK in readiness_output,
-    ) == (code, code, newer_fails, newer_fails), f"{ready_output}\n{readiness_output}"
-
-
 def test_pr_ready_says_that_a_repository_with_no_ci_has_nothing_to_wait_for(
     cli: Callable[..., Any], draft: _GitHub
 ) -> None:
-    """A repository with no workflow and no check needs no `--force`, and the stand-in for the
-    missing checks is no warning (#3767)."""
-    _no_checks(draft, 0)
+    """A head with no check, whose base branch rules require none, needs no `--force`, and the
+    stand-in for the missing checks is no warning (#3767, #7508)."""
+    _no_checks(draft, False)
     exit_code, output = _ready(cli)
     assert (
         exit_code,
-        f"No workflow of {_REPO} can start a check on PR #335" in output,
+        f"The rules of main of {_REPO} require no check" in output,
         "no checks reported" in output,
     ) == (0, True, False), output
-
-
-def test_pr_ready_marks_a_pull_request_ready_when_only_push_workflows_exist(
-    cli: Callable[..., Any], draft: _GitHub
-) -> None:
-    """A workflow that only runs on push cannot start a check on the pull request, so `pr ready`
-    reads the head's workflows rather than the repository's workflow count (#5144)."""
-    _no_checks(draft, 1)
-    exit_code, output = _ready(cli)
-    assert (exit_code, _readied(draft), "has no checks" in output) == (0, True, True), output
-
-
-_K8S_WORKFLOW = """name: K8s
-on:
-  pull_request:
-    paths:
-      - "k8s/**"
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - run: "true"
-"""
-
-
-@pytest.mark.parametrize(
-    ("changed", "code", "marked"),
-    [("README.md", 0, True), ("k8s/app.yaml", 8, False)],
-    ids=["filter-skips", "filter-matches"],
-)
-def test_pr_ready_follows_the_path_filter_of_a_pull_request_workflow(
-    cli: Callable[..., Any], draft: _GitHub, changed: str, code: int, marked: bool
-) -> None:
-    """dan-petty/homelab PR #97 changed only files that the `paths` filter of its `pull_request`
-    workflow skips, so no check started and `pr ready` waited for ever. It marks such a pull
-    request ready, and still waits for one whose change the filter matches (#5408)."""
-    _no_checks(draft, 0)
-    draft.api.route(
-        "GET",
-        _WORKFLOWS_DIR,
-        github_json([{"type": "file", "name": "k8s.yml", "path": ".github/workflows/k8s.yml"}]),
-    )
-    route_file(draft.api, _REPO, ".github/workflows/k8s.yml", _HEAD, _K8S_WORKFLOW)
-    draft.files(_ARCHIVE_704, {"filename": changed, "status": "modified"})
-    exit_code, output = _ready(cli)
-    assert (exit_code, _readied(draft)) == (code, marked), output
 
 
 def test_check_readiness_reports_a_repository_with_no_ci(
     cli: Callable[..., Any], github: _GitHub
 ) -> None:
-    """The pending stand-in for a head commit with no check does not block where no workflow can
-    start one, and the verdict says why (#5144)."""
-    _no_checks(github, 0)
+    """The pending stand-in for a head commit with no check does not block where the rules of the
+    base branch require no check, and the verdict says why (#5144, #7508)."""
+    _no_checks(github, False)
     exit_code, output = _readiness(cli)
     assert (
         exit_code,
-        "can start a check on PR #335" in output,
+        "require no check, and PR #335 reports none" in output,
         "no checks reported" in output,
     ) == (0, True, False), output
 
@@ -868,7 +772,8 @@ def test_a_merged_or_closed_pull_request_stops_the_monitor_at_the_first_poll(
         for request in monitored.api.requested
         if "check-runs" in request or "/reviews" in request
     ]
-    assert (exit_code, pull_reads, verdict_reads) == (code, 1, []), output
+    check_reads = [call.argv for call in monitored.gh.calls if call.argv[1:3] == ("pr", "checks")]
+    assert (exit_code, pull_reads, verdict_reads, check_reads) == (code, 1, [], []), output
     assert (line in output, "Checks:" in output, "READY FOR MERGING" in output) == (
         True,
         False,
@@ -882,19 +787,16 @@ def test_the_monitor_waits_for_the_checks_and_names_every_blocker(
     """Two checks run and a thread is open on the first poll; on the next, one check passed and
     the other failed. The monitor returns once, after the checks settle, and names both: it no
     longer stops on the first blocker while a check still runs (#998)."""
-    running = [
-        {"name": "Tests & Coverage", "status": "in_progress", "conclusion": None},
-        {"name": "CodeQL", "status": "in_progress", "conclusion": None},
+    polls = [
+        _listed(
+            _check("Tests & Coverage", "IN_PROGRESS", "pending"),
+            _check("CodeQL", "IN_PROGRESS", "pending"),
+        ),
+        _listed(_check("Tests & Coverage"), _check("CodeQL", "FAILURE", "fail")),
     ]
-    settled = [
-        {"name": "Tests & Coverage", "status": "completed", "conclusion": "success"},
-        {"name": "CodeQL", "status": "completed", "conclusion": "failure"},
-    ]
-    monitored.api.route(
-        "GET",
-        _CHECK_RUNS,
-        github_json({"total_count": 2, "check_runs": running}),
-        github_json({"total_count": 2, "check_runs": settled}),
+    monitored.gh.answer(
+        lambda call: _PR_CHECKS in " ".join(call.argv),
+        lambda _call: polls.pop(0) if len(polls) > 1 else polls[0],
     )
     _open_thread(monitored)
     exit_code, output = _monitor(cli, "--timeout", "600")
@@ -913,7 +815,7 @@ def test_the_monitor_reports_a_conflict_before_it_waits_for_a_check(
     """A dirty pull request in a repository with no CI names the conflict and settles at once
     instead of waiting for the pending stand-in (#5144)."""
     monitored.pull(_pr(mergeable=False, mergeable_state="dirty"))
-    _no_checks(monitored, 0)
+    _no_checks(monitored, False)
     exit_code, output = _monitor(cli, "--timeout", "600")
     assert (
         exit_code,
@@ -925,9 +827,10 @@ def test_the_monitor_reports_a_conflict_before_it_waits_for_a_check(
 def test_the_monitor_does_not_wait_for_a_repository_with_no_ci(
     cli: Callable[..., Any], monitored: _GitHub, clock: ClockFake
 ) -> None:
-    """No check can start without a pull-request workflow, so the monitor settles on the first
-    poll and sleeps for nothing instead of waiting out the timeout (#5144)."""
-    _no_checks(monitored, 0)
+    """GitHub merges a pull request with no check when the rules of its base branch require none,
+    so the monitor settles on the first poll and sleeps for nothing instead of waiting out the
+    timeout (#5144, #7508)."""
+    _no_checks(monitored, False)
     exit_code, output = _monitor(cli, "--timeout", "600")
     assert (exit_code, clock.waits, "READY FOR MERGING" in output) == (0, [], True), output
 

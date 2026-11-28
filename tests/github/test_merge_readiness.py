@@ -12,11 +12,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-import httpx2
 import pytest
 
 from devops_cli.config.constants import CONST_GITHUB_COMPARE_FILES_LIMIT
-from devops_cli.github.check_verdict import CheckBucket, read_commit_checks
+from devops_cli.github.check_verdict import CheckBucket
 from devops_cli.github.client import PullRequestFile
 from devops_cli.github.merge_readiness import (
     Advisory,
@@ -31,9 +30,7 @@ from devops_cli.github.merge_readiness import (
 from tests.support.fakes.github import (
     GitHubApiFake,
     github_json,
-    next_page,
     route_compare_files,
-    route_file,
 )
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
@@ -42,72 +39,11 @@ _REPO = f"{_OWNER}/{_NAME}"
 # `_BASE` is the payload's `base.sha`. GitHub does not move it when a merge commit moves the merge
 # base, so the compare answers `_MERGE_BASE`, another commit (#2530).
 _HEAD, _BASE, _MERGE_BASE = "a" * 40, "b" * 40, "c" * 40
-_CHECK_RUNS = f"/repos/{_REPO}/commits/{_HEAD}/check-runs?per_page=100"
-_CHECK_RUNS_PAGE_2 = f"/repositories/1/commits/{_HEAD}/check-runs?per_page=100&page=2"
 _COMPARE = f"/repos/{_REPO}/compare/main...{_HEAD}?per_page=1"
-_STATUS = f"repos/{_REPO}/commits/{_HEAD}/status"
+_PR_CHECKS = f"gh pr checks {_PR} --json name,state,bucket,workflow,link --repo {_REPO}"
+_RULES = f"/repos/{_REPO}/rules/branches/main?per_page=100"
 _CHANGES_DIR = f"repos/{_REPO}/contents/openspec/changes?ref={_BASE}"
-_WORKFLOWS_DIR = f"/repos/{_REPO}/contents/.github/workflows?ref={_HEAD}"
-_PULL_REQUEST_WORKFLOW = """name: CI
-on:
-  pull_request:
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - run: "true"
-"""
-_PUSH_ONLY_WORKFLOW = """name: Release
-on: [push, workflow_dispatch]
-jobs:
-  release:
-    runs-on: ubuntu-latest
-    steps:
-      - run: "true"
-"""
-_STRING_PULL_REQUEST_WORKFLOW = """name: CI
-on: pull_request
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - run: "true"
-"""
-_NO_TRIGGER_WORKFLOW = """name: None
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - run: "true"
-"""
-_INVALID_WORKFLOW = "name: [unclosed\n"
 # The `pull_request` event of dan-petty/homelab's `k8s.yml`, cut to one `paths` pattern (#5408).
-_K8S_WORKFLOW = """name: K8s
-on:
-  pull_request:
-    paths:
-      - "k8s/**"
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - run: "true"
-"""
-_TARGET_WORKFLOW = """name: Labels
-on: pull_request_target
-jobs:
-  label:
-    runs-on: ubuntu-latest
-    steps:
-      - run: "true"
-"""
-_README = {"filename": "README.md", "status": "modified"}
-_K8S_APP = {"filename": "k8s/app.yaml", "status": "modified"}
-_RENAMED_FROM_K8S = {
-    "filename": "docs/app.yaml",
-    "status": "renamed",
-    "previous_filename": "k8s/app.yaml",
-}
 _THREADS = "GetReviewThreads"
 _CLOSING = "closingIssuesReferences"
 _ARCHIVE_704 = {
@@ -141,9 +77,9 @@ def _pr(**overrides: object) -> dict[str, Any]:
     return payload
 
 
-def _run(name: str, conclusion: str | None = "success", status: str = "completed") -> dict:
-    """One check run of the head commit."""
-    return {"name": name, "status": status, "conclusion": conclusion}
+def _check(name: str, state: str = "SUCCESS", bucket: str = "pass") -> dict:
+    """One entry of the list that `gh pr checks --json name,state,bucket,workflow,link` prints."""
+    return {"name": name, "state": state, "bucket": bucket, "workflow": "CI", "link": ""}
 
 
 def _thread(thread_id: str, *authors: str, resolved: bool = False) -> dict[str, Any]:
@@ -178,8 +114,8 @@ class _GitHub:
 
     def __init__(self, api: GitHubApiFake, gh: ProcessFake) -> None:
         self.api, self.gh = api, gh
-        self.checks(_run("CI"))
-        self.statuses()
+        self.checks(_check("CI"))
+        self.rules("CI")
         self.files(_ARCHIVE_704)
         self.threads()
         self.answer(_CHANGES_DIR, ProcessAnswer())
@@ -189,18 +125,25 @@ class _GitHub:
         """Answer each gh command whose arguments contain `route`."""
         self.gh.answer(lambda call, key=route: key in " ".join(call.argv), answer)
 
-    def checks(self, *runs: dict) -> None:
-        self.api.route(
-            "GET", _CHECK_RUNS, github_json({"total_count": len(runs), "check_runs": runs})
+    def checks(self, *listed: dict) -> None:
+        """Answer `gh pr checks` with `listed`, or as gh answers a head with no check."""
+        answer = (
+            ProcessAnswer(stdout=json.dumps(list(listed)))
+            if listed
+            else ProcessAnswer(returncode=1, stderr="no checks reported on the 'feat/x' branch\n")
         )
+        self.answer(_PR_CHECKS, answer)
 
-    def statuses(self, *statuses: dict, state: str = "success", total: int | None = None) -> None:
-        payload = {
-            "state": state,
-            "statuses": list(statuses),
-            "total_count": len(statuses) if total is None else total,
-        }
-        self.answer(_STATUS, ProcessAnswer(stdout=json.dumps(payload)))
+    def rules(self, *required: str) -> None:
+        """Answer the rules of `main`: a pull request rule, and a rule that requires the checks
+        `required` when it names any."""
+        rules: list[dict[str, Any]] = [{"type": "pull_request", "parameters": {}}]
+        if required:
+            checks = [{"context": name} for name in required]
+            rules.append(
+                {"type": "required_status_checks", "parameters": {"required_status_checks": checks}}
+            )
+        self.api.route("GET", _RULES, github_json(rules))
 
     def files(self, *files: object) -> None:
         route_compare_files(self.api, _REPO, "main", _HEAD, *files, merge_base=_MERGE_BASE)
@@ -214,15 +157,6 @@ class _GitHub:
         references = {"totalCount": len(issues) if total is None else total, "nodes": list(issues)}
         payload = {"data": {"repository": {"pullRequest": {"closingIssuesReferences": references}}}}
         self.answer(_CLOSING, ProcessAnswer(stdout=json.dumps(payload)))
-
-    def workflows(self, *files: tuple[str, str]) -> None:
-        """Answer the head's workflow folder with `files`, each named and holding its text."""
-        entries = [
-            {"type": "file", "name": name, "path": f".github/workflows/{name}"} for name, _ in files
-        ]
-        self.api.route("GET", _WORKFLOWS_DIR, github_json(entries))
-        for name, text in files:
-            route_file(self.api, _REPO, f".github/workflows/{name}", _HEAD, text)
 
     def gh_sent(self) -> list[str]:
         """Each gh command run, as one string."""
@@ -453,28 +387,28 @@ def test_the_pull_request_state_blocks_unless_excused(
     ("runs", "options", "blockers", "advisories", "pending"),
     [
         (
-            [_run("CodeQL", "failure"), _run("CI")],
+            [_check("CodeQL", "FAILURE", "fail"), _check("CI")],
             {},
             ["PR #335 has 1 failing check(s): CodeQL."],
             [],
             [],
         ),
         (
-            [_run("Tests & Coverage", None, "in_progress")],
+            [_check("Tests & Coverage", "IN_PROGRESS", "pending")],
             {},
             ["PR #335 has 1 check(s) still running: Tests & Coverage."],
             [],
             ["Tests & Coverage"],
         ),
         (
-            [_run("Tests & Coverage", None, "in_progress")],
+            [_check("Tests & Coverage", "IN_PROGRESS", "pending")],
             {"allow_pending_checks": True},
             [],
             [_warning("PR #335 has 1 check(s) still running: Tests & Coverage.")],
             ["Tests & Coverage"],
         ),
         (
-            [_run("zizmor", "cancelled"), _run("audit", "timed_out")],
+            [_check("zizmor", "CANCELLED", "cancel"), _check("audit", "TIMED_OUT", "fail")],
             {},
             ["PR #335 has 2 failing check(s): audit, zizmor."],
             [],
@@ -512,10 +446,14 @@ def test_checks_that_failed_or_still_run_block(
         (None, {"mergeable": None, "mergeable_state": "unknown"}, [BlockerKind.MERGEABILITY]),
         (None, {"mergeable_state": "blocked"}, [BlockerKind.BRANCH_PROTECTION]),
         (None, {"draft": True}, [BlockerKind.DRAFT]),
-        (lambda g: g.checks(_run("CodeQL", "failure")), {}, [BlockerKind.CHECKS_FAILING]),
-        (lambda g: g.answer(_STATUS, _SERVER_ERROR), {}, [BlockerKind.CHECKS_UNREAD]),
         (
-            lambda g: g.checks(_run("Tests & Coverage", None, "in_progress")),
+            lambda g: g.checks(_check("CodeQL", "FAILURE", "fail")),
+            {},
+            [BlockerKind.CHECKS_FAILING],
+        ),
+        (lambda g: g.answer(_PR_CHECKS, _SERVER_ERROR), {}, [BlockerKind.CHECKS_UNREAD]),
+        (
+            lambda g: g.checks(_check("Tests & Coverage", "IN_PROGRESS", "pending")),
             {},
             [BlockerKind.CHECKS_PENDING],
         ),
@@ -560,7 +498,7 @@ def test_each_blocker_keeps_its_kind(
 
 def test_the_verdict_keeps_the_checks_it_read(github: _GitHub, tmp_path: Path) -> None:
     """The monitor shows its check table from the verdict's own read, with no second read."""
-    github.checks(_run("CodeQL", "failure"), _run("CI"))
+    github.checks(_check("CodeQL", "FAILURE", "fail"), _check("CI"))
     checks = _assess(tmp_path).checks
     assert checks is not None
     assert sorted((item.name, item.bucket) for item in checks.items) == [
@@ -569,14 +507,70 @@ def test_the_verdict_keeps_the_checks_it_read(github: _GitHub, tmp_path: Path) -
     ]
 
 
-def test_a_commit_with_no_check_waits_while_a_pull_request_workflow_can_start_one(
+def test_the_verdict_reads_the_checks_with_gh_pr_checks(github: _GitHub, tmp_path: Path) -> None:
+    """gh reads the check runs and the commit statuses of the head and keeps the newest run of
+    each check, so the verdict sends one `gh pr checks` and no REST read of checks (#7508)."""
+    _assess(tmp_path)
+    assert (
+        [command for command in github.gh_sent() if "checks" in command],
+        [
+            request
+            for request in github.api.requested
+            if "check-runs" in request or "rules" in request
+        ],
+    ) == ([_PR_CHECKS], [])
+
+
+def test_a_failed_read_of_the_checks_is_one_unread_blocker(github: _GitHub, tmp_path: Path) -> None:
+    github.answer(_PR_CHECKS, _SERVER_ERROR)
+    assert _assess(tmp_path).blockers == (
+        "PR #335 check verification failed closed: gh pr checks failed: "
+        "gh: Server Error (HTTP 500)",
+    )
+
+
+def test_a_head_with_no_check_waits_while_the_base_branch_requires_a_check(
     github: _GitHub, tmp_path: Path
 ) -> None:
+    """GitHub does not merge until each required check reports, so a head with no check waits
+    (#7508)."""
     github.checks()
-    github.workflows(("ci.yml", _PULL_REQUEST_WORKFLOW))
     verdict = _assess(tmp_path)
-    assert verdict.blockers == ("PR #335 has 1 check(s) still running: no checks reported.",)
-    assert verdict.no_ci is False
+    assert (verdict.blockers, verdict.no_ci, verdict.advisories) == (
+        ("PR #335 has 1 check(s) still running: no checks reported.",),
+        False,
+        (),
+    )
+
+
+def test_a_head_with_no_check_has_no_ci_when_the_base_branch_requires_none(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    """GitHub merges a pull request with no check when the rules of its base branch require
+    none, so the verdict has nothing to wait for and says why (#5144, #5408, #7508)."""
+    github.checks()
+    github.rules()
+    verdict = _assess(tmp_path)
+    assert (verdict.kinds, verdict.pending_checks, verdict.no_ci, verdict.advisories) == (
+        frozenset(),
+        (),
+        True,
+        (
+            Advisory(
+                AdvisoryLevel.INFO,
+                "The rules of main of dan-petty/devops-cli require no check, and PR #335 "
+                "reports none, so there is nothing to wait for.",
+            ),
+        ),
+    )
+
+
+def test_rules_that_cannot_be_read_keep_the_pending_check(github: _GitHub, tmp_path: Path) -> None:
+    """Unread rules are no proof that the base branch requires no check, so the head waits."""
+    github.checks()
+    github.api.route("GET", _RULES, github_json({"message": "Forbidden"}, status=403))
+    verdict = _assess(tmp_path)
+    assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (True, False)
 
 
 def test_a_payload_with_no_head_commit_fails_closed(github: _GitHub, tmp_path: Path) -> None:
@@ -595,237 +589,6 @@ def test_a_payload_with_no_head_commit_fails_closed(github: _GitHub, tmp_path: P
         None,
         "PR #335 check verification failed closed: the pull request read gave no head commit.",
     )
-
-
-def test_a_repository_with_no_pull_request_workflow_has_no_ci(
-    github: _GitHub, tmp_path: Path
-) -> None:
-    """The head commit reports no check and no workflow at it runs on a pull request, so no check
-    can start: the missing check blocks nothing and an INFO advisory says why (#5144)."""
-    github.checks()
-    verdict = _assess(tmp_path)
-    assert (verdict.kinds, verdict.pending_checks, verdict.no_ci) == (frozenset(), (), True)
-    assert [(advisory.level, advisory.text) for advisory in verdict.advisories] == [
-        (
-            AdvisoryLevel.INFO,
-            "No workflow of dan-petty/devops-cli can start a check on PR #335: no workflow runs "
-            "on pull requests, or branch and path filters skip this pull request. PR #335 has "
-            "no checks, so there is nothing to wait for.",
-        )
-    ]
-
-
-def test_a_workflow_with_only_push_and_dispatch_triggers_has_no_ci(
-    github: _GitHub, tmp_path: Path
-) -> None:
-    github.checks()
-    github.workflows(("release.yml", _PUSH_ONLY_WORKFLOW))
-    verdict = _assess(tmp_path)
-    assert (verdict.kinds, verdict.no_ci) == (frozenset(), True)
-
-
-def test_a_path_filter_that_skips_every_changed_file_has_no_ci(
-    github: _GitHub, tmp_path: Path
-) -> None:
-    """dan-petty/homelab PR #97 changed only files that the `paths` filters of its `pull_request`
-    workflows skip, so GitHub started no check, and the verdict must not wait for one (#5408)."""
-    github.checks()
-    github.files(_ARCHIVE_704, _README)
-    github.workflows(("k8s.yml", _K8S_WORKFLOW))
-    verdict = _assess(tmp_path)
-    assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (False, True)
-
-
-@pytest.mark.parametrize("changed", [_K8S_APP, _RENAMED_FROM_K8S], ids=["changed", "renamed-from"])
-def test_a_path_filter_that_matches_a_changed_file_keeps_the_pending_check(
-    github: _GitHub, tmp_path: Path, changed: dict[str, str]
-) -> None:
-    """A renamed file gives its old path too, so a filter that matches either path waits."""
-    github.checks()
-    github.files(_ARCHIVE_704, changed)
-    github.workflows(("k8s.yml", _K8S_WORKFLOW))
-    verdict = _assess(tmp_path)
-    assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (True, False)
-
-
-def test_a_path_filter_keeps_the_pending_check_for_a_file_list_at_the_limit(
-    github: _GitHub, tmp_path: Path
-) -> None:
-    """A compare answer at GitHub's limit can leave out the file that the filter matches."""
-    github.checks()
-    github.files(*_AT_THE_LIMIT)
-    github.workflows(("k8s.yml", _K8S_WORKFLOW))
-    verdict = _assess(tmp_path)
-    assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (True, False)
-
-
-def test_a_path_filter_keeps_the_pending_check_when_the_changed_files_are_unread(
-    github: _GitHub, tmp_path: Path
-) -> None:
-    github.checks()
-    github.api.route("GET", _COMPARE, github_json({"message": "Not Found"}, status=404))
-    github.workflows(("k8s.yml", _K8S_WORKFLOW))
-    verdict = _assess(tmp_path)
-    assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (True, False)
-
-
-def test_a_pull_request_target_workflow_keeps_the_pending_check(
-    github: _GitHub, tmp_path: Path
-) -> None:
-    github.checks()
-    github.workflows(("labels.yml", _TARGET_WORKFLOW))
-    verdict = _assess(tmp_path)
-    assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (True, False)
-
-
-def test_the_workflow_filters_and_the_item_rules_share_one_compare_read(
-    github: _GitHub, tmp_path: Path
-) -> None:
-    github.checks()
-    github.files(_ARCHIVE_704, _README)
-    github.workflows(("k8s.yml", _K8S_WORKFLOW))
-    _assess(tmp_path)
-    compared = [request for request in github.api.requested if "/compare/" in request]
-    assert compared == [f"GET https://api.github.com{_COMPARE}"]
-
-
-def test_an_unread_workflow_keeps_the_pending_check(github: _GitHub, tmp_path: Path) -> None:
-    """A workflow read that fails is no proof of no CI, so the pending check stays and blocks."""
-    github.checks()
-    github.api.route("GET", _WORKFLOWS_DIR, github_json({"message": "Forbidden"}, status=403))
-    verdict = _assess(tmp_path)
-    assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (True, False)
-
-
-def test_a_string_pull_request_trigger_keeps_the_pending_check(
-    github: _GitHub, tmp_path: Path
-) -> None:
-    github.checks()
-    github.workflows(("ci.yml", _STRING_PULL_REQUEST_WORKFLOW))
-    verdict = _assess(tmp_path)
-    assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (True, False)
-
-
-def test_a_workflow_file_that_is_no_mapping_has_no_ci(github: _GitHub, tmp_path: Path) -> None:
-    github.checks()
-    github.workflows(("list.yml", "- one\n- two\n"))
-    verdict = _assess(tmp_path)
-    assert (verdict.kinds, verdict.no_ci) == (frozenset(), True)
-
-
-def test_a_workflow_with_no_trigger_has_no_ci(github: _GitHub, tmp_path: Path) -> None:
-    github.checks()
-    github.workflows(("none.yml", _NO_TRIGGER_WORKFLOW))
-    verdict = _assess(tmp_path)
-    assert (verdict.kinds, verdict.no_ci) == (frozenset(), True)
-
-
-def test_a_workflow_file_that_is_not_valid_yaml_keeps_the_pending_check(
-    github: _GitHub, tmp_path: Path
-) -> None:
-    github.checks()
-    github.workflows(("broken.yml", _INVALID_WORKFLOW))
-    verdict = _assess(tmp_path)
-    assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (True, False)
-
-
-def test_a_workflow_folder_entry_that_is_no_file_is_skipped(
-    github: _GitHub, tmp_path: Path
-) -> None:
-    github.checks()
-    entries = [
-        {"type": "dir", "name": "nested", "path": ".github/workflows/nested"},
-        {"type": "file", "name": "README.md", "path": ".github/workflows/README.md"},
-        {"type": "file", "name": "ci.yml", "path": ".github/workflows/ci.yml"},
-    ]
-    github.api.route("GET", _WORKFLOWS_DIR, github_json(entries))
-    route_file(github.api, _REPO, ".github/workflows/ci.yml", _HEAD, _PULL_REQUEST_WORKFLOW)
-    verdict = _assess(tmp_path)
-    assert BlockerKind.CHECKS_PENDING in verdict.kinds
-
-
-def test_a_workflow_folder_answer_that_is_no_list_has_no_ci(
-    github: _GitHub, tmp_path: Path
-) -> None:
-    github.checks()
-    github.api.route("GET", _WORKFLOWS_DIR, github_json({"type": "file"}))
-    verdict = _assess(tmp_path)
-    assert (verdict.kinds, verdict.no_ci) == (frozenset(), True)
-
-
-def test_a_failed_combined_commit_status_beyond_the_listed_ones_blocks(
-    github: _GitHub, tmp_path: Path
-) -> None:
-    """GitHub lists 100 statuses at most; a failure among the rest shows in the combined state."""
-    github.statuses({"context": "ci/a", "state": "success"}, state="failure", total=150)
-    verdict = _assess(tmp_path)
-    assert verdict.blockers == ("PR #335 has 1 failing check(s): commit status (combined).",)
-
-
-@pytest.mark.parametrize(
-    "second_page",
-    [
-        pytest.param(
-            httpx2.Response(
-                200,
-                headers={"content-type": "text/html; charset=utf-8"},
-                content=b"<html>upstream 502 Bad Gateway</html>",
-            ),
-            id="html",
-        ),
-        pytest.param(github_json({"check_runs": "bad"}), id="runs-not-a-list"),
-        pytest.param(github_json({"message": "Server Error"}), id="error-object"),
-        pytest.param(github_json({"message": "Bad Gateway"}, status=502), id="5xx"),
-    ],
-)
-def test_a_check_runs_page_that_cannot_be_read_fails_closed(
-    github: _GitHub, tmp_path: Path, second_page: httpx2.Response
-) -> None:
-    """A check-runs page readiness can't read is a read failure, never a shorter list of passing
-    checks."""
-    github.api.route(
-        "GET",
-        _CHECK_RUNS,
-        github_json(
-            {"total_count": 2, "check_runs": [_run("ci-lint")]},
-            headers=next_page(_CHECK_RUNS_PAGE_2),
-        ),
-    )
-    github.api.route("GET", _CHECK_RUNS_PAGE_2, second_page)
-    blockers = _assess(tmp_path).blockers
-    assert (
-        len(blockers),
-        blockers[0].startswith("PR #335 check verification failed closed: "),
-        any(cause in blockers[0] for cause in ("page 2", "HTTP 502")),
-    ) == (1, True, True)
-
-
-def test_a_commit_status_read_that_fails_fails_closed(github: _GitHub, tmp_path: Path) -> None:
-    github.answer(_STATUS, _SERVER_ERROR)
-    assert _assess(tmp_path).blockers == (
-        "PR #335 check verification failed closed: GitHub commit status API error: "
-        "gh: Server Error (HTTP 500)",
-    )
-
-
-def test_the_check_runs_of_a_commit_are_read_from_every_page(github: _GitHub) -> None:
-    """The check-runs listing is read through the session, page after linked page."""
-    github.api.route(
-        "GET",
-        _CHECK_RUNS,
-        github_json(
-            {"total_count": 2, "check_runs": [_run("ci-lint")]},
-            headers=next_page(_CHECK_RUNS_PAGE_2),
-        ),
-    )
-    github.api.route(
-        "GET", _CHECK_RUNS_PAGE_2, github_json({"total_count": 2, "check_runs": [_run("ci-test")]})
-    )
-    checks = read_commit_checks(_OWNER, _NAME, _HEAD)
-    assert [(item.name, item.bucket) for item in checks.items] == [
-        ("ci-lint", CheckBucket.PASS),
-        ("ci-test", CheckBucket.PASS),
-    ]
 
 
 def test_unresolved_review_threads_block_and_are_shown(github: _GitHub, tmp_path: Path) -> None:

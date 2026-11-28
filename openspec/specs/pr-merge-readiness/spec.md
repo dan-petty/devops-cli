@@ -126,53 +126,30 @@ The verdict SHALL hold one blocker of the kind body form for each problem that `
 
 ### Requirement: pr ready does not wait for checks in a repository with no CI
 
-When the head commit of the pull request reports no check run and no commit status, and no
-workflow at that commit can start a check on the pull request, the merge readiness verdict SHALL
-add no pending-check blocker and SHALL name the missing CI in an INFO advisory. `devops pr ready`
-SHALL say so, SHALL NOT judge the checks or warn of them, and SHALL mark the pull request ready
-with no `--force`.
+When gh answers `no checks reported` for the pull request, and the rules of its base branch hold
+no `required_status_checks` rule, the merge readiness verdict SHALL add no pending-check blocker
+and SHALL name the missing CI in an INFO advisory. GitHub merges such a pull request with no
+check. `devops pr ready` SHALL say so, SHALL NOT judge the checks or warn of them, and SHALL mark
+the pull request ready with no `--force`.
 
 #### Scenario: A repository with no CI
 
-- **WHEN** the head commit reports no check and holds no workflow file
-- **THEN** `pr ready` names the repository, says that no workflow of it can start a check on the
-  pull request, marks the pull request ready, and exits 0 with no warning about "no checks
-  reported"
+- **WHEN** gh answers `no checks reported` and the rules of `main` hold no
+  `required_status_checks` rule
+- **THEN** `pr ready` names the repository, says that the rules of `main` require no check,
+  marks the pull request ready, and exits 0 with no warning about "no checks reported"
 
 #### Scenario: A push-only workflow
 
-- **WHEN** the head commit reports no check and holds one workflow with only `push` and
-  `workflow_dispatch` triggers
+- **WHEN** the only workflow of the repository has `push` and `workflow_dispatch` triggers, so gh
+  answers `no checks reported`, and the rules of `main` require no check
 - **THEN** `pr ready` marks the pull request ready and exits 0
 
 #### Scenario: A path filter that skips every changed file
 
-- **WHEN** the head commit reports no check, holds one workflow whose `pull_request` event has
-  `paths: [k8s/**]`, and the pull request changes only `README.md`
+- **WHEN** the `paths` filter of the `pull_request` workflow skips every changed file, so gh
+  answers `no checks reported`, and the rules of `main` require no check
 - **THEN** `pr ready` marks the pull request ready and exits 0
-
-### Requirement: pr ready waits for checks that a workflow can start
-
-When the head commit reports no check and holds a workflow that can start one on the pull
-request, `devops pr ready` SHALL wait for the checks as before. A read of the workflows that fails
-SHALL keep the pending check, so `devops pr ready` SHALL exit 8 and marks nothing.
-
-#### Scenario: Checks that have not started
-
-- **WHEN** the head commit reports no check and holds a workflow that lists `pull_request`
-- **THEN** `pr ready` exits 8 and marks nothing
-
-#### Scenario: A path filter that matches a changed file
-
-- **WHEN** the head commit reports no check, holds one workflow whose `pull_request` event has
-  `paths: [k8s/**]`, and the pull request changes `k8s/app.yaml`
-- **THEN** `pr ready` exits 8 and marks nothing
-
-#### Scenario: The workflows cannot be read
-
-- **WHEN** the head commit reports no check and GitHub answers the read of the workflows with an
-  error
-- **THEN** `pr ready` exits 8 and marks nothing
 
 ### Requirement: Readiness reads the file list at the merge base
 The command `devops pr check-readiness` SHALL read the files a pull request changes from the compare endpoint of the tip of the base branch and the head commit, and MUST NOT compare from the `base.sha` of the pull request payload.
@@ -252,15 +229,15 @@ The command `devops pr check-readiness --dry-run` SHALL list the compare request
 - **THEN** The plan holds a request whose target is `compare/<base-ref>...<head-sha>`, and holds no target that ends with the pulls files path.
 
 ### Requirement: Only the latest run of each check counts
-The reader of the check runs of a commit SHALL keep only the latest run of each check, whatever the conclusion of that run. A check SHALL be the name of the run and the id of the app that reports it. The time of a run SHALL be its `started_at`, else its `completed_at`. A run with no time, and each run at the latest time of its check, SHALL stay. `devops pr ready`, `devops pr check-readiness` and the roadmap readiness rows SHALL judge the checks through this reader.
+`read_check_runs`, the REST reader of the roadmap readiness rows, SHALL keep only the latest run of each check, whatever its conclusion. A check SHALL be the name of the run and the id of the app that reports it. The time of a run SHALL be its `started_at`, else its `completed_at`. A run with no time, and each run at the latest time of its check, SHALL stay.
 
 #### Scenario: A newer run passes after an older run failed
-- **WHEN** the head commit has a failed run of Fail-to-Pass Check and a newer passed run of it in another check suite, and the latest run of each other check passed or was skipped
-- **THEN** `devops pr ready` marks the pull request ready and exits 0, and `devops pr check-readiness` exits 0
+- **WHEN** the head commit has a failed run of Fail-to-Pass Check and a newer passed run of it in another check suite
+- **THEN** `read_check_runs` keeps only the passed run
 
 #### Scenario: A newer run fails after an older run passed
 - **WHEN** the head commit has a passed run of Fail-to-Pass Check and a newer failed run of it
-- **THEN** `devops pr ready` and `devops pr check-readiness` both exit 1 and name Fail-to-Pass Check
+- **THEN** `read_check_runs` keeps only the failed run, and the checks do not pass
 
 #### Scenario: A newer run still runs
 - **WHEN** a check has a passed run and a newer run that still runs
@@ -300,59 +277,26 @@ The stage eval evidence SHALL hold a number beside `before` and beside `after`, 
 - **WHEN** the body holds `--model` with no name
 - **THEN** `stage_eval_problems` names the flag
 
-### Requirement: The verdict reads the workflow triggers at the head commit
-
-The merge-readiness verdict SHALL read `.github/workflows` at the head commit, the `on` key of
-each workflow file, and the branch and path filters of each `pull_request` and
-`pull_request_target` event. A 404, an empty folder, or a folder whose workflows all list other
-triggers or have filters that skip the pull request SHALL mean that no CI can run on the pull
-request.
-
-#### Scenario: A pull-request workflow keeps the pending check
-
-- **WHEN** a test gives the head commit one workflow whose `on` key lists `pull_request` and
-  gives no check runs
-- **THEN** the verdict holds `BlockerKind.CHECKS_PENDING` and `pending_checks` holds
-  `no checks reported`
-
-#### Scenario: A pull_request_target workflow keeps the pending check
-
-- **WHEN** a test gives the head commit one workflow whose `on` key lists only
-  `pull_request_target` and gives no check runs
-- **THEN** the verdict holds `BlockerKind.CHECKS_PENDING` and `no_ci` is false
-
-#### Scenario: A push-only workflow suppresses the pending check
-
-- **WHEN** a test gives the head commit one workflow with only `push` and `workflow_dispatch`
-  triggers and gives no check runs
-- **THEN** the verdict holds no `BlockerKind.CHECKS_PENDING` blocker and holds the no-CI advisory
-
-#### Scenario: An unread workflow fails closed
-
-- **WHEN** a test makes the workflow read fail and gives no check runs
-- **THEN** the verdict holds `BlockerKind.CHECKS_PENDING` and `pending_checks` holds
-  `no checks reported`
-
 ### Requirement: check-readiness reports a repository with no CI
 
-`devops pr check-readiness` SHALL exit 0 with the no-CI advisory when no workflow can run on the
-head commit and no other blocker applies.
+`devops pr check-readiness` SHALL exit 0 with the no-CI advisory when gh answers
+`no checks reported`, the rules of the base branch require no check, and no other blocker applies.
 
 #### Scenario: check-readiness on a repository with no CI
 
-- **WHEN** a test runs `devops pr check-readiness` for a pull request whose head commit holds no
-  workflow and no check
+- **WHEN** a test runs `devops pr check-readiness` for a pull request whose head reports no check
+  and whose base branch rules require no check
 - **THEN** the test asserts exit code 0 and that the output contains the no-CI advisory
 
 ### Requirement: pr monitor does not wait for a repository with no CI
 
-`devops pr monitor` SHALL settle on its first poll when no workflow can run on the head commit
-and no other blocker applies.
+`devops pr monitor` SHALL settle on its first poll when gh answers `no checks reported`, the rules
+of the base branch require no check, and no other blocker applies.
 
 #### Scenario: pr monitor on a repository with no CI
 
-- **WHEN** a test runs `devops pr monitor` with a fake clock for a pull request whose head commit
-  holds no workflow and no check
+- **WHEN** a test runs `devops pr monitor` with a fake clock for a pull request whose head
+  reports no check and whose base branch rules require no check
 - **THEN** the test asserts exit code 0 and that the monitor made no sleep call
 
 ### Requirement: pr monitor stops on a conflict before pending checks
@@ -401,62 +345,48 @@ When `implement.pr` and `stage.pr` hold the same pull request number, `kind_of` 
 - **WHEN** `get_pr_monitoring_status` reads a pull request payload with no `head.sha`
 - **THEN** the status holds `checks_failed` True and a non-empty `blockers`, and the settled result holds `success` False and `exit_code` 1
 
-### Requirement: The pull request filters of a workflow follow GitHub's rules
+### Requirement: The verdict reads the checks with gh pr checks
 
-A workflow SHALL start a check on a pull request only when the filters of its pull request event
-take it: `branches` or `branches-ignore` for the base branch, and `paths` or `paths-ignore` for
-the files of the compare read, with the old path of each renamed file. The last pattern that
-matches SHALL decide, and a `!` pattern SHALL exclude. Both filters SHALL take the pull request,
-and no path filter SHALL take a pull request that changes no file.
+The merge-readiness verdict SHALL read the checks of the pull request with
+`gh pr checks <number> --repo <owner>/<name> --json name,state,bucket,workflow,link`, and SHALL
+judge each check that gh lists with the bucket that gh gives. The gh answer `no checks reported`
+SHALL read as the pending stand-in `no checks reported`. Each other failed read SHALL be one
+`BlockerKind.CHECKS_UNREAD` blocker that names the cause.
 
-#### Scenario: A paths-ignore filter that holds every changed file
+#### Scenario: A failed check
 
-- **WHEN** `starts_on_pull_request` judges a workflow whose `pull_request` event has
-  `paths-ignore: ['docs/**']` for a pull request that changes only `docs/README.md`
-- **THEN** it returns false
+- **WHEN** gh lists CodeQL in the bucket `fail` and CI in the bucket `pass`
+- **THEN** the verdict holds the one blocker "PR #335 has 1 failing check(s): CodeQL." and sends
+  `gh pr checks 335 --repo dan-petty/devops-cli --json name,state,bucket,workflow,link`
 
-#### Scenario: A branch filter that skips the base branch
+#### Scenario: gh cannot read the checks
 
-- **WHEN** `starts_on_pull_request` judges a workflow whose `pull_request` event has
-  `branches: ['releases/**']` for a pull request into `main`
-- **THEN** it returns false
+- **WHEN** `gh pr checks` exits 1 with `HTTP 502` on stderr
+- **THEN** the verdict holds one `BlockerKind.CHECKS_UNREAD` blocker that names `HTTP 502`
 
-#### Scenario: A negative pattern after a positive one
+#### Scenario: A cancelled check
 
-- **WHEN** `starts_on_pull_request` judges a workflow whose `pull_request` event has
-  `paths: ['sub-project/**', '!sub-project/docs/**']` for a pull request that changes only
-  `sub-project/docs/readme.md`
-- **THEN** it returns false
+- **WHEN** gh lists zizmor in the bucket `cancel` and audit in the bucket `fail`
+- **THEN** the verdict holds the one blocker "PR #335 has 2 failing check(s): audit, zizmor."
 
-#### Scenario: A file renamed out of a filtered folder
+#### Scenario: gh prints no list
 
-- **WHEN** the head commit reports no check, holds one workflow whose `pull_request` event has
-  `paths: [k8s/**]`, and the compare lists `docs/app.yaml` as renamed from `k8s/app.yaml`
-- **THEN** the verdict holds `BlockerKind.CHECKS_PENDING` and `no_ci` is false
+- **WHEN** `gh pr checks` exits 0 and prints a JSON object
+- **THEN** the verdict holds one `BlockerKind.CHECKS_UNREAD` blocker
 
-### Requirement: A workflow filter that cannot be judged keeps the wait
+### Requirement: pr ready waits for checks that the base branch requires
 
-A filter that the verdict cannot judge SHALL take the pull request, so the workflow can start a
-check. The cases are a changed-file list that is unread or holds GitHub's limit of files of one
-comparison, an unknown base branch, a filter value that is no list of strings, both forms of one
-filter, and a pattern with `?`, `+` or a `**` that shares a path segment with other characters,
-which GitHub reads otherwise than wcmatch.
+When gh answers `no checks reported` and the rules of the base branch hold a
+`required_status_checks` rule, the verdict SHALL keep the pending stand-in, and `devops pr ready`
+SHALL exit 8 and mark nothing. A read of the rules that fails SHALL keep the pending stand-in too.
 
-#### Scenario: A pattern with GitHub's quantifier
+#### Scenario: Required checks that have not started
 
-- **WHEN** `starts_on_pull_request` judges a workflow whose `pull_request` event has
-  `paths: ['*.jsx?']` for a pull request that changes only `page.js`
-- **THEN** it returns true
+- **WHEN** gh answers `no checks reported` and the rules of `main` require the check CI
+- **THEN** `pr ready` exits 8 and marks nothing
 
-#### Scenario: A file list at GitHub's limit
+#### Scenario: The rules cannot be read
 
-- **WHEN** the head commit reports no check, holds one workflow whose `pull_request` event has
-  `paths: [k8s/**]`, and the compare answer holds GitHub's limit of files, none of them under
-  `k8s/`
-- **THEN** the verdict holds `BlockerKind.CHECKS_PENDING` and `no_ci` is false
-
-#### Scenario: Changed files that are unread
-
-- **WHEN** the head commit reports no check, holds one workflow whose `pull_request` event has
-  `paths: [k8s/**]`, and GitHub answers the compare read with an error
-- **THEN** the verdict holds `BlockerKind.CHECKS_PENDING` and `no_ci` is false
+- **WHEN** gh answers `no checks reported` and GitHub answers the read of the rules of `main`
+  with HTTP 403
+- **THEN** `pr ready` exits 8 and marks nothing

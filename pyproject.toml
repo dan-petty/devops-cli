@@ -89,7 +89,6 @@ dependencies = [
     "tomlkit==0.15.3",
     "numpy==2.5.5",
     "pytrec-eval-terrier==0.5.11",
-    "wcmatch==12.0.4",
     "boto3==1.44.13",
     "botocore==1.44.13",
     "python-ulid==4.2.0",

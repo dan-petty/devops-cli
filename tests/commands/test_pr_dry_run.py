@@ -225,6 +225,33 @@ def test_dry_run_plans_match_dispatched_arguments() -> None:
     assert plan_close[0].argv == tuple(pr_close_args(42, "closing", True, "owner/repo"))
 
 
+def test_the_check_readiness_plan_lists_the_check_read_and_the_rules_read() -> None:
+    """The verdict reads the checks with `gh pr checks`, and reads the rules of the base branch
+    only when the head reports no check (#7508)."""
+    from devops_cli.github.check_verdict import pr_checks_args
+    from devops_cli.github.pr_plans import plan_pr_check_readiness
+
+    plan = plan_pr_check_readiness(42, repo="owner/repo")
+
+    checks = [request.argv for request in plan if request.argv[1:3] == ("pr", "checks")]
+    rules = [
+        (request.method, request.target, request.argv, request.condition)
+        for request in plan
+        if "/rules/branches/" in request.target
+    ]
+    assert (checks, rules) == (
+        [tuple(pr_checks_args(42, "owner/repo"))],
+        [
+            (
+                "GET",
+                "repos/owner/repo/rules/branches/<base-ref>",
+                ("gh", "api", "repos/owner/repo/rules/branches/<base-ref>?per_page=100"),
+                "the head reports no check",
+            )
+        ],
+    )
+
+
 def test_the_check_readiness_plan_lists_the_compare_request() -> None:
     """The check-readiness plan lists the compare request that reads the file list, and no pulls
     files request (#2530)."""
