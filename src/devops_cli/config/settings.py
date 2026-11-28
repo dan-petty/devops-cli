@@ -128,6 +128,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
     DEFAULT_ROADMAP_ALTERNATIVES_REFERENCES,
     DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
+    DEFAULT_ROADMAP_BRAIN_DIGEST,
     DEFAULT_ROADMAP_FIX_CHECKS_MAX_WAIT_MINUTES,
     DEFAULT_ROADMAP_FIX_CHECKS_MODE,
     DEFAULT_ROADMAP_FIX_CHECKS_TOKEN_BUDGET,
@@ -223,6 +224,7 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_TIMEOUT_SECONDS,
     DEFAULT_VALKEY_URL,
     DEFAULT_WORKSPACE_FILE,
+    BrainDigestMode,
     DecisionMode,
     JevMode,
     JobToolset,
@@ -2002,6 +2004,17 @@ class AlternativesConfig(RowCadenceConfig):
     )
 
 
+class RoadmapBrainConfig(BaseModel):
+    """What the roadmap jobs read of the project brain (ADR 0023)."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    digest: Annotated[BrainDigestMode, Variable()] = Field(
+        description="Whether the alternatives check reads the brain digest of an item before its model call (#4682, ADR 0023 section 1). `on` reads the near items of the entry of the item in the brain index of the Valkey of `roadmap.state.url`, with the date of each check, its verdict, its tool and the ADRs in force that reject the tool, at most 2,000 tokens, and adds them to the one request of the model as `brain`. A store that is not configured or does not answer, and an item with no entry, give an empty digest, and the check runs as before. `off` makes no read of the brain index",
+        default=DEFAULT_ROADMAP_BRAIN_DIGEST,
+    )
+
+
 class RoadmapInboxConfig(BaseModel):
     """The two ages of `devops roadmap inbox` (#3494)."""
 
@@ -2282,6 +2295,7 @@ class RoadmapConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
     alternatives: AlternativesConfig = Field(default_factory=AlternativesConfig)
+    brain: RoadmapBrainConfig = Field(default_factory=RoadmapBrainConfig)
     stage: RoadmapStageConfig = Field(default_factory=RoadmapStageConfig)
     implement: RoadmapImplementConfig = Field(default_factory=RoadmapImplementConfig)
     inbox: RoadmapInboxConfig = Field(default_factory=RoadmapInboxConfig)

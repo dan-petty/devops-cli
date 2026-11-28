@@ -476,6 +476,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "CONST_ROADMAP_BRAIN_ITEM_MAX_REFS": ("kept", "references of one item entry (ADR 0023)"),
     "CONST_ROADMAP_BRAIN_ITEM_MAX_NEAR": ("kept", "near items of one item entry (ADR 0023)"),
     "CONST_ROADMAP_BRAIN_ITEM_MAX_USES": ("kept", "used entries that one item entry names"),
+    "CONST_ROADMAP_BRAIN_DIGEST_MAX_TOKENS": (
+        "window",
+        "the brain digest of one check (ADR 0023); a quarter of the ADR cap",
+    ),
     "DEFAULT_ROADMAP_RETITLE_LIMIT": ("setting", "items that one retitle run examines"),
     "DEFAULT_ROADMAP_ALTERNATIVES_LIMIT": ("kept", "items of one round"),
     "DEFAULT_ROADMAP_ALTERNATIVES_FIRST_PASS_LIMIT": (

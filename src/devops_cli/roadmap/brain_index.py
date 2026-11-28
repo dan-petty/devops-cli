@@ -28,11 +28,16 @@ GitHub holds the durable copy, so in each other case the block replaces the entr
 
 **Fail soft.** Each command goes through the breaker of the tier. While the store does not
 answer, a read gives None and a write does not occur, with no error (ADR 0023 section 2).
+
+**Reads of entries.** `items` and `tools` read the hashes of items and tools whole, as the brain
+digest of the alternatives check reads them (#4682). An entry of another schema or with a value
+of a wrong form is no entry. `item_entry_id` and `tool_entry_id` give the id of an entry in
+`alternatives.brain_used`: the kind of its key and its last part, such as `item:7`.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -44,7 +49,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_BRAIN_INDEX_TTL_SECONDS,
 )
 from devops_cli.roadmap.brain_entries import BrainEntry, reference_key_id, tool_key_id
-from devops_cli.roadmap.stores.store import as_utc
+from devops_cli.roadmap.stores.store import Verdict, as_utc
 
 if TYPE_CHECKING:
     from devops_cli.github.repo_ref import RepoRef
@@ -59,6 +64,9 @@ _KIND_REFERENCE: Final[str] = "brain-ref"
 _KIND_EVENTS: Final[str] = "brain-events"
 _KIND_SYNC: Final[str] = "brain-sync"
 _CHECKED_AT: Final[str] = "checked_at"
+# The kind of an entry in its id in `alternatives.brain_used` (#4682).
+_ID_ITEM: Final[str] = "item"
+_ID_TOOL: Final[str] = "tool"
 # How many fields or keys one step of a scan asks the server for.
 _SCAN_COUNT: Final[int] = 500
 
@@ -96,6 +104,38 @@ class Watermark:
     synced_at: datetime | None = None
 
 
+@dataclass(frozen=True)
+class HeldItem:
+    """What a reader takes of the entry of one item: the verdict and the time of its check, the
+    canonical id of its tool (empty for a check with no tool), and its near items, the newest
+    check first."""
+
+    number: int
+    verdict: Verdict
+    checked_at: datetime
+    tool_id: str
+    near: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class HeldTool:
+    """What a reader takes of the entry of one tool: its canonical id and the name that the newest
+    check that named it wrote."""
+
+    tool_id: str
+    name: str
+
+
+def item_entry_id(number: int) -> str:
+    """The id of the entry of item `number` in `alternatives.brain_used`."""
+    return f"{_ID_ITEM}:{number}"
+
+
+def tool_entry_id(tool_id: str) -> str:
+    """The id of the entry of the tool `tool_id` in `alternatives.brain_used`."""
+    return f"{_ID_TOOL}:{tool_key_id(tool_id)}"
+
+
 def _numbers(numbers: Sequence[int]) -> str:
     return " ".join(str(number) for number in numbers)
 
@@ -112,6 +152,21 @@ def _is_newer(held: bytes | None, checked_at: datetime) -> bool:
     """Whether the `checked_at` that the index holds is a time after `checked_at`."""
     held_at = _time(held.decode("utf-8", "replace")) if held else None
     return held_at is not None and held_at > checked_at
+
+
+def _held_item(number: int, fields: Mapping[str, str]) -> HeldItem | None:
+    """The entry of item `number` that the fields of its hash give; None for a hash of another
+    schema, or with a verdict or a time of a wrong form. A near item that is no number is left
+    out."""
+    checked_at = _time(fields.get(_CHECKED_AT))
+    if fields.get("schema") != SCHEMA or checked_at is None:
+        return None
+    try:
+        verdict = Verdict(fields.get("verdict", ""))
+    except ValueError:
+        return None
+    near = tuple(int(word) for word in fields.get("near", "").split() if word.isdecimal())
+    return HeldItem(number, verdict, checked_at, fields.get("tool_id", ""), near)
 
 
 def _watermark_of(fields: Mapping[str, str]) -> Watermark:
@@ -153,19 +208,34 @@ class BrainIndex:
     def watermark(self) -> Watermark | None:
         """The watermark of the sync, empty before the first sync; None when the store does not
         answer."""
-        fields: dict[str, bytes] = {}
-        cursor = 0
-        while True:
-            step = self._tier.hscan(self._sync_key, cursor, _SCAN_COUNT)
-            if step is None:
+        fields = self._fields(self._sync_key)
+        return None if fields is None else _watermark_of(fields)
+
+    def items(self, numbers: Iterable[int]) -> dict[int, HeldItem] | None:
+        """The entry of each item of `numbers` that the index holds. An item with no entry, and
+        an entry of another schema or with a value of a wrong form, are not in the result. None
+        when the store does not answer."""
+        found: dict[int, HeldItem] = {}
+        for number in numbers:
+            fields = self._fields(self._item_key(number))
+            if fields is None:
                 return None
-            cursor, found = step
-            fields |= found
-            if cursor == 0:
-                break
-        return _watermark_of(
-            {name: value.decode("utf-8", "replace") for name, value in fields.items()}
-        )
+            if (held := _held_item(number, fields)) is not None:
+                found[number] = held
+        return found
+
+    def tools(self, tool_ids: Iterable[str]) -> dict[str, HeldTool] | None:
+        """The entry of each tool of `tool_ids`, canonical ids, that the index holds. A tool with
+        no entry, and an entry of another schema or of another id, are not in the result. None
+        when the store does not answer."""
+        found: dict[str, HeldTool] = {}
+        for tool_id in tool_ids:
+            fields = self._fields(self._repo.valkey_key(_KIND_TOOL, tool_key_id(tool_id)))
+            if fields is None:
+                return None
+            if fields.get("schema") == SCHEMA and fields.get("id") == tool_id:
+                found[tool_id] = HeldTool(tool_id, fields.get("name", ""))
+        return found
 
     def advance(self, watermark: Watermark) -> bool:
         """Write `watermark`; False when the store does not answer. A watermark with no place
@@ -193,6 +263,20 @@ class BrainIndex:
             keys.update(found)
             if cursor == 0:
                 return sorted(keys)
+
+    def _fields(self, key: str) -> dict[str, str] | None:
+        """Each field of the hash at `key` as text, none for a key that the store does not hold;
+        None when the store does not answer."""
+        fields: dict[str, bytes] = {}
+        cursor = 0
+        while True:
+            step = self._tier.hscan(key, cursor, _SCAN_COUNT)
+            if step is None:
+                return None
+            cursor, found = step
+            fields |= found
+            if cursor == 0:
+                return {name: value.decode("utf-8", "replace") for name, value in fields.items()}
 
     @property
     def _sync_key(self) -> str:
@@ -261,4 +345,14 @@ def _hash_write(key: str, fields: Mapping[str, str]) -> list[Command]:
     ]
 
 
-__all__ = ["SCHEMA", "BrainIndex", "Related", "Watermark", "Written"]
+__all__ = [
+    "SCHEMA",
+    "BrainIndex",
+    "HeldItem",
+    "HeldTool",
+    "Related",
+    "Watermark",
+    "Written",
+    "item_entry_id",
+    "tool_entry_id",
+]

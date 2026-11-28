@@ -1263,6 +1263,11 @@ RowMode = Literal["off", "plan", "on"]
 DEFAULT_ROADMAP_FIX_PLAN_MODE: RowMode = "plan"
 # The mode of the reference step of the alternatives check (#4672): `plan` until #6588.
 DEFAULT_ROADMAP_ALTERNATIVES_REFERENCES: RowMode = "plan"
+# Whether the alternatives check reads the brain digest of an item before its model call (#4682).
+# The digest makes no decision and a brain that does not answer gives an empty digest, so it
+# starts `on` (ADR 0023 section 1).
+BrainDigestMode = Literal["off", "on"]
+DEFAULT_ROADMAP_BRAIN_DIGEST: BrainDigestMode = "on"
 # The cadence and mode of the row open, which opens the pull request of a pushed bot branch that
 # has none (#5974). A round reads the heads of `origin` with git and sends no GitHub request while
 # no branch waits, so it runs often. It starts in `plan`, as each new row does.
