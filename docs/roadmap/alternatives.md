@@ -135,6 +135,8 @@ A check that posts a comment adds a new one. It never changes the comment of an 
 
 In mode `on` of the reference step, the job record holds the links of the check in `alternatives.refs`, with a space between them. A check whose step ran to its end and found no link clears the key. A change of the links alone is no change of the result, so it posts no comment: the head commit of a repository moves, and the links move with it.
 
+The same write records the brain entries that the digest of the check used in `alternatives.brain_used` ([The brain digest](#the-brain-digest)).
+
 ## The brain index
 
 After its checks, the alternatives row of the Service runs `brain-sync` (#4676, [ADR 0023](../adr/0023-the-project-brain-is-a-derived-index-in-two-cache-tiers-and-two-scheduled-runs-keep-it.md), section 3). The step copies the result of each check into the brain index of `valkey-roadmap` ([docs/CLUSTER.md](../CLUSTER.md#valkey-roadmap)), so a reader finds the verdicts, the tools and the references of a repository in one place. `devops roadmap alternatives` on a workstation writes no index: the next round of the row copies its checks.
@@ -159,6 +161,20 @@ After its checks, the alternatives row of the Service runs `brain-sync` (#4676, 
 - **A store that is down.** With no `roadmap.state.url`, or while the store does not answer, the round ends as before and adds one `fallback` to `devops_cli_brain_reads_total{store="brain_index"}`. A reader of the index has a miss.
 - **A private repository.** The check is off for a private repository, so it has no block, and the step makes no sync for it.
 - **Instruments.** `devops_cli_brain_entries` gives the item entries of a repository. `devops_cli_brain_sync_lag_seconds{store="brain_index"}` gives the time since the end of the last sync: the row runs about six times a day, so its bound is the interval of the row and the time of one round. `devops_cli_brain_first_reads_total` counts the checks whose item the index held no entry for. `devops_cli_brain_writes_total{store="brain_index"}` counts each write as `shared`, as `older` when the index holds a newer check, or as `skipped` when the store did not answer.
+
+## The brain digest
+
+Before its one model call, the check of an item of no skip class reads the brain digest of the item (#4682, [ADR 0023](../adr/0023-the-project-brain-is-a-derived-index-in-two-cache-tiers-and-two-scheduled-runs-keep-it.md), section 1). The digest shows the model the decisions of the items that named the same tool, so the check of one item can agree with them. The module `src/devops_cli/roadmap/brain_digest.py` builds it.
+
+- **The near items.** The digest reads the entry of the item, and then the entry of each of its near items, at most 5, the newest check first. A near item with no entry is left out.
+- **One digest entry for each near item.** `item` gives the number of the item, and `checked` the date of its check. `verdict` gives its verdict, and `tool` the canonical id of its tool. `tool_name` gives the name of the tool entry. The date of the check is the date of the verdict and of the tool.
+- **The ADR status of a tool.** `rejected_by` names each ADR of `decisions` that rejects the tool under a rejected option, with the test of [How the job confirms a proposal](#how-the-job-confirms-a-proposal).
+- **The bound.** The JSON text of the digest holds at most 2,000 tokens (`CONST_ROADMAP_BRAIN_DIGEST_MAX_TOKENS`). The cut takes whole entries, in the order of the near items.
+- **No ring and no area verdict.** The brain index holds no ring of a tool and no area check, so the digest holds neither. #4693 adds them to the brain, and #7389 adds the ring to the digest.
+- **The request.** The request holds the digest as `brain` only when the digest has an entry. The check makes no other model call.
+- **The record.** `alternatives.brain_used` of a written check holds the id of each brain entry that the digest used, at most 10. The first id is the entry of the item (`item:<n>`). Then each near item follows with its tool (`tool:<id>`, the 16 hex characters of the key of the tool). A check whose digest used no entry clears the key.
+- **The setting.** `roadmap.brain.digest` is `on` or `off`, `on` by default. `off` makes no read of the brain index.
+- **A brain that is not available.** The digest is empty in these cases: no `roadmap.state.url`, as on a workstation; a store that does not answer; an item with no entry or no near item. The request then holds no `brain`, and the check runs as before. A store that does not answer adds one log line.
 
 ## Which items a run takes
 
@@ -192,4 +208,4 @@ The command exits 1 only when it tried items and checked none.
 
 ## Where the rules are
 
-[roadmap-alternatives](../../openspec/specs/roadmap-alternatives/spec.md) holds the order of the items, the three tools of the agent, the checks on a reply, the comment and the block, the recheck and retry settings, the skip class, the tools in use, the canonical id, the ADR hash and the reference step. [project-brain/index](../../openspec/specs/project-brain/index/spec.md) holds the brain index: its keys, the sync, the watermark, the transaction of an item and the instruments.
+[roadmap-alternatives](../../openspec/specs/roadmap-alternatives/spec.md) holds the order of the items, the three tools of the agent, the checks on a reply, the comment and the block, the recheck and retry settings, the skip class, the tools in use, the canonical id, the ADR hash and the reference step. [project-brain/index](../../openspec/specs/project-brain/index/spec.md) holds the brain index: its keys, the sync, the watermark, the transaction of an item and the instruments. [project-brain/digest](../../openspec/specs/project-brain/digest/spec.md) holds the brain digest of a check: its entries, its bound, its request key, its record and its setting.

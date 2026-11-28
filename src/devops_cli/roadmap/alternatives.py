@@ -72,6 +72,14 @@ step fails soft: with no link, the check writes its verdict as before. A step th
 step in mode `plan` or `off`, leave the links of an earlier check in the block and in the record. A
 change of the links alone is no change of the result, so it posts no comment.
 
+**The brain digest (#4682).** Before its one model call, the check of an item of no skip class
+reads the digest of the item from the brain index (`devops_cli.roadmap.brain_digest`): its near
+items, each with the date of its check, its verdict, its tool and the ADRs in force that reject the
+tool, at most 2,000 tokens. The request holds the digest as `brain` only when it is not empty. A
+written check records the ids of the brain entries that the digest used in
+`alternatives.brain_used`. `roadmap.brain.digest` `off` reads no brain, and a brain that is not
+configured or does not answer gives an empty digest: the check runs as before.
+
 The check is off when the repository is private, its visibility cannot be read, or no search
 provider is configured: a verdict `none` would then say that no tool exists when none was looked for.
 """
@@ -152,6 +160,8 @@ from devops_cli.roadmap.body_hash import (
     hash_text,
     job_block_bounds,
 )
+from devops_cli.roadmap.brain_digest import BrainDigest, digest_index, read_digest
+from devops_cli.roadmap.brain_index import BrainIndex
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.decision_point import Mode, ResolverChain, chain_of
 from devops_cli.roadmap.decision_step import Band
@@ -612,7 +622,8 @@ class Check:
     links that the block shows. With `writes_references`, they are the links of the step, and the
     write records them: mode `on`, and a step that ran to its end or found a link. Else they are
     the links that the job record holds from an earlier check, and the write leaves the record as
-    it is. `references_found` counts the links that the step verified in any mode (#4672)."""
+    it is. `references_found` counts the links that the step verified in any mode (#4672).
+    `brain_used` holds the ids of the brain entries that the digest of the check used (#4682)."""
 
     item: Item
     verdict: Verdict
@@ -637,6 +648,7 @@ class Check:
     references: References = field(default_factory=References)
     writes_references: bool = False
     references_found: int = 0
+    brain_used: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -833,12 +845,14 @@ def alternatives_request(
     *,
     fetch: bool = False,
     max_comment_tokens: int | None = None,
+    digest: BrainDigest | None = None,
 ) -> str:
     """The JSON document the model reads: the item without the job's block, the replies since the
     job's last comment (every comment when it left none), the entries of the ADRs in force (#3505),
-    the comments of other roadmap jobs labeled by job (#6203), and the budget. `comments` holds the
-    comments of trusted authors only, so text of an outside account does not reach the model. The
-    `decisions` key is left out when there is no ADR."""
+    the entries of the brain `digest` (#4682), the comments of other roadmap jobs labeled by job
+    (#6203), and the budget. `comments` holds the comments of trusted authors only, so text of an
+    outside account does not reach the model. The `decisions` key is left out when there is no
+    ADR, and the `brain` key when the digest has no entry."""
     outside, _ = extract_section_and_outside(
         item.body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
     )
@@ -881,6 +895,7 @@ def alternatives_request(
         ),
         "replies": person_replies,
         **({"decisions": "\n\n".join(adr.entry for adr in adrs)} if adrs else {}),
+        **({"brain": digest.value()} if digest and digest.entries else {}),
         "search_budget": {
             "searches": CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
             "results_per_search": CONST_ROADMAP_ALTERNATIVES_SEARCH_RESULTS,
@@ -1297,11 +1312,13 @@ def validate_reply(
     chain: ResolverChain[Mapping[str, Any]] | None = None,
     band: Band | None = None,
     repo: str | None = None,
+    brain_used: tuple[str, ...] = (),
 ) -> Check | CheckFailure:
     """The check that `reply` makes, or the failure when the job refuses it. `adrs` are the ADRs
     in force that the model saw, which confirm the ADR that the reply names. `inventory` holds the
     tools that the repository uses (#4661); a read of deps.dev that it makes can raise
-    `httpx2.HTTPError` or `ValidationError`."""
+    `httpx2.HTTPError` or `ValidationError`. `brain_used` names the brain entries that the digest
+    of the request used (#4682)."""
     searches = len(tools.searches)
     refusal = _refusal_reason(reply, tools)
     if refusal is not None:
@@ -1376,6 +1393,7 @@ def validate_reply(
                     tools.given_urls.get(normalize_url(url), url) for url in reply.sources
                 )
             ),
+            brain_used=brain_used,
         )
     )
 
@@ -1536,9 +1554,11 @@ def _check_one(
     chain: ResolverChain[Mapping[str, Any]] | None = None,
     repo: str | None = None,
     references: ReferenceStep | None = None,
+    brain: BrainIndex | None = None,
 ) -> Check | CheckFailure:
     """One item's check, and then the reference step of the item when the run has one (#4672). A
-    failed check runs no reference step."""
+    failed check runs no reference step. `brain` is the brain index that the check reads its
+    digest from, none when the run reads no brain (#4682)."""
     outcome = _verdict_check(
         store,
         item,
@@ -1549,6 +1569,7 @@ def _check_one(
         fetch=fetch,
         chain=chain,
         repo=repo,
+        brain=brain,
     )
     if isinstance(outcome, CheckFailure) or references is None or repo is None:
         return outcome
@@ -1566,10 +1587,11 @@ def _verdict_check(
     fetch: bool,
     chain: ResolverChain[Mapping[str, Any]] | None = None,
     repo: str | None = None,
+    brain: BrainIndex | None = None,
 ) -> Check | CheckFailure:
-    """One item's check: the skip check of a skip class, else its agent run and its validated
-    reply. A failed read of deps.dev skips the item (#4661). Raises `AICredentialsError` when the
-    model refuses the key."""
+    """One item's check: the skip check of a skip class, else its agent run, with the brain digest
+    of the item from `brain` in its request (#4682), and its validated reply. A failed read of
+    deps.dev skips the item (#4661). Raises `AICredentialsError` when the model refuses the key."""
     skip_class = skip_class_of(item)
     if skip_class is not None:
         return _skip_check(item, skip_class, now)
@@ -1585,7 +1607,8 @@ def _verdict_check(
         comments=reader,
         research=research_ask(pages, TOOLSET_ALTERNATIVES),
     )
-    request = alternatives_request(item, comments, adrs, fetch=fetch)
+    digest = read_digest(brain, item.number, adrs)
+    request = alternatives_request(item, comments, adrs, fetch=fetch, digest=digest)
     texts = MESSAGES.roadmap
     if chain is None:
         chain = chain_of(REPLY_FIXABLE, load_settings())
@@ -1643,6 +1666,7 @@ def _verdict_check(
             chain=chain,
             band=checker.last_band if checker.returns == 0 else None,
             repo=repo,
+            brain_used=digest.used,
         )
     except (httpx2.HTTPError, ValidationError) as exc:
         logger.warning(
@@ -1705,7 +1729,8 @@ def plan_alternatives(
     the `alternatives` task's by default. `source` is a clone of the repository at HEAD, whose
     deployed paths name the tools in use (#4661); with none, the run reads the SBOM only.
     `reference_step` is the reference step of the run (#4672), the one that
-    `roadmap.alternatives.references` and the settings give by default."""
+    `roadmap.alternatives.references` and the settings give by default. The checks read their
+    brain digest from the brain index of `repo`, unless `roadmap.brain.digest` is `off` (#4682)."""
     moment = now or datetime.now(UTC)
     web = web_search_of(store)
     if not web.on:
@@ -1735,6 +1760,7 @@ def plan_alternatives(
         if any(skip_class_of(it) is None for it in selection.selected)
         else None
     )
+    brain = digest_index(repo, settings)
     checks: list[Check] = []
     failures: list[CheckFailure] = []
     with ExitStack() as opened:
@@ -1760,6 +1786,7 @@ def plan_alternatives(
                 fetch=web.fetch,
                 repo=repo,
                 references=references,
+                brain=brain,
             )
             if isinstance(outcome, CheckFailure):
                 failures.append(outcome)
@@ -1809,6 +1836,15 @@ def _result_changed(check: Check) -> bool:
     return recorded_verdict != check.verdict.value or record.get(AlternativesRecordKey.TOOL) != tool
 
 
+def _brain_used_mark(check: Check) -> dict[str, str | None]:
+    """The mark `alternatives.brain_used` of the write of `check`: the ids of the brain entries
+    that its digest used, with a space between them (#4682). A check whose digest used none clears
+    the key, and writes none when the record holds none."""
+    if check.brain_used or AlternativesRecordKey.BRAIN_USED in check.item.job_record:
+        return {AlternativesRecordKey.BRAIN_USED: " ".join(check.brain_used) or None}
+    return {}
+
+
 def _posts_comment(check: Check) -> bool:
     """Whether the write of `check` posts its comment: the check of an item that is no skip class,
     whose result changed (#4054, #6195)."""
@@ -1842,7 +1878,8 @@ class AlternativesWriter:
         before the block is no change on the next run (#6627). A check that writes the links of
         the reference step puts them in `alternatives.refs`, clears the key when the step found
         none, and adds 1 to `devops_cli_brain_references_total` with the result `linked` for each
-        link. Any other check leaves the key as it is (#4672)."""
+        link. Any other check leaves the key as it is (#4672). The same write records the brain
+        entries that the digest of the check used (`_brain_used_mark`, #4682)."""
         if isinstance(outcome, CheckFailure):
             self._store.set_marks(
                 outcome.item,
@@ -1874,6 +1911,7 @@ class AlternativesWriter:
         recorded = AlternativesRecordKey.REFS in outcome.item.job_record
         if outcome.writes_references and (links or recorded):
             marks[AlternativesRecordKey.REFS] = " ".join(link.url for link in links) or None
+        marks |= _brain_used_mark(outcome)
         self._store.set_marks(outcome.item, marks, body=outcome.new_body)
         if posts:
             self._store.comment(number, outcome.comment)

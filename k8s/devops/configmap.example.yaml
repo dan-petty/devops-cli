@@ -215,6 +215,11 @@ data:
       state:
         url: valkey://valkey-roadmap.devops.svc.cluster.local:6379/0
         username: brain
+      # The brain digest of the alternatives check (#4682): `on` reads the near items of an item
+      # from the brain index of valkey-roadmap before the model call, and `off` makes no read. A
+      # store that does not answer gives an empty digest, and the check runs as before.
+      brain:
+        digest: "on"
       stage:
         filter:
           - status=ready

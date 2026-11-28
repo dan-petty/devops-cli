@@ -2964,6 +2964,9 @@ CONST_ROADMAP_BRAIN_EVENTS_MAX_ENTRIES: Final[int] = 10_000
 CONST_ROADMAP_BRAIN_ITEM_MAX_REFS: Final[int] = 3
 CONST_ROADMAP_BRAIN_ITEM_MAX_NEAR: Final[int] = 5
 CONST_ROADMAP_BRAIN_ITEM_MAX_USES: Final[int] = 10
+# The most tokens of the brain digest that the alternatives check adds to the request of its model
+# (#4682, ADR 0023 section 1). The cut takes whole entries.
+CONST_ROADMAP_BRAIN_DIGEST_MAX_TOKENS: Final[int] = 2000
 
 
 class BrainStore(StrEnum):

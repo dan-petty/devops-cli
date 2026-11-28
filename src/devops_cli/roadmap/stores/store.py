@@ -229,7 +229,9 @@ class AlternativesRecordKey(StrEnum):
     and the URL of the tool it found, if any. It also records the canonical id of the tool and the
     hash of the ADRs that the model read (#4661). When the last check failed, the record holds the
     time of the failure and the class of its error (#2949) until a check is written. `REFS` holds
-    the links that the reference step wrote in mode `on`, with a space between them (#4672)."""
+    the links that the reference step wrote in mode `on`, with a space between them (#4672).
+    `BRAIN_USED` holds the ids of the brain entries that the digest of the check used, at most 10,
+    with a space between them (#4682)."""
 
     CHECKED_AT = "alternatives.checked_at"
     BODY_HASH = "alternatives.body_hash"
@@ -241,6 +243,7 @@ class AlternativesRecordKey(StrEnum):
     FAILED_ERROR = "alternatives.failed_error"
     FAILED_REASON = "alternatives.failed_reason"
     REFS = "alternatives.refs"
+    BRAIN_USED = "alternatives.brain_used"
 
 
 class StageRecordKey(StrEnum):
