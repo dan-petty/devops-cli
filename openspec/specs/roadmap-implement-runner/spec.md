@@ -137,7 +137,7 @@ The policy SHALL refuse a Job with `envFrom`, on a `CREATE` and on an `UPDATE`. 
 - **THEN** the policy refuses the `CREATE` and the `UPDATE` of each, with the message of the `envFrom` rule alone
 
 ### Requirement: The policy keeps a Job of the Service from reaching beyond its pod
-The policy SHALL refuse a Job unless the label `app.kubernetes.io/name` of its pod template is `devops-cli-job`, the pod sets no `priorityClassName`, `nodeName` or `imagePullSecrets`, the container sets no `command`, the Job sets no `manualSelector`, and `completions` and `parallelism` are 1 or not set.
+The policy SHALL refuse a Job unless `app.kubernetes.io/name` on its pod template is `devops-cli-job`, a non-stage pod sets `app.kubernetes.io/component` neither to `roadmap-stage` nor to `project-review`, the pod sets no `priorityClassName`, `nodeName` or `imagePullSecrets`, the container sets no `command`, the Job sets no `manualSelector`, and `completions` and `parallelism` are 1 or unset.
 
 #### Scenario: A pod with the label of the Service
 - **WHEN** the Job from the template changes the label `app.kubernetes.io/name` of its pod to `roadmap-service`, to the name of another pod, or removes the labels
@@ -150,6 +150,14 @@ The policy SHALL refuse a Job unless the label `app.kubernetes.io/name` of its p
 #### Scenario: The default values
 - **WHEN** the Job from the template names `completions: 1`, `parallelism: 1` and `manualSelector: false`
 - **THEN** the policy admits the Job
+
+#### Scenario: A non-stage Job with component project-review
+- **WHEN** `uv run devops ci --check --only k8s` runs the policy check for a non-stage Job whose pod template sets `app.kubernetes.io/name: devops-cli-job` and `app.kubernetes.io/component: project-review`
+- **THEN** the policy refuses the Job with the pod label rule
+
+#### Scenario: Stage and implement Jobs stay admitted
+- **WHEN** `uv run devops ci --check --only k8s` runs the policy check for a stage Job with `app.kubernetes.io/component: roadmap-stage`, an implement Job with `roadmap-implement`, and an implement Job with no `app.kubernetes.io/component` label
+- **THEN** the policy admits each of those Jobs
 
 ### Requirement: The policy bounds the run of a Job of the Service
 The policy SHALL refuse a Job unless it sets `backoffLimit: 0` and an `activeDeadlineSeconds` that is at most 14400, the cap of `CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS`. A Job that the Job builder makes from CronJob `devops-cli-runner` SHALL pass the policy.
