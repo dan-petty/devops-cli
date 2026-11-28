@@ -31,7 +31,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Protocol
 
-from devops_cli.config.constants import CONST_OPENSPEC_CHANGES_DIR, CONST_OPENSPEC_SPECS_DIR
+from devops_cli.config.constants import (
+    CONST_OPENSPEC_CHANGES_DIR,
+    CONST_OPENSPEC_SPECS_DIR,
+    CONST_ROADMAP_LABELS_PATH,
+    CONST_ROADMAP_SCOPE_LABEL_PREFIX,
+)
 from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
 from devops_cli.config.settings import load_settings
 from devops_cli.core import clock
@@ -56,7 +61,7 @@ from devops_cli.roadmap.plan_read import (
     specs_at,
     tree_files,
 )
-from devops_cli.roadmap.pr_verdict import is_plan_title
+from devops_cli.roadmap.pr_verdict import is_plan_title, plan_title_prefix
 from devops_cli.roadmap.pull_form import (
     BODY_MAX_CHARS,
     SUMMARY_MAX_CHARS,
@@ -66,7 +71,6 @@ from devops_cli.roadmap.pull_form import (
 )
 from devops_cli.roadmap.request_plan import planned_session_read
 from devops_cli.roadmap.stage.stage_change import (
-    STAGING_TYPE,
     StageProposal,
     check_proposal,
     closing_keyword_in,
@@ -78,6 +82,7 @@ from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.stage.stage_registry import RegistryCount, registry_table
 from devops_cli.roadmap.stage.stage_validate import validate_change
 from devops_cli.roadmap.stores.store import split_record
+from devops_cli.roadmap.title_labels import declared_label_names
 
 GIT_OPERATION: Final[str] = "roadmap.plan-check"
 SEMANTIC_TITLE_CHECK: Final[str] = "Semantic PR title"
@@ -90,14 +95,6 @@ _SPECS: Final[str] = CONST_OPENSPEC_SPECS_DIR
 _PROPOSAL: Final[str] = "proposal.md"
 _REQUIREMENT: Final[re.Pattern[str]] = re.compile(r"^### Requirement: (?P<name>.+?)[ \t]*$", re.M)
 _SCENARIO: Final[str] = "#### Scenario:"
-_TITLE: Final[re.Pattern[str]] = re.compile(
-    rf"^{re.escape(STAGING_TYPE)}: plan #(?P<issue>[0-9]+) (?P<summary>\S.*)$"
-)
-# A plan pull request holds the plan title, or the `Plans #<issue>` line of its body. The implement
-# job takes the plan pull request over and rewrites both to the form of a delivery (#2665), and the
-# run of that edit may read the delivery form: that pull request is no plan, and the plan form no
-# longer applies to it (#3224).
-_PLAN_TITLE: Final[str] = f"{STAGING_TYPE}: plan #"
 
 
 class PlanReads(Protocol):
@@ -235,39 +232,78 @@ def is_plan(facts: PullFacts) -> bool:
     return is_plan_title(facts.title) or issue_number(facts.body) is not None
 
 
-def _pull_problems(facts: PullFacts, checks: CheckVerdictSummary) -> list[PlanProblem]:
+def _repo_has_spec_scope(reads: PlanReads, repo: str, source: Path, facts: PullFacts) -> bool:
+    """Whether `.github/labels.yml` in `repo` declares `scope/spec` (defaults True if absent)."""
+    get_file = getattr(reads, "get_file_at", None)
+    text: str | None
+    if callable(get_file):
+        text = get_file(repo, CONST_ROADMAP_LABELS_PATH, facts.base_ref)
+    else:
+        base_files = tree_files(source, facts.base_sha, operation=GIT_OPERATION)
+        if CONST_ROADMAP_LABELS_PATH not in base_files:
+            return True
+        text = files_at(
+            source, facts.base_sha, [CONST_ROADMAP_LABELS_PATH], operation=GIT_OPERATION
+        )[CONST_ROADMAP_LABELS_PATH]
+    if text is None:
+        return True
+    return f"{CONST_ROADMAP_SCOPE_LABEL_PREFIX}spec" in declared_label_names(str(text))
+
+
+def plan_check_title_problem(
+    title: str,
+    *,
+    issue: int | None = None,
+    number: int = 0,
+    has_spec_scope: bool = True,
+) -> PlanProblem | None:
+    """Return a title problem when `title` does not match the repo's plan title form or exceeds length."""
+    texts = MESSAGES.roadmap
+    expected = issue if issue is not None else number
+    cleaned = title.strip()
+    prefix = plan_title_prefix(has_spec_scope)
+    pattern = re.compile(rf"^{re.escape(prefix)} #(?P<issue>[0-9]+) (?P<summary>\S.*)$")
+    match = pattern.fullmatch(cleaned)
+    if match is None or (issue is not None and int(match["issue"]) != issue):
+        template = texts.plan_check_title if has_spec_scope else texts.plan_check_unscoped_title
+        return PlanProblem("title", "title", template.format(number=expected))
+    after = cleaned.partition(": ")[2]
+    length = summary_length(after)
+    if length > SUMMARY_MAX_CHARS:
+        return PlanProblem(
+            "title",
+            "title-length",
+            texts.plan_check_title_long.format(length=length, limit=SUMMARY_MAX_CHARS),
+        )
+    return None
+
+
+def _pull_problems(
+    facts: PullFacts, checks: CheckVerdictSummary, *, has_spec_scope: bool = True
+) -> list[PlanProblem]:
     return [
-        *title_body_problems(facts.title, facts.body, number=facts.number),
+        *title_body_problems(
+            facts.title, facts.body, number=facts.number, has_spec_scope=has_spec_scope
+        ),
         *_check_problems(checks),
     ]
 
 
-def title_body_problems(title: str, body: str, *, number: int) -> list[PlanProblem]:
+def title_body_problems(
+    title: str, body: str, *, number: int, has_spec_scope: bool = True
+) -> list[PlanProblem]:
     """The problems of the title and the body of a plan: the plan title of the issue that the
     body plans and the length of its summary, the `Plans #<issue>` line, no closing keyword and
     the length of the body. `number` is the number that a problem names when the body plans no
     issue: the pull request for the command, and the item for the stage job (#4725)."""
     texts = MESSAGES.roadmap
     issue = issue_number(body)
-    expected = issue if issue is not None else number
     problems: list[PlanProblem] = []
-    title = title.strip()
-    match = _TITLE.fullmatch(title)
-    if match is None or (issue is not None and int(match["issue"]) != issue):
-        problems.append(
-            PlanProblem("title", "title", texts.plan_check_title.format(number=expected))
-        )
-    else:
-        after = title.partition(": ")[2]
-        length = summary_length(after)
-        if length > SUMMARY_MAX_CHARS:
-            problems.append(
-                PlanProblem(
-                    "title",
-                    "title-length",
-                    texts.plan_check_title_long.format(length=length, limit=SUMMARY_MAX_CHARS),
-                )
-            )
+    title_problem = plan_check_title_problem(
+        title, issue=issue, number=number, has_spec_scope=has_spec_scope
+    )
+    if title_problem is not None:
+        problems.append(title_problem)
     if issue is None:
         problems.append(
             PlanProblem("body", "body-plans", texts.plan_check_body_plans.format(number=number))
@@ -603,7 +639,8 @@ def plan_check(
         if pending
         else ()
     )
-    problems = _pull_problems(facts, checks)
+    has_spec_scope = _repo_has_spec_scope(reads, repo, source, facts)
+    problems = _pull_problems(facts, checks, has_spec_scope=has_spec_scope)
     issue = issue_number(facts.body)
     if issue is None:
         return PlanCheckResult(tuple(problems), notes)
@@ -680,6 +717,10 @@ def plan_check_requests(repo: str, number: int) -> tuple[PlannedRequest, ...]:
         planned_session_read(
             f"/repos/{repo}/issues/<dependency>",
             texts.plan_check_request_dependency_issue,
+        ),
+        planned_session_read(
+            f"/repos/{repo}/contents/{CONST_ROADMAP_LABELS_PATH}",
+            f"Read {CONST_ROADMAP_LABELS_PATH} for declared scopes",
         ),
         planned_session_read(
             f"/repos/{repo}/commits/<head>/check-runs?per_page={DEFAULT_GH_REST_PER_PAGE}",

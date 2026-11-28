@@ -5946,6 +5946,7 @@ class RoadmapMessages:
     plan_read_bad_spec: str = "`{path}` is no spec delta under `specs/<capability>/`."
     plan_check_line: str = "{path}: {rule}: {message}"
     plan_check_title: str = "The title is not `docs(spec): plan #{number} <summary>`."
+    plan_check_unscoped_title: str = "The title is not `docs: plan #{number} <summary>`."
     plan_check_title_long: str = (
         "The text of the title after the colon has {length} characters, and the limit is {limit}."
     )

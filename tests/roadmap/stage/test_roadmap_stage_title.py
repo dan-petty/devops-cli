@@ -110,6 +110,20 @@ def test_a_staging_title_has_the_type_docs_spec_the_issue_and_the_summary() -> N
     )
 
 
+def test_stage_plan_title_selects_prefix_from_spec_scope() -> None:
+    from devops_cli.roadmap.stage.stage_change import stage_plan_title
+
+    assert (
+        stage_plan_title(issue=166, summary="add the plan", has_spec_scope=False),
+        stage_plan_title(issue=166, summary="add the plan", has_spec_scope=True),
+        plan_summary("docs: plan #166 add the plan", 166),
+    ) == (
+        "docs: plan #166 add the plan",
+        "docs(spec): plan #166 add the plan",
+        "add the plan",
+    )
+
+
 @pytest.mark.parametrize("number", [7, 2656, LARGEST_NUMBER])
 def test_a_staging_title_cuts_nothing_and_refuses_a_summary_that_does_not_fit(
     number: int,

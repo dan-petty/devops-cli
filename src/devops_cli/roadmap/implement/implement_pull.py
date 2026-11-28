@@ -22,7 +22,10 @@ from devops_cli.config.constants import (
     CONST_OPENSPEC_ARCHIVED_FOLDER_RE,
     CONST_OPENSPEC_CHANGE_FOLDER_RE,
     CONST_OPENSPEC_CHANGES_DIR,
+    CONST_ROADMAP_LABELS_PATH,
+    CONST_ROADMAP_SCOPE_LABEL_PREFIX,
 )
+from devops_cli.exceptions.git import GitHubFileNotFoundError
 from devops_cli.git.branch_form import issue_of_branch
 from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.github.client import GitHubClient, PullRequestFile, PullStatus
@@ -39,6 +42,7 @@ from devops_cli.roadmap.stores.store import (
     RoadmapStore,
     StageRecordKey,
 )
+from devops_cli.roadmap.title_labels import declared_label_names
 
 # The index of the run's number in the path of a check's link, after `runs`: `runs/<run>/job/<job>`.
 _JOB_SEGMENT = 2
@@ -95,13 +99,32 @@ class Draft:
     files_truncated: bool = False
 
 
-def kind_of(item: Item | None, pull: int | None = None, title: str | None = None) -> DraftKind:
+def store_has_spec_scope(store: RoadmapStore, *, ref: str | None) -> bool:
+    """Whether `.github/labels.yml` at `ref` (or default branch) declares `scope/spec`."""
+    candidates: tuple[str | None, ...] = (ref, None) if ref is not None else (None,)
+    for candidate_ref in candidates:
+        try:
+            text = store.repository_file(CONST_ROADMAP_LABELS_PATH, ref=candidate_ref)
+        except GitHubFileNotFoundError:
+            continue
+        return f"{CONST_ROADMAP_SCOPE_LABEL_PREFIX}spec" in declared_label_names(text)
+    return True
+
+
+def kind_of(
+    item: Item | None,
+    pull: int | None = None,
+    title: str | None = None,
+    *,
+    has_spec_scope: bool = True,
+) -> DraftKind:
     """The kind of pull request: agent, person, implement or stage plan.
 
     Reads the record, in this order: `owner/agent` gives agent, `owner/human` gives person,
     `implement.pr` equal to the pull request gives implement, `stage.pr` equal to it gives
     stage plan, else person. When both records hold the pull request number, the title
-    breaks the tie: a title starting with `docs(spec): plan` (or legacy `docs(openspec): plan`) gives stage plan, else
+    breaks the tie: a title starting with `docs(spec): plan` (`docs: plan` when
+    `has_spec_scope` is False, or legacy `docs(openspec): plan`) gives stage plan, else
     implement.
     """
     if item is None:
@@ -114,7 +137,7 @@ def kind_of(item: Item | None, pull: int | None = None, title: str | None = None
     implement_pr = item.job_record.get(ImplementRecordKey.PR)
     stage_pr = item.job_record.get(StageRecordKey.PR)
     if pull_str and implement_pr == pull_str and stage_pr == pull_str:
-        if title is not None and is_plan_title_prefix(title):
+        if title is not None and is_plan_title_prefix(title, has_spec_scope=has_spec_scope):
             return DraftKind.STAGE_PLAN
         return DraftKind.IMPLEMENT
     if pull_str and implement_pr == pull_str:
@@ -330,7 +353,8 @@ def read_draft(
 
     store = store or roadmap_store.get_roadmap_store(repo)
     item = store.item(issue)
-    kind = kind_of(item, number, pull.title)
+    spec_scope = store_has_spec_scope(store, ref=pull.base_ref)
+    kind = kind_of(item, number, pull.title, has_spec_scope=spec_scope)
     if kind not in (DraftKind.IMPLEMENT, DraftKind.STAGE_PLAN):
         return Draft(
             kind=kind,

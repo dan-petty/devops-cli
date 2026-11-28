@@ -850,3 +850,28 @@ def test_a_moved_pull_ref_does_not_change_the_tree(stage_repo: StageRepo) -> Non
     result = _run(stage_repo, _facts(stage_repo, sha=sha))
 
     assert result.problems == ()
+
+
+def test_plan_check_title_problem_accepts_unscoped_plan_when_repo_lacks_spec_scope(
+    stage_repo: StageRepo,
+) -> None:
+    from devops_cli.roadmap.plan_check import plan_check_requests, plan_check_title_problem
+
+    assert (
+        plan_check_title_problem("docs: plan #166 add the plan", has_spec_scope=False),
+        plan_check_title_problem("docs: plan #166 add the plan", has_spec_scope=True) is not None,
+    ) == (None, True)
+
+    stage_repo.track(
+        {".github/labels.yml": '- name: "scope/infra"\n  color: "DCDCD6"\n  description: "Infra"\n'}
+    )
+    sha = _push(stage_repo, _change())
+    result = _run(
+        stage_repo,
+        _facts(stage_repo, sha=sha, title="docs: plan #1 Keep the last comment"),
+    )
+
+    assert result.problems == ()
+    assert any(
+        ".github/labels.yml" in req.target for req in plan_check_requests("example/infra", PULL)
+    )

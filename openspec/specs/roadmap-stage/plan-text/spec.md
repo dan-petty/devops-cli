@@ -78,7 +78,7 @@ The stage plan SHALL refuse a `summary` that is longer than `STAGE_SUMMARY_MAX_C
 - **THEN** The schema returns a problem that names `summary` and the cut rule.
 
 ### Requirement: A title holds the full summary
-`staging_title` and `delivery_title` SHALL use the full summary and SHALL add no `...`.
+`stage_plan_title` (called by `staging_title`) and `delivery_title` SHALL use the full summary with no `...`, selecting the `docs(spec): plan` or `docs: plan` prefix via `plan_title_prefix(has_spec_scope)`.
 
 #### Scenario: Long delivery summary
 - **WHEN** `delivery_title` receives `feat(roadmap): a summary that is longer than the bound of the title`.
@@ -87,6 +87,10 @@ The stage plan SHALL refuse a `summary` that is longer than `STAGE_SUMMARY_MAX_C
 #### Scenario: Staging title holds the summary
 - **WHEN** `staging_title` receives item 3200 and the summary `Refuse placeholder text`.
 - **THEN** The returned title is `docs(spec): plan #3200 Refuse placeholder text`.
+
+#### Scenario: Stage title in a repository without spec scope
+- **WHEN** `stage_plan_title` receives issue 166, summary `add the plan`, and `has_spec_scope=False`.
+- **THEN** The returned title is `docs: plan #166 add the plan`.
 
 ### Requirement: The replay judges a placeholder plan
 The stage replay SHALL catch a recorded placeholder plan as a defect of type `other` through the `content` gate.

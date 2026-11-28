@@ -33,6 +33,8 @@ from devops_cli.roadmap.pr_verdict import (
     first_verdict_label,
     forge_outcome,
     grade_verdicts,
+    is_plan_title_prefix,
+    plan_title_prefix,
     pull_kind,
     read_bot_pulls,
     verdict_of,
@@ -141,8 +143,23 @@ def test_plan_prefix_and_kind_support_spec_and_legacy_openspec() -> None:
     assert (
         pull_kind("docs(spec): plan #12 Add the apply command"),
         pull_kind("docs(openspec): plan #12 Add the apply command"),
+        pull_kind("docs: plan #12 Add the apply command"),
         pull_kind("docs(spec): archive the change of #12"),
-    ) == (PullKind.PLAN, PullKind.PLAN, PullKind.DELIVERY)
+    ) == (PullKind.PLAN, PullKind.PLAN, PullKind.PLAN, PullKind.DELIVERY)
+
+
+def test_plan_title_prefix_and_strict_scope_matching() -> None:
+    assert (plan_title_prefix(True), plan_title_prefix(False)) == (
+        "docs(spec): plan",
+        "docs: plan",
+    )
+    assert (
+        is_plan_title_prefix("docs: plan #166 add the plan", has_spec_scope=False),
+        is_plan_title_prefix("docs(spec): plan #166 add the plan", has_spec_scope=True),
+        is_plan_title_prefix("docs: plan #166 add the plan", has_spec_scope=True),
+        is_plan_title_prefix("docs(spec): plan #166 add the plan", has_spec_scope=False),
+        is_plan_title_prefix("docs(openspec): plan #166 add the plan", has_spec_scope=False),
+    ) == (True, True, False, False, True)
 
 
 def test_the_score_of_stage() -> None:
