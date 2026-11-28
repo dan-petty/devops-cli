@@ -152,6 +152,11 @@ class GitHubNotAnIssueError(GitHubNotFoundError):
             details={"repo": repo[:256], "number": number},
         )
 
+    def require_issue(self, number: int | None) -> None:
+        """Raise this error again unless `number` matches the missing issue (#7363)."""
+        if number is None or self.number != number:
+            raise self
+
 
 class GitHubFileNotFoundError(GitHubNotFoundError):
     """Raised when a repository file GitHub was asked for does not exist on that ref."""

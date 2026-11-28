@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.exceptions.git import GitHubNotAnIssueError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.dependencies import TrackerEntry, tracker_work
 from devops_cli.roadmap.implement.record_clear import run_clear_marks
@@ -59,6 +60,8 @@ def plan_return(
     """Validate that the issue is a non-tracker roadmap item and return the ReturnPlan."""
     item = store.item(item_number)
     if item is None:
+        if store.issue(item_number) is None:
+            raise GitHubNotAnIssueError(repo, item_number, operation="roadmap.return")
         raise DevOpsCLIError(f"#{item_number} is not an item of the roadmap.")
     if item.is_tracker:
         work = tracker_work(item, store.open_items())
@@ -94,6 +97,8 @@ def apply_return(
     what the store says of the comment, so a job can link it (#6194, #5251)."""
     item = store.item(plan.item_number)
     if item is None:
+        if store.issue(plan.item_number) is None:
+            raise GitHubNotAnIssueError(plan.repo, plan.item_number, operation="roadmap.return")
         raise DevOpsCLIError(f"#{plan.item_number} is not an item of the roadmap.")
     posted = store.comment(plan.item_number, plan.comment)
     marks = {**run_clear_marks(item), **(plan.marks or {})} if clear_implement else plan.marks

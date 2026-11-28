@@ -94,7 +94,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
 )
 from devops_cli.config.settings import load_settings
-from devops_cli.exceptions.git import GitOperationError
+from devops_cli.exceptions.git import GitHubNotAnIssueError, GitOperationError
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.github.repo_ref import RepoRef, ServiceRow
@@ -235,10 +235,11 @@ def _settles_as_stop(item: Item) -> bool:
     )
 
 
-def _fresh(store: RoadmapStore, number: int) -> Item:
+def _fresh(store: RoadmapStore, number: int, *, repo: str = "") -> Item:
     held = store.item(number, fresh=True)
     if held is None:
-        raise LookupError(MESSAGES.roadmap.item_left_not_item)
+        target_repo = repo or getattr(store, "repo", getattr(store, "_repo", ""))
+        raise GitHubNotAnIssueError(target_repo, number, operation="roadmap.implement")
     return held
 
 
@@ -356,7 +357,7 @@ def _report(
     state = ended.state.value if ended else _GONE
     log = _log_of(jobs, name) if ended else ""
     pod = _pod_end_of(jobs, name) if ended else PodEnd()
-    item = _fresh(store, item.number)
+    item = _fresh(store, item.number, repo=repo)
     stops = _settles_as_stop(item)
     stall = ended.annotations.get(CONST_ROADMAP_IMPLEMENT_ANNOTATION_STALLED) if ended else None
     failure = _failure_of(item, log, pod=pod, stops=stops, stalled=stall is not None)
@@ -391,7 +392,7 @@ def _report(
         marks[ImplementRecordKey.SPEND_COUNTED] = str(spend)
     service_release(store, item.number, marks)
     if stops and failure is not None:
-        item = _fresh(store, item.number)
+        item = _fresh(store, item.number, repo=repo)
         if _settles_as_stop(item):
             write_status(
                 store,
@@ -501,7 +502,11 @@ def _report_ended(
             continue
         if job is not None and job.state is JobState.RUNNING:
             continue
-        _report(store, jobs, repo, item, name, job)
+        try:
+            _report(store, jobs, repo, item, name, job)
+        except GitHubNotAnIssueError as gone:
+            gone.require_issue(item.number)
+            continue
         reported.append(name)
     return tuple(reported)
 
@@ -575,8 +580,14 @@ def _note_needs_fix(store: RoadmapStore, plan: ImplementPlan) -> tuple[NeedsFix,
         for held in plan.needs_fix
         if held.item.job_record.get(ImplementRecordKey.NEEDS_FIX) != str(held.pull)
     )
+    kept: list[NeedsFix] = []
     for held in new:
-        store.set_marks(held.item, {ImplementRecordKey.NEEDS_FIX: str(held.pull)})
+        try:
+            store.set_marks(held.item, {ImplementRecordKey.NEEDS_FIX: str(held.pull)})
+        except GitHubNotAnIssueError as gone:
+            gone.require_issue(held.item.number)
+            continue
+        kept.append(held)
     judged = {
         *(left.number for left in plan.left_out),
         *(target.item.number for target in plan.selected),
@@ -585,8 +596,12 @@ def _note_needs_fix(store: RoadmapStore, plan: ImplementPlan) -> tuple[NeedsFix,
     free = judged - {held.item.number for held in plan.needs_fix}
     for item in store.items():
         if item.number in free and item.job_record.get(ImplementRecordKey.NEEDS_FIX) is not None:
-            store.set_marks(item, {ImplementRecordKey.NEEDS_FIX: None})
-    return new
+            try:
+                store.set_marks(item, {ImplementRecordKey.NEEDS_FIX: None})
+            except GitHubNotAnIssueError as gone:
+                gone.require_issue(item.number)
+                continue
+    return tuple(kept)
 
 
 def _runs(api: ClusterJobs, label: str) -> bool:
@@ -697,8 +712,12 @@ def _submit_selected_targets(
 ) -> tuple[list[str], int | None]:
     created_jobs: list[str] = []
     for target in selected_targets:
-        size = _size_of(source, planned, target)
-        created_name = _create(store, api, repo, target, label, size)
+        try:
+            size = _size_of(source, planned, target)
+            created_name = _create(store, api, repo, target, label, size)
+        except GitHubNotAnIssueError as gone:
+            gone.require_issue(target.item.number)
+            continue
         if created_name is not None:
             created_jobs.append(created_name)
         elif left_number is None:

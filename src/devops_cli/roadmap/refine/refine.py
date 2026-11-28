@@ -209,6 +209,7 @@ from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import (
+    GitHubNotAnIssueError,
     GitHubOperationError,
     GitHubRateLimitError,
     GitHubUnauthenticatedError,
@@ -3525,29 +3526,33 @@ def _refinable(
     trusted_check = (
         trusted if trusted is not None else (lambda comment: is_person_comment(comment, None))
     )
-    picked = [
-        it
-        for it in items
-        if it.state is GitHubState.OPEN
-        and (
-            it.status == CONST_ROADMAP_STATUS_NEW
-            or (
-                it.status == CONST_ROADMAP_STATUS_READY
-                and (
-                    (unrefined_ready and _is_unrefined_ready(it))
-                    or _needs_second_look(it)
-                    or not is_approved(it)
-                    or _ready_body_edited(it)
-                    or (
-                        comments_on is not None
-                        and _has_trusted_comment_since_last_round(
-                            it, comments_on(it.number), trusted_check
-                        )
+    picked: list[Item] = []
+    for it in items:
+        if it.state is not GitHubState.OPEN:
+            continue
+        if it.status == CONST_ROADMAP_STATUS_NEW:
+            picked.append(it)
+            continue
+        if it.status != CONST_ROADMAP_STATUS_READY:
+            continue
+        try:
+            due = (
+                (unrefined_ready and _is_unrefined_ready(it))
+                or _needs_second_look(it)
+                or not is_approved(it)
+                or _ready_body_edited(it)
+                or (
+                    comments_on is not None
+                    and _has_trusted_comment_since_last_round(
+                        it, comments_on(it.number), trusted_check
                     )
                 )
             )
-        )
-    ]
+        except GitHubNotAnIssueError as gone:
+            gone.require_issue(it.number)
+            continue
+        if due:
+            picked.append(it)
     return sorted(picked, key=lambda it: _priority_rank(it.priority))
 
 
@@ -3658,7 +3663,11 @@ def _select_round(
     for it in ordered:
         if len(selection.selected) >= limit:
             break
-        selection.consider(it)
+        try:
+            selection.consider(it)
+        except GitHubNotAnIssueError as gone:
+            gone.require_issue(it.number)
+            continue
     return selection.selected, selection.waiting, len(ordered)
 
 
@@ -4451,45 +4460,24 @@ def plan_refine(
         else lambda: verifier
     )
 
-    refined: list[RefinedItem] = []
-    failed: list[RefineFailure] = []
-    for cand in candidates:
-        raise_if_service_stops(f"the refine of #{cand.number}")
-        try:
-            res = refine_one_item(
-                store,
-                cand,
-                repo=repo,
-                source=source_path,
-                sha=sha,
-                client=client,
-                web=web,
-                investigator=investigator,
-                verifier=verifier_of,
-                max_context_tokens=max_tokens,
-                intake_model=intake_model,
-                frames=frames,
-                graph=graph,
-                actor=actor,
-                open_numbers=open_numbers,
-            )
-        except AICredentialsError:
-            raise
-        except AIClientError as exc:
-            failure = _failed_item(cand, repo, exc)
-            failed.append(failure)
-            if writer is not None:
-                writer.settle(failure)
-            continue
-        refined.append(res)
-        if res.skip_reason is None:
-            graph = graph.with_edges(
-                cand.number, _open_dependencies(open_numbers, res.proposal, cand, graph.tree)
-            )
-        if res.owner_question is not None:
-            frames.setdefault(res.owner_question.hash, cand)
-        if writer is not None:
-            writer.settle(res)
+    refined, failed = _refine_selected_candidates(
+        store,
+        candidates,
+        repo=repo,
+        source=source_path,
+        sha=sha,
+        client=client,
+        web=web,
+        investigator=investigator,
+        verifier=verifier_of,
+        max_context_tokens=max_tokens,
+        intake_model=intake_model,
+        frames=frames,
+        graph=graph,
+        actor=actor,
+        open_numbers=open_numbers,
+        writer=writer,
+    )
 
     has_writes = (
         waiting_writes
@@ -4506,6 +4494,71 @@ def plan_refine(
         web_search_off=web.off_reason,
         queue=queue,
     )
+
+
+def _refine_selected_candidates(
+    store: RoadmapStore,
+    candidates: Sequence[Item],
+    *,
+    repo: str,
+    source: Path,
+    sha: str,
+    client: StageClient,
+    web: WebSearch,
+    investigator: Any,
+    verifier: Callable[[], StageClient],
+    max_context_tokens: int,
+    intake_model: Any,
+    frames: dict[str, Item],
+    graph: DependencyGraph,
+    actor: str | None,
+    open_numbers: frozenset[int],
+    writer: RefineWriter | None,
+) -> tuple[list[RefinedItem], list[RefineFailure]]:
+    """Run per-candidate refinement, settling writes and skipping items that left (#7363)."""
+    refined: list[RefinedItem] = []
+    failed: list[RefineFailure] = []
+    for cand in candidates:
+        raise_if_service_stops(f"the refine of #{cand.number}")
+        try:
+            res = refine_one_item(
+                store,
+                cand,
+                repo=repo,
+                source=source,
+                sha=sha,
+                client=client,
+                web=web,
+                investigator=investigator,
+                verifier=verifier,
+                max_context_tokens=max_context_tokens,
+                intake_model=intake_model,
+                frames=frames,
+                graph=graph,
+                actor=actor,
+                open_numbers=open_numbers,
+            )
+        except AICredentialsError:
+            raise
+        except GitHubNotAnIssueError as gone:
+            gone.require_issue(cand.number)
+            continue
+        except AIClientError as exc:
+            failure = _failed_item(cand, repo, exc)
+            failed.append(failure)
+            if writer is not None:
+                writer.settle(failure)
+            continue
+        refined.append(res)
+        if res.skip_reason is None:
+            graph = graph.with_edges(
+                cand.number, _open_dependencies(open_numbers, res.proposal, cand, graph.tree)
+            )
+        if res.owner_question is not None:
+            frames.setdefault(res.owner_question.hash, cand)
+        if writer is not None:
+            writer.settle(res)
+    return refined, failed
 
 
 def dry_run_refine(
@@ -4991,13 +5044,35 @@ class RefineWriter:
         number = result.item.number
         if isinstance(result, RefineFailure):
             self._failures.append(result)
+        applied = self._apply_or_record(result, number)
+        if applied is None:
+            return
+        if isinstance(result, RefineFailure):
+            _log_attempt(self._repo, result)
+        elif not applied.changed_count:
+            self._written += 1
+            self.readied_count += applied.readied_count
+            _log_attempt(self._repo, result)
+
+    def _apply_or_record(
+        self, result: RefinedItem | RefineFailure, number: int
+    ) -> RefineApplied | None:
         try:
-            applied = _apply_result(self._store, result, repo=self._repo)
+            return _apply_result(self._store, result, repo=self._repo)
         except GitHubUnauthenticatedError, ServiceStoppingError:
             raise
+        except GitHubNotAnIssueError as gone:
+            gone.require_issue(number)
+            if (
+                isinstance(result, RefineFailure)
+                and self._failures
+                and self._failures[-1] is result
+            ):
+                self._failures.pop()
+            return None
         except RoadmapItemChangedError:
             logger.info(MESSAGES.roadmap.refine_item_changed.format(number=number, repo=self._repo))
-            applied = RefineApplied(changed_count=1)
+            return RefineApplied(changed_count=1)
         except DevOpsCLIError as exc:
             logger.warning(
                 MESSAGES.roadmap.refine_write_failed_warning.format(
@@ -5007,13 +5082,7 @@ class RefineWriter:
             if isinstance(result, RefinedItem):
                 self._unwritten.append(number)
             _log_attempt(self._repo, result, failure_class_of(exc))
-            return
-        if isinstance(result, RefineFailure):
-            _log_attempt(self._repo, result)
-        elif not applied.changed_count:
-            self._written += 1
-            self.readied_count += applied.readied_count
-            _log_attempt(self._repo, result)
+            return None
 
     def write_waiting(self, plan: RefinePlan) -> None:
         """Write what the plan owes the items the round left alone."""

@@ -122,7 +122,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.config.settings import load_settings
-from devops_cli.exceptions import ServiceStoppingError
+from devops_cli.exceptions import GitHubNotAnIssueError, ServiceStoppingError
 from devops_cli.git.branch_form import parse_branch
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
@@ -733,9 +733,13 @@ def select_fix_plan(
     selected: FixPlanTarget | None = None
     for each in candidates:
         candidate_pull = _staged_pull(each)
-        reason, status = _candidate_reason(
-            repo, source, each, candidate_pull, now, skip_wait=skip_wait
-        )
+        try:
+            reason, status = _candidate_reason(
+                repo, source, each, candidate_pull, now, skip_wait=skip_wait
+            )
+        except GitHubNotAnIssueError as gone:
+            gone.require_issue(each.number)
+            continue
         if reason is not None or candidate_pull is None or status is None:
             left.append(FixPlanLeftOut(each.number, reason or ""))
             continue
@@ -1370,6 +1374,24 @@ def _attempt(
     return done
 
 
+def _no_candidate_run(
+    repo: str,
+    target: FixPlanTarget | None,
+    left: tuple[FixPlanLeftOut, ...],
+    *,
+    confirm: bool,
+) -> FixPlanRun:
+    """Build and log the early-exit `FixPlanRun` when no candidate can run (#7363)."""
+    logger.info(
+        MESSAGES.roadmap.fix_plan_none.format(repo=repo)
+        if confirm
+        else MESSAGES.roadmap.fix_plan_mode_plan_none.format(repo=repo)
+    )
+    if not confirm:
+        log_left_out(repo, left)
+    return FixPlanRun(repo, None if target is not None else target, left)
+
+
 def run_fix_plan(
     store: RoadmapStore,
     *,
@@ -1395,28 +1417,34 @@ def run_fix_plan(
     budget = TimeBudget.start(load_settings().roadmap.fix_plan.time_budget_seconds, _BUDGET_SETTING)
     now = now or datetime.now(UTC)
     effective_mode = mode or ("on" if confirm else "plan")
-    target, left = select_fix_plan(
-        store,
-        repo=repo,
-        source=source,
-        item=item,
-        pull=pull,
-        now=now,
-        skip_wait=skip_wait,
-        mode=effective_mode,
-    )
-    run = FixPlanRun(repo, target, left)
-    if target is None:
-        if confirm:
-            logger.info(MESSAGES.roadmap.fix_plan_none.format(repo=repo))
-        else:
-            logger.info(MESSAGES.roadmap.fix_plan_mode_plan_none.format(repo=repo))
+    seen_left: set[int] = set()
+    while True:
+        target, left = select_fix_plan(
+            store,
+            repo=repo,
+            source=source,
+            item=item,
+            pull=pull,
+            now=now,
+            skip_wait=skip_wait,
+            mode=effective_mode,
+        )
+        if target is None or target.item.number in seen_left:
+            return _no_candidate_run(repo, target, left, confirm=confirm)
+        run = FixPlanRun(repo, target, left)
         if not confirm:
-            log_left_out(repo, left)
-        return run
-    if not confirm:
+            logger.info(
+                MESSAGES.roadmap.fix_plan_mode_plan.format(
+                    repo=repo,
+                    pull=target.pull,
+                    number=target.item.number,
+                    head=target.status.head_sha[:_SHORT],
+                )
+            )
+            log_left_out(repo, left, handled=(target.item.number,))
+            return run
         logger.info(
-            MESSAGES.roadmap.fix_plan_mode_plan.format(
+            MESSAGES.roadmap.fix_plan_selected.format(
                 repo=repo,
                 pull=target.pull,
                 number=target.item.number,
@@ -1424,32 +1452,27 @@ def run_fix_plan(
             )
         )
         log_left_out(repo, left, handled=(target.item.number,))
-        return run
-    logger.info(
-        MESSAGES.roadmap.fix_plan_selected.format(
-            repo=repo,
-            pull=target.pull,
-            number=target.item.number,
-            head=target.status.head_sha[:_SHORT],
-        )
-    )
-    log_left_out(repo, left, handled=(target.item.number,))
-    if verifier is None:
-        from devops_cli.ai.client.factory import get_task_model
-        from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
+        if verifier is None:
+            from devops_cli.ai.client.factory import get_task_model
+            from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 
-        verifier = ToolboxModel(get_task_model(_REVIEW_TASK))
-    base = target.status.base_ref or default_branch(source, operation=_GIT_OPERATION)
-    done = _attempt(
-        _Attempt(store, repo, source, target, base, budget),
-        now,
-        model=model,
-        verifier=verifier,
-        screen=screen,
-    )
-    if isinstance(done, FixPlanLeftOut):
-        return FixPlanRun(repo, target, (*left, done))
-    return FixPlanRun(repo, target, left, done)
+            verifier = ToolboxModel(get_task_model(_REVIEW_TASK))
+        base = target.status.base_ref or default_branch(source, operation=_GIT_OPERATION)
+        try:
+            done = _attempt(
+                _Attempt(store, repo, source, target, base, budget),
+                now,
+                model=model,
+                verifier=verifier,
+                screen=screen,
+            )
+        except GitHubNotAnIssueError as gone:
+            gone.require_issue(target.item.number)
+            seen_left.add(target.item.number)
+            continue
+        if isinstance(done, FixPlanLeftOut):
+            return FixPlanRun(repo, target, (*left, done))
+        return FixPlanRun(repo, target, left, done)
 
 
 def dry_run_fix_plan(repo: str, *, item: int | None = None) -> FixPlanRun:

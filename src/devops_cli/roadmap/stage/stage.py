@@ -575,7 +575,11 @@ def walk_named[T](
             if probe is None:
                 break
             continue
-        verdict = judge(item)
+        try:
+            verdict = judge(item)
+        except GitHubNotAnIssueError as gone:
+            gone.require_issue(item.number)
+            continue
         if isinstance(verdict, str):
             left_out.append(LeftOut(item.number, verdict, item.title))
         elif full:
@@ -4421,15 +4425,25 @@ def _record_failures(
             StageRecordKey.FAILED_STEP: failure.step.value,
             StageRecordKey.FAILED_CLASS: failure.failure_class.value,
         }
-        if failure.failure_class not in (FailureClass.PLAN_DEFECT, FailureClass.PLAN_UNREADABLE):
+        try:
+            if failure.failure_class not in (
+                FailureClass.PLAN_DEFECT,
+                FailureClass.PLAN_UNREADABLE,
+            ):
+                store.set_marks(item, marks)
+                continue
+            count, body = plan_defects(item)
+            if count >= limit:
+                _return_plan_defects(store, item, failure, count, marks, limit, repo=repo)
+                continue
+            marks |= {
+                StageRecordKey.PLAN_DEFECTS: str(count),
+                StageRecordKey.PLAN_DEFECTS_BODY: body,
+            }
             store.set_marks(item, marks)
+        except GitHubNotAnIssueError as gone:
+            gone.require_issue(item.number)
             continue
-        count, body = plan_defects(item)
-        if count >= limit:
-            _return_plan_defects(store, item, failure, count, marks, limit, repo=repo)
-            continue
-        marks |= {StageRecordKey.PLAN_DEFECTS: str(count), StageRecordKey.PLAN_DEFECTS_BODY: body}
-        store.set_marks(item, marks)
 
 
 def plan_body_hash(item: Item) -> str:
@@ -4632,7 +4646,10 @@ class StageWriter:
         then the branch and the draft pull request of a change, the stop on the budget, the return
         for open blockers, the return for a false premise, or the record of a failure."""
         with self._recording((result,) if isinstance(result, StageFailure) else ()):
-            self._settle(target.item, result)
+            try:
+                self._settle(target.item, result)
+            except GitHubNotAnIssueError as gone:
+                gone.require_issue(target.item.number)
 
     def _settle(
         self,

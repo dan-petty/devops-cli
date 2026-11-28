@@ -32,6 +32,7 @@ of the last change of a path, in order.
 from __future__ import annotations
 
 import functools
+import logging
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
@@ -227,6 +228,9 @@ class _Roadmap:
     labels: list[RepositoryLabel] = field(default_factory=list)
     # The package URLs of the SBOM that `seed_dependencies` made.
     purls: list[str] = field(default_factory=list)
+    # Issues that left the repository whose stale listing record drops on first read/write (#7363).
+    left_on_read: set[int] = field(default_factory=set)
+    logged_left: set[int] = field(default_factory=set)
     # The files of other repositories, by repository, path and ref (#4672).
     other_files: dict[tuple[str, str, str | None], str] = field(default_factory=dict)
     # What GitHub's code search and repository search answer for each query, and the reference
@@ -234,6 +238,9 @@ class _Roadmap:
     code_hits: dict[str, list[Any]] = field(default_factory=dict)
     found_repositories: dict[str, list[Any]] = field(default_factory=dict)
     reference_facts: dict[str, Any] = field(default_factory=dict)
+
+
+logger = logging.getLogger(__name__)
 
 
 def _not_an_issue(repo: str, number: int, operation: str) -> GitHubOperationError:
@@ -660,12 +667,37 @@ class InMemoryRoadmapStore(RoadmapStore):
         issue = self._roadmap.issues.get(number)
         return issue.title if issue is not None and issue.pull_request else None
 
+    def leave(self, number: int) -> None:
+        """Mark seeded `number` as having left the repository while still in cached listings (#7363)."""
+        self._roadmap.left_on_read.add(number)
+
+    def _drop_left(self, number: int, *, log: bool = True) -> bool:
+        """Drop `number` if it left the repository and log one warning line."""
+        if number not in self._roadmap.left_on_read and number in self._roadmap.issues:
+            return False
+        was_left = number in self._roadmap.left_on_read
+        if was_left:
+            self._roadmap.left_on_read.discard(number)
+            self._roadmap.issues.pop(number, None)
+        if log and was_left and number not in self._roadmap.logged_left:
+            self._roadmap.logged_left.add(number)
+            logger.warning(
+                "#%d is no issue of %s now. The store leaves it out.",
+                number,
+                self._roadmap.repo,
+            )
+        return was_left
+
     def last_renamed_at(self, number: int) -> datetime | None:
         """When the title of issue `number` last changed, or None."""
+        if self._drop_left(number):
+            raise _not_an_issue(self._roadmap.repo, number, "roadmap.read")
         return max(self._roadmap.renames.get(number, []), default=None)
 
     def closures(self, number: int) -> list[Closure]:
         """Every close and reopen of issue `number`, oldest first."""
+        if self._drop_left(number):
+            raise _not_an_issue(self._roadmap.repo, number, "roadmap.read")
         return list(self._roadmap.closures.get(number, []))
 
     @_write
@@ -795,6 +827,8 @@ class InMemoryRoadmapStore(RoadmapStore):
     def comments_on(self, number: int) -> list[IssueComment]:
         """Every comment on issue `number`, oldest first, or the error `fail_read` set."""
         self._readable("comments_on")
+        if self._drop_left(number):
+            raise _not_an_issue(self._roadmap.repo, number, "roadmap.read")
         return list(self._roadmap.comments.get(number, []))
 
     def comments_since(self, since: datetime | None) -> Iterator[IssueComment]:
@@ -917,6 +951,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         """The Item numbered `number`, or None when that issue is no Item."""
         del fresh
         self.reads.append("item")
+        self._drop_left(number)
         issue = self._roadmap.issues.get(number)
         return next(iter(select_items([self._read(issue)])), None) if issue else None
 
@@ -925,6 +960,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         none."""
         del fresh
         self.reads.append("issue")
+        self._drop_left(number)
         issue = self._roadmap.issues.get(number)
         return self._read(issue) if issue and not issue.pull_request else None
 
@@ -1013,6 +1049,8 @@ class InMemoryRoadmapStore(RoadmapStore):
     def label_changes(self, number: int) -> list[Change]:
         """The labeled and unlabeled changes of issue `number` that its writes recorded, oldest
         first (#2919)."""
+        if self._drop_left(number):
+            raise _not_an_issue(self._roadmap.repo, number, "roadmap.read")
         return [
             change
             for change in self._roadmap.changes
@@ -1210,8 +1248,16 @@ class InMemoryRoadmapStore(RoadmapStore):
     def _require_issue(
         self, number: int, operation: str, *, pull_request: bool = False
     ) -> IssueRecord:
+        self._drop_left(number)
         issue = self._roadmap.issues.get(number)
         if issue is None or (issue.pull_request and not pull_request):
+            if number not in self._roadmap.logged_left:
+                self._roadmap.logged_left.add(number)
+                logger.warning(
+                    "#%d is no issue of %s now. The store leaves it out.",
+                    number,
+                    self._roadmap.repo,
+                )
             raise _not_an_issue(self._roadmap.repo, number, operation)
         return issue
 

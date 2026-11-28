@@ -13,7 +13,7 @@ import pytest
 from devops_cli.exceptions.git import GitHubNotFoundError
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import get_github_session
-from tests.support.fakes.github import github_json, quota_headers
+from tests.support.fakes.github import github_json, github_redirect, quota_headers
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
@@ -402,3 +402,14 @@ def test_the_search_terms_hold_no_qualifier(search_quota: GitHubApiFake) -> None
         [],
         [f"GET https://api.github.com{path}"],
     )
+
+
+def test_a_301_on_the_repository_name_read_is_followed(github_api: GitHubApiFake) -> None:
+    """When GitHub answers `/repos/<repo>` with 301, `GitHubClient` follows it to read `full_name` (#7363)."""
+    github_api.route("GET", _ISSUE, _renamed_answer())
+    github_api.route("GET", f"/repos/{_REPO}", github_redirect("/repositories/99", status=301))
+    github_api.route("GET", "/repositories/99", github_json({"full_name": "octocat/Hello-Again"}))
+
+    issue = _client().get_issue(_REPO, 7)
+
+    assert issue.number == 7

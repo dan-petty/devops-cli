@@ -71,6 +71,7 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.ai import ModelGatewayUnreachableError
 from devops_cli.exceptions.base import DevOpsCLIError
+from devops_cli.exceptions.git import GitHubNotAnIssueError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import hash_text
@@ -401,7 +402,11 @@ def plan_retitle(
     skips: list[TitleSkip] = []
     for item in found[:cap]:
         with attempt_context():
-            decided = _decide(store, model, item)
+            try:
+                decided = _decide(store, model, item)
+            except GitHubNotAnIssueError as gone:
+                gone.require_issue(item.number)
+                continue
             if isinstance(decided, TitleChange):
                 changes.append(decided)
                 log_job_result(RoadmapJob.RETITLE, repo, item.number, RetitleResult.RETITLED.value)
@@ -478,14 +483,18 @@ def apply_retitle(store: RoadmapStore, plan: RetitlePlan) -> int:
     written."""
     written = 0
     for change in plan.changes:
-        if _changed_since_read(store, change):
-            logger.warning(
-                "The title of #%d changed after the run read it, so retitle left it.",
-                change.item.number,
-            )
+        try:
+            if _changed_since_read(store, change):
+                logger.warning(
+                    "The title of #%d changed after the run read it, so retitle left it.",
+                    change.item.number,
+                )
+                continue
+            store.set_title(change.item.number, change.title)
+            store.comment(change.item.number, _comment_of(change))
+        except GitHubNotAnIssueError as gone:
+            gone.require_issue(change.item.number)
             continue
-        store.set_title(change.item.number, change.title)
-        store.comment(change.item.number, _comment_of(change))
         written += 1
     for skip in plan.skips:
         key = _KEY_TYPE if unlisted_type(skip.item.title) is not None else _KEY_LONG
@@ -496,9 +505,13 @@ def apply_retitle(store: RoadmapStore, plan: RetitlePlan) -> int:
             extra={"reason": key},
         )
         body = _skip_comment_of(skip)
-        if skip.comment and all(c.body != body for c in store.comments_on(skip.item.number)):
-            store.comment(skip.item.number, body)
-        store.set_marks(skip.item, {RetitleRecordKey.SKIPPED: skip_hash(skip.item)})
+        try:
+            if skip.comment and all(c.body != body for c in store.comments_on(skip.item.number)):
+                store.comment(skip.item.number, body)
+            store.set_marks(skip.item, {RetitleRecordKey.SKIPPED: skip_hash(skip.item)})
+        except GitHubNotAnIssueError as gone:
+            gone.require_issue(skip.item.number)
+            continue
     return written
 
 
