@@ -158,3 +158,45 @@ def test_person_protected_write_is_allowed(person_caller: None) -> None:
     """A person caller is allowed on protected write routes."""
     assert require_gh_api_access("POST", "repos/o/r/transfer") is None
     assert require_gh_api_argv_access(["repos/o/r/rulesets/1", "-X", "PUT"]) is None
+    assert require_gh_api_access("POST", "repos/o/r/actions/runs/241/pending_deployments") is None
+    assert (
+        require_gh_api_access("POST", "repos/o/r/actions/runs/241/deployment_protection_rule")
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "expected_pattern"),
+    [
+        (
+            "repos/o/r/actions/runs/241/pending_deployments",
+            "repos/{owner}/{repo}/actions/runs/{run_id}/pending_deployments",
+        ),
+        (
+            "repos/o/r/actions/runs/999999/pending_deployments",
+            "repos/{owner}/{repo}/actions/runs/{run_id}/pending_deployments",
+        ),
+        (
+            "repos/o/r/actions/runs/241/deployment_protection_rule",
+            "repos/{owner}/{repo}/actions/runs/{run_id}/deployment_protection_rule",
+        ),
+    ],
+)
+def test_agent_deployment_review_routes_are_refused(
+    agent_caller: None, endpoint: str, expected_pattern: str
+) -> None:
+    """Agent callers are refused on pending deployment and custom rule review routes."""
+    match = classify_protected_route("POST", endpoint)
+    assert match is not None
+    assert (match.route_class, match.pattern) == ("deployment review", expected_pattern)
+
+    with pytest.raises(GitHubApiAccessRefusedError) as caught:
+        require_gh_api_access("POST", endpoint)
+
+    exc = caught.value
+    assert (exc.details["route_class"], exc.details["pattern"]) == (
+        "deployment review",
+        expected_pattern,
+    )
+    assert "deployment review" in exc.message.lower()
+    assert classify_protected_route("GET", endpoint) is None

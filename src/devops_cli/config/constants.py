@@ -3183,6 +3183,16 @@ CONST_GH_MUTATION_HTTP_METHODS: Final[frozenset[str]] = frozenset(
 # broader settings patterns so classification names the narrowest protected area.
 CONST_GH_API_PROTECTED_ROUTES: Final[tuple[tuple[str, frozenset[str], str], ...]] = (
     ("repository transfer", frozenset({"POST"}), "repos/{owner}/{repo}/transfer"),
+    (
+        "deployment review",
+        frozenset({"POST"}),
+        "repos/{owner}/{repo}/actions/runs/{run_id}/pending_deployments",
+    ),
+    (
+        "deployment review",
+        frozenset({"POST"}),
+        "repos/{owner}/{repo}/actions/runs/{run_id}/deployment_protection_rule",
+    ),
     ("rulesets", CONST_GH_MUTATION_HTTP_METHODS, "repos/{owner}/{repo}/rulesets/**"),
     ("rulesets", CONST_GH_MUTATION_HTTP_METHODS, "orgs/{org}/rulesets/**"),
     ("secrets", CONST_GH_MUTATION_HTTP_METHODS, "repos/{owner}/{repo}/actions/secrets/**"),
