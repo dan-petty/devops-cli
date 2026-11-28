@@ -118,6 +118,7 @@ def test_a_shard_reports_each_test_id_and_the_reason_of_each_skip_and_failure(
     asks again for the failures and errors, and the failure stays in the summary."""
     # The inner run loads no installed plugin: autoloading each plugin costs seconds.
     monkeypatch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
+    (pytester.path / ".git").mkdir()
     pytester.makepyprojecttoml('[tool.pytest.ini_options]\naddopts = "-p no:randomly --tb=no"\n')
     pytester.makepyfile(test_shard=_SHARD_SUITE)
     row = _planned_test_row("--shard", "2", "--shards", "4")

@@ -1387,6 +1387,7 @@ def narrowed_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A checked tree with one test module, the current directory, so `devops ci test` finds it
     as its root and narrows a run to `tests/test_x.py`."""
     project = tmp_path / "project"
+    (project / ".git").mkdir(parents=True)
     (project / "tests").mkdir(parents=True)
     (project / "tests" / "test_x.py").write_text("def test_x() -> None: ...\n", encoding="utf-8")
     monkeypatch.chdir(project)
@@ -1775,3 +1776,89 @@ def test_each_stop_signal_cancels_the_run_through_the_event_loop() -> None:
         stop_signals,
         before,
     )
+
+
+def _nested_clone_worktree(tmp_path: Path) -> tuple[Path, Path]:
+    """Create an outer checkout with a nested clone under `repos/` and a linked worktree."""
+    outer = tmp_path / "outer"
+    (outer / ".git").mkdir(parents=True)
+    (outer / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (outer / "pyproject.toml").write_text("[project]\nname = 'outer'\n", encoding="utf-8")
+
+    clone = outer / "repos" / "dan-petty" / "homelab"
+    wt = outer / ".data" / "agent" / "worktrees" / "h-1"
+    wt_git = clone / ".git" / "worktrees" / "h-1"
+    wt_git.mkdir(parents=True)
+    wt.mkdir(parents=True)
+    (clone / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (wt / ".git").write_text(f"gitdir: {wt_git}\n", encoding="utf-8")
+    (wt_git / "gitdir").write_text(f"{wt / '.git'}\n", encoding="utf-8")
+    (wt_git / "commondir").write_text("../..\n", encoding="utf-8")
+    return outer, wt
+
+
+def test_gate_checks_worktree_of_nested_clone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> None:
+    """Verify `devops ci` checks a linked worktree of a clone under `repos/` instead of the outer checkout."""
+    _outer, wt = _nested_clone_worktree(tmp_path)
+    process_fake.answer(
+        lambda call: "--show-toplevel" in call.argv,
+        lambda _call: ProcessAnswer(returncode=0, stdout=f"{wt.resolve()}\n"),
+    )
+    monkeypatch.chdir(wt)
+
+    result = runner.invoke(app, ["--check", "--no-cache", "--only", "lint"])
+
+    non_git = [call for call in process_fake.calls if call.argv and call.argv[0] != "git"]
+    said = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        " ".join(MESSAGES.ci.gate_root.format(root=wt.resolve()).split()) in said,
+        bool(non_git),
+        {call.cwd for call in non_git if call.cwd is not None},
+    ) == (0, True, True, {wt.resolve()})
+
+
+def test_gate_checks_stale_worktree_when_git_show_toplevel_fails(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> None:
+    """Verify exit-128 from `git rev-parse --show-toplevel` falls back to `.git` and warns stale."""
+    main, nested = nested_worktree
+    shutil.rmtree(main / ".git" / "worktrees" / "wt")
+    process_fake.answer(
+        lambda call: "--show-toplevel" in call.argv,
+        lambda _call: ProcessAnswer(returncode=128, stderr="fatal: not a git repository\n"),
+    )
+    monkeypatch.chdir(nested)
+
+    result = runner.invoke(app, ["--check", "--no-cache", "--only", "lint"])
+
+    said = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        " ".join(MESSAGES.ci.gate_root.format(root=nested.resolve()).split()) in said,
+        " ".join(_stale_warning(nested).split()) in said,
+    ) == (0, True, True)
+
+
+def test_gate_stops_outside_any_git_work_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> None:
+    """Verify `devops ci --check` stops with exit 1 naming the directory outside a git work tree."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    process_fake.answer(
+        lambda call: "--show-toplevel" in call.argv,
+        lambda _call: ProcessAnswer(returncode=128, stderr="fatal: not a git repository\n"),
+    )
+    monkeypatch.chdir(outside)
+
+    result = runner.invoke(app, ["--check", "--only", "lint"])
+
+    non_git = [call for call in process_fake.calls if call.argv and call.argv[0] != "git"]
+    assert (
+        result.exit_code,
+        str(outside.resolve()) in " ".join(result.output.split()),
+        non_git,
+    ) == (1, True, [])
