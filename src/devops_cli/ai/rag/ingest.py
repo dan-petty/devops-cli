@@ -7,7 +7,6 @@ import logging
 import shutil
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +22,6 @@ from devops_cli.exceptions import (
     GitOperationError,
 )
 from devops_cli.exceptions.ai import RagIngestError
-from devops_cli.output.file_writer import write_json_file
 from devops_cli.telemetry.instruments import (
     RAG_INGEST_LAST_SUCCESS_TIMESTAMP,
     RAG_INGEST_RUNS_TOTAL,
@@ -47,7 +45,7 @@ class IngestResult:
     skipped: bool = False
 
 
-def resolve_repo_paths(data_dir: Path, repo: str) -> tuple[Path, Path, Path]:
+def resolve_repo_paths(data_dir: Path, repo: str) -> tuple[Path, Path]:
     """Validate repository slug and resolve data paths under repos/<owner>/<name>."""
     parts = repo.split("/")
     if len(parts) != 2 or not parts[0] or not parts[1]:
@@ -64,8 +62,7 @@ def resolve_repo_paths(data_dir: Path, repo: str) -> tuple[Path, Path, Path]:
         )
 
     tree_dir = safe_resolve_subpath(repo_dir, "tree", error_cls=GitOperationError)
-    state_file = repo_dir / "state.json"
-    return repo_dir, tree_dir, state_file
+    return repo_dir, tree_dir
 
 
 _resolve_repo_paths = resolve_repo_paths
@@ -151,47 +148,31 @@ def _sync_shallow_checkout(tree_dir: Path, url: str, branch: str, git_runner: An
         )
 
 
+def _is_repo_slug(project: str) -> bool:
+    parts = project.split("/")
+    return len(parts) == 2 and bool(parts[0]) and bool(parts[1])
+
+
 def cleanup_removed_repos(
     rag_dir: Path,
     configured_repos: set[str],
     indexer: WorkspaceIndexer,
 ) -> None:
-    """Purge points and local state for repositories removed from service.repos."""
+    """Purge points and local checkout folder for `owner/name` repos removed from `service.repos`."""
+    stored_repos = {proj for proj in indexer.list_project_names() if _is_repo_slug(proj)}
     repos_dir = rag_dir / "repos"
-    if not repos_dir.is_dir():
-        return
-
-    for state_file in sorted(repos_dir.glob("*/*/state.json")):
-        name = state_file.parent.name
-        owner = state_file.parent.parent.name
-        proj = f"{owner}/{name}"
-        if proj not in configured_repos:
-            logger.info("Cleaning up removed repository '%s'", proj)
-            try:
-                indexer.qdrant.delete_points_by_project(indexer.code_collection, proj, wait=True)
-                indexer.qdrant.delete_points_by_project(indexer.docs_collection, proj, wait=True)
-            except (QdrantClientError, DevOpsCLIError) as exc:
-                logger.warning("Failed to delete points for removed repository '%s': %s", proj, exc)
-            shutil.rmtree(state_file.parent, ignore_errors=True)
+    for proj in sorted(stored_repos - configured_repos):
+        logger.info("Cleaning up removed repository '%s'", proj)
+        try:
+            indexer.qdrant.delete_points_by_project(indexer.code_collection, proj, wait=True)
+            indexer.qdrant.delete_points_by_project(indexer.docs_collection, proj, wait=True)
+        except (QdrantClientError, DevOpsCLIError) as exc:
+            logger.warning("Failed to delete points for removed repository '%s': %s", proj, exc)
+        owner, name = proj.split("/", 1)
+        shutil.rmtree(repos_dir / owner / name, ignore_errors=True)
 
 
 _cleanup_removed_repos = cleanup_removed_repos
-
-
-def load_repo_state(state_file: Path) -> dict[str, Any]:
-    """Read JSON state file if present."""
-    if state_file.exists():
-        try:
-            content = state_file.read_text(encoding="utf-8")
-            data = json.loads(content)
-            if isinstance(data, dict):
-                return data
-        except (json.JSONDecodeError, OSError) as exc:
-            logger.debug("Failed reading state file %s: %s", state_file, exc)
-    return {}
-
-
-_load_repo_state = load_repo_state
 
 
 def update_points_visibility(
@@ -245,8 +226,7 @@ def ingest_repository(
             cache_dir=data_dir,
         )
 
-    repo_dir, tree_dir, state_file = resolve_repo_paths(data_dir, repo)
-    state = load_repo_state(state_file)
+    repo_dir, tree_dir = resolve_repo_paths(data_dir, repo)
 
     repo_indexer = WorkspaceIndexer(
         qdrant=indexer.qdrant,
@@ -256,9 +236,10 @@ def ingest_repository(
         cache_dir=repo_dir,
     )
 
+    state = repo_indexer.read_project_state(repo)
     visibility = read_repo_visibility(repo, gh_runner)
-    if "visibility" in state and state["visibility"] != visibility:
-        update_points_visibility(indexer, repo, visibility)
+    if state and state.get("visibility") != visibility:
+        update_points_visibility(repo_indexer, repo, visibility)
 
     url = remote_url or f"https://github.com/{repo}.git"
     ls_res = git_runner(
@@ -268,17 +249,6 @@ def ingest_repository(
     branch, head = _parse_ls_remote(raw_output)
 
     if not head:
-        write_json_file(
-            state_file,
-            {
-                "head": "",
-                "branch": branch,
-                "visibility": visibility,
-                "empty": True,
-                "timestamp": datetime.now(UTC).isoformat(),
-            },
-            atomic=True,
-        )
         return IngestResult(
             repo=repo, head="", branch=branch, visibility=visibility, success=True, skipped=True
         )
@@ -286,12 +256,6 @@ def ingest_repository(
     recorded_head = state.get("head")
     intact = repo_indexer.points_intact(repo)
     if recorded_head == head and intact:
-        if state.get("visibility") != visibility:
-            write_json_file(
-                state_file,
-                {**state, "visibility": visibility, "timestamp": datetime.now(UTC).isoformat()},
-                atomic=True,
-            )
         return IngestResult(
             repo=repo, head=head, branch=branch, visibility=visibility, success=True, skipped=True
         )
@@ -306,16 +270,7 @@ def ingest_repository(
         visibility=visibility,
     )
 
-    write_json_file(
-        state_file,
-        {
-            "head": head,
-            "branch": branch,
-            "visibility": visibility,
-            "timestamp": datetime.now(UTC).isoformat(),
-        },
-        atomic=True,
-    )
+    repo_indexer.write_project_state(repo, head=head, branch=branch, visibility=visibility)
     return IngestResult(repo=repo, head=head, branch=branch, visibility=visibility, success=True)
 
 

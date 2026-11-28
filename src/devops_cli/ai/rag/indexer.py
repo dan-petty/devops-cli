@@ -1017,6 +1017,68 @@ class WorkspaceIndexer:
         intact, _ = self._check_project_points_intact(project)
         return intact
 
+    def read_project_state(self, project: str) -> dict[str, Any]:
+        """Read stored ingest state (`head`, `branch`, `visibility`) for `project` from Qdrant."""
+        for coll in dict.fromkeys((self.code_collection, self.docs_collection)):
+            try:
+                points = self.qdrant.scroll_points(
+                    coll,
+                    {"project_name": project},
+                    limit=1,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+            except DevOpsCLIError as exc:
+                logger.debug("Failed reading project state for %s in %s: %s", project, coll, exc)
+                return {}
+            if points:
+                payload = points[0].get("payload") or {}
+                return {
+                    key: payload[key] for key in ("head", "branch", "visibility") if key in payload
+                }
+        return {}
+
+    def write_project_state(
+        self,
+        project: str,
+        *,
+        head: str,
+        branch: str,
+        visibility: str,
+    ) -> None:
+        """Write `head`, `branch`, and `visibility` onto every stored point of `project`."""
+        payload = {"head": head, "branch": branch, "visibility": visibility}
+        for coll in dict.fromkeys((self.code_collection, self.docs_collection)):
+            try:
+                self.qdrant.set_payload(
+                    coll,
+                    payload,
+                    filter_payload={"project_name": project},
+                    wait=True,
+                )
+            except DevOpsCLIError as exc:
+                logger.warning("Failed writing project state for %s in %s: %s", project, coll, exc)
+
+    def _collect_collection_projects(self, collection: str, names: set[str]) -> None:
+        for payload in self.qdrant.scroll_payloads(
+            collection,
+            keys=["project_name"],
+            page_size=_STORED_STATE_PAGE_SIZE,
+        ):
+            proj = payload.get("project_name")
+            if isinstance(proj, str) and proj:
+                names.add(proj)
+
+    def list_project_names(self) -> set[str]:
+        """Return distinct `project_name` values held in the code or docs collections."""
+        names: set[str] = set()
+        for coll in dict.fromkeys((self.code_collection, self.docs_collection)):
+            try:
+                self._collect_collection_projects(coll, names)
+            except DevOpsCLIError as exc:
+                logger.warning("Failed listing project names from %s: %s", coll, exc)
+        return names
+
     @staticmethod
     def collect_files(root_dir: Path) -> list[Path]:
         """Collect all indexable files under root_dir, respecting .gitignore rules and the
