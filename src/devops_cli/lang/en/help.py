@@ -1473,9 +1473,10 @@ class GHCommandHelp:
     api: str = (
         "Execute a GitHub API request with quota-derived spacing, rate-limit backoff, and"
         " optional caching. Agent callers are refused on mutating requests (POST, PATCH, PUT,"
-        " DELETE) targeting repository settings, rulesets, secrets, organization settings, or"
-        " repository transfer (`--dry-run` still previews the request). Issue, pull request,"
-        " label, and workflow dispatch routes stay open."
+        " DELETE) targeting repository settings, rulesets, secrets, organization settings,"
+        " repository transfer, or deployment review (`pending_deployments`,"
+        " `deployment_protection_rule`; `--dry-run` still previews the request). Issue, pull"
+        " request, label, and workflow dispatch routes stay open."
     )
     rate_limit: str = (
         "Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns."

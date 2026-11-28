@@ -1203,6 +1203,14 @@ def test_gh_api_error_masked(gh_edge: ProcessFake, clock: ClockFake) -> None:
         ),
         (["api", "orgs/o", "-X", "PATCH"], "orgs/o"),
         (["api", "repos/o/r", "-X", "PATCH"], "repos/o/r"),
+        (
+            ["api", "repos/o/r/actions/runs/241/pending_deployments", "-X", "POST"],
+            "deployment review",
+        ),
+        (
+            ["api", "repos/o/r/actions/runs/241/deployment_protection_rule", "-X", "POST"],
+            "deployment review",
+        ),
     ],
 )
 def test_gh_api_agent_protected_write_refused(
