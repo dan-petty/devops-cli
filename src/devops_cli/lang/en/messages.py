@@ -1079,6 +1079,23 @@ class K8sMessages:
     volume_move_no_target_for_class: str = (
         "No worker node is Ready and schedulable and can attach a volume of class {storage_class}."
     )
+    volume_move_no_pv_migrate: str = (
+        "pv-migrate is not on PATH. The move copies the data with pv-migrate, which the devtools "
+        "image installs."
+    )
+    volume_move_restricted_no_fs_group: str = (
+        "Namespace {namespace} enforces Pod Security restricted, so pv-migrate copies as a user "
+        "that is not root and keeps no owner and no group of a file. {workload} sets no fsGroup "
+        "in its pod template, so it cannot write the copied files. Give it an fsGroup, or move "
+        "the claim while the namespace enforces baseline."
+    )
+    volume_move_restricted_class: str = (
+        "Namespace {namespace} enforces Pod Security restricted, so pv-migrate copies as a user "
+        "that is not root and keeps no owner and no group of a file. The kubelet gives the "
+        "fsGroup of a pod to the files only on a volume of a CSI driver whose fsGroupPolicy is "
+        "not None, and class {storage_class} has no such driver. Move the claim to such a class, "
+        "such as longhorn, or move it while the namespace enforces baseline."
+    )
     volume_move_unknown_application: str = (
         "Argo CD Application {application}, which the tracking annotation names, does not exist "
         "in namespace {namespace}."
@@ -1092,16 +1109,7 @@ class K8sMessages:
     volume_move_request_failed: str = "`{request}` exited {code}: {detail}"
     volume_move_request_timeout: str = "`{request}` did not end within {seconds:g} s."
     volume_move_bad_output: str = "`{request}` did not return JSON: {detail}"
-    volume_move_unbound_copy: str = "Claim {claim} has no volume after its pod started."
-    volume_move_digest_unreadable: str = "The digest of pod {pod} is not complete: {output}"
-    volume_move_digest_differs: str = (
-        "The two sides are different ({fields}). The destination is not a full copy."
-    )
-    volume_move_digest_equal: str = (
-        "The two sides are equal: {entries} entries, {files} files, {bytes} bytes of regular "
-        "files, and equal metadata and content digests."
-    )
-    volume_move_copy_retry: str = "The copy stopped ({reason}). Empty /dst and copy one more time."
+    volume_move_unbound_copy: str = "Claim {claim} has no volume after the copy."
     volume_move_save_failed: str = "Cannot save claim {claim} to {path}: {reason}"
     volume_move_saved: str = "Saved claim {namespace}/{claim} to {path}."
     volume_move_placement: str = (
@@ -1117,32 +1125,22 @@ class K8sMessages:
     volume_move_step_no_pause: str = (
         "Pause nothing: no Argo CD Application tracks the claim or its workloads."
     )
-    volume_move_step_destination: str = (
-        "Create claim {claim} ({size}, {storage_class}), NetworkPolicy {policy} that lets the "
-        "copy pods reach each other on port {port}, and pod {pod} on node {node}, and wait until "
-        "the pod is Ready."
-    )
+    volume_move_step_destination: str = "Create claim {claim} ({size}, {storage_class})."
     volume_move_step_stop: str = (
         "Scale {workloads} to 0, and wait until these pods are gone: {pods}."
     )
-    volume_move_step_source: str = (
-        "Start pod {pod} with claim {claim} read-only on node {node}, and wait until it is Ready."
-    )
     volume_move_step_copy: str = (
-        "Copy /src of pod {source} to /dst of pod {destination} with GNU tar over the pod "
-        "network: pod {destination} listens on port {port}, and pod {source} sends the archive. "
-        "If the copy fails, empty /dst and copy one more time."
-    )
-    volume_move_step_compare: str = (
-        "Compare the two sides: the entries, the files, the bytes of regular files, a metadata "
-        "digest and a content digest. Stop at a difference."
+        "Copy claim {claim} to claim {move_claim} with pv-migrate: rsync over SSH from a pod "
+        "with claim {claim} read-only on node {source} to a pod with claim {move_claim} on node "
+        "{target}. rsync checks each file that it sends, and pv-migrate removes its pods at the "
+        "end. Then read the new volume of claim {move_claim}."
     )
     volume_move_step_retain: str = (
         "Set the reclaim policy of the new volume of claim {claim} and of volume {volume} to "
         "Retain."
     )
-    volume_move_step_delete_pods: str = (
-        "Delete the pods {source} and {destination}, and NetworkPolicy {policy}."
+    volume_move_step_settle: str = (
+        "End each sync operation of a paused Argo CD Application that still runs."
     )
     volume_move_step_delete_claim: str = (
         "Save claim {namespace}/{claim}, delete the pods of the claim that have ended, and delete "
@@ -1169,7 +1167,9 @@ class K8sMessages:
     volume_move_step_no_resume: str = "Resume nothing: the move paused no Argo CD Application."
     volume_move_step_line: str = "Step {number}/{total}: {text}"
     volume_move_undo_resume: str = "Resume automated sync of Application {application}"
-    volume_move_undo_delete: str = "Delete {kind} {name}"
+    volume_move_undo_cleanup: str = (
+        "Remove the pods and the other objects of pv-migrate operation {operation}"
+    )
     volume_move_undo_discard: str = (
         "Set the reclaim policy of the volume of claim {claim} to Delete, and delete the claim"
     )
@@ -1196,6 +1196,15 @@ class K8sMessages:
         "pauses: {paused}."
     )
     volume_move_plan_no_argocd: str = "Argo CD: no Application tracks the claim or its workloads."
+    volume_move_plan_copy_root: str = (
+        "Copy: pv-migrate runs as root, so each file keeps its owner and its group."
+    )
+    volume_move_plan_copy_non_root: str = (
+        "Copy: namespace {namespace} enforces Pod Security restricted, so pv-migrate runs with "
+        "--non-root, and rsync with --no-perms. The copy keeps no owner and no group of a file, "
+        "and no write bit of the group and the others. The workloads read and write the files "
+        "through their fsGroup."
+    )
     volume_move_plan_steps: str = "Steps:"
     volume_move_plan_point_of_no_return: str = (
         "Step {number} deletes the old claim. Before that step, a failure undoes the steps that "
@@ -1243,25 +1252,9 @@ class K8sMessages:
     )
     volume_move_dry_run_undo: str = (
         "Before the old claim is deleted, a failed request starts the undo, in reverse order: "
-        "it deletes the copy pods, claim {claim} and the volume that the move made for it, scales "
-        "the workloads back, sets the reclaim policies back and resumes Argo CD."
-    )
-    volume_move_measure_report_heading: str = (
-        "### Volume move copy measure: {copies} copies of {bytes} bytes from {source_node} to "
-        "{target_node}"
-    )
-    volume_move_measure_table_measure: str = "Measure"
-    volume_move_measure_table_result: str = "Result"
-    volume_move_measure_complete_copies: str = "Complete copies"
-    volume_move_measure_digest_matches: str = "Digest matches"
-    volume_move_measure_copy_failed: str = "Copy {number}/{copies} did not complete: {detail}"
-    volume_move_measure_digest_differs: str = (
-        "Copy {number}/{copies} does not match: the source content digest is {source} and the "
-        "destination content digest is {destination}."
-    )
-    volume_move_measure_too_few: str = (
-        "{matched}/{copies} copies completed with a matching content digest, and the measure "
-        "needs {copies}."
+        "it sets the reclaim policies back, removes the objects of the pv-migrate operation when "
+        "the run stopped the copy, scales the workloads back, deletes claim {claim} and the "
+        "volume that the move made for it, and resumes Argo CD."
     )
 
 

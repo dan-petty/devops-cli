@@ -139,6 +139,11 @@ def _print_plan(plan: VolumeMovePlan) -> None:
         )
     else:
         _say(m.volume_move_plan_no_argocd)
+    _say(
+        m.volume_move_plan_copy_non_root.format(namespace=plan.namespace)
+        if plan.non_root
+        else m.volume_move_plan_copy_root
+    )
     _say(m.volume_move_plan_steps)
     for number, text in enumerate(describe_volume_move(plan), start=1):
         _say(f"{number:>3}. {text}")

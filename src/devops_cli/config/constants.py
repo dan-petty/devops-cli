@@ -4896,100 +4896,17 @@ CONST_K8S_POD_PHASES_ENDED: Final[frozenset[str]] = frozenset({"Succeeded", "Fai
 # The taint that a cordon adds. The source copy pod must tolerate it: the usual reason to move a
 # claim off a node is that the node is cordoned (#5305).
 CONST_K8S_UNSCHEDULABLE_TAINT: Final[str] = "node.kubernetes.io/unschedulable"
-# The copy of a volume move goes from pod to pod over the pod network, not through the API server:
-# the stdout of an exec stream loses data at full speed (#7408). The destination copy pod listens
-# on this port once, and the NetworkPolicy `<claim>-copy` lets the copy pods reach it.
-CONST_K8S_VOLUME_MOVE_COPY_PORT: Final[int] = 7373
-CONST_K8S_VOLUME_MOVE_POLICY_SUFFIX: Final[str] = "-copy"
-CONST_K8S_VOLUME_MOVE_LISTENER: Final[str] = (
-    "use IO::Socket::INET;\n"
-    "my ($port, $dir) = @ARGV;\n"
-    "my $server = IO::Socket::INET->new(LocalPort => $port, Listen => 1, ReuseAddr => 1)\n"
-    '  or die "listen on port $port: $!\\n";\n'
-    'open(my $ready, ">", "/tmp/volume-move.ready") or die "ready: $!\\n";\n'
-    "close($ready);\n"
-    'my $client = $server->accept() or die "accept: $!\\n";\n'
-    "close($server);\n"
-    'open(STDIN, "<&", $client) or die "stdin: $!\\n";\n'
-    'my $status = system("tar", "-C", $dir, "--numeric-owner", "-xpf", "-");\n'
-    "my $code = $status == -1 ? 127 : ($status & 127) ? 128 + ($status & 127) : $status >> 8;\n"
-    "1 while sysread($client, my $rest, 65536);\n"
-    'open(my $out, ">", "/tmp/volume-move.status.part") or die "status: $!\\n";\n'
-    'print $out "$code\\n";\n'
-    "close($out);\n"
-    'rename("/tmp/volume-move.status.part", "/tmp/volume-move.status") or die "rename: $!\\n";\n'
-)
-"""The Perl program of the listener in the destination copy pod, with the port and the directory
-as its arguments. It takes one connection, gives it to GNU tar as stdin, reads the rest of the
-stream after the end of the archive, and writes the exit code of tar to `/tmp/volume-move.status`.
-Perl and its `IO::Socket::INET` are in the copy image; bash cannot listen on a port.
-"""
-CONST_K8S_VOLUME_MOVE_LISTEN_SCRIPT: Final[str] = (
-    'pid=$(cat /tmp/volume-move.pid 2>/dev/null) && kill -- "-$pid" 2>/dev/null\n'
-    'while [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; do sleep 0.2; done\n'
-    "rm -f /tmp/volume-move.ready /tmp/volume-move.status /tmp/volume-move.log\n"
-    'setsid perl -e "$1" "$2" "$3" </dev/null >/tmp/volume-move.log 2>&1 &\n'
-    "echo $! >/tmp/volume-move.pid\n"
-    "for _ in $(seq 1 30); do [ -f /tmp/volume-move.ready ] && exit 0; sleep 1; done\n"
-    "cat /tmp/volume-move.log >&2\n"
-    "exit 1"
-)
-"""The bash script that starts the listener in the background in the destination copy pod, with
-the listener, the port and the directory as `$1` to `$3`. It stops the listener of an earlier copy
-first, and ends when the new listener listens, so that the exec stream carries no data."""
-CONST_K8S_VOLUME_MOVE_SEND_SCRIPT: Final[str] = (
-    'exec 3>"/dev/tcp/$1/$2" && tar -C "$3" --numeric-owner --sparse -cpf - . >&3'
-)
-"""The bash script of the source copy pod, with the IP address of the destination pod, the port
-and the directory as `$1` to `$3`: it sends the archive to the listener over the pod network."""
-CONST_K8S_VOLUME_MOVE_RESULT_SCRIPT: Final[str] = (
-    'for _ in $(seq 1 "$1"); do\n'
-    "  if [ -f /tmp/volume-move.status ]; then\n"
-    "    code=$(cat /tmp/volume-move.status)\n"
-    '    [ "$code" = 0 ] || cat /tmp/volume-move.log >&2\n'
-    '    exit "$code"\n'
-    "  fi\n"
-    "  sleep 1\n"
-    "done\n"
-    'echo "the extract did not end within $1 s" >&2\n'
-    "exit 124"
-)
-"""The bash script that waits, up to `$1` seconds, for the exit code of the extract in the
-destination copy pod, and exits with it."""
-CONST_K8S_VOLUME_MOVE_SOURCE_SUFFIX: Final[str] = "-src"
-CONST_K8S_VOLUME_MOVE_DESTINATION_SUFFIX: Final[str] = "-dst"
 CONST_K8S_VOLUME_MOVE_CLAIM_SUFFIX: Final[str] = "-move"
-CONST_K8S_VOLUME_MOVE_SOURCE_DIR: Final[str] = "/src"
-CONST_K8S_VOLUME_MOVE_DESTINATION_DIR: Final[str] = "/dst"
 CONST_K8S_VOLUME_MOVE_LABELS: Final[dict[str, str]] = {
     "app.kubernetes.io/managed-by": "devops-cli",
     "app.kubernetes.io/component": "volume-move",
 }
-"""The labels of the copy pods and the temporary claim of a volume move."""
+"""The labels of the temporary claim of a volume move."""
+CONST_K8S_VOLUME_MOVE_OPERATION_PREFIX: Final[str] = "volume-move-"
+"""The start of the `--id` of the pv-migrate operation of a volume move. pv-migrate takes an id of
+at most 24 lowercase letters, digits and hyphens, so the move adds 8 hexadecimal digits (#7498)."""
 CONST_K8S_VOLUME_MOVE_SAVE_DIR: Final[Path] = Path("k8s") / "volume-move"
 """Where, under the data directory, a volume move saves the claim it deletes."""
-CONST_K8S_VOLUME_MOVE_DIGEST_SCRIPT: Final[str] = (
-    "set -euo pipefail\n"
-    'cd "$1"\n'
-    "entries=$(find . -path ./lost+found -prune -o ! -path . -printf x | wc -c)\n"
-    "files=$(find . -path ./lost+found -prune -o -type f -printf x | wc -c)\n"
-    "bytes=$(find . -path ./lost+found -prune -o -type f -printf '%s\\n'"
-    " | awk '{s += $1} END {printf \"%.0f\", s}')\n"
-    "metadata=$(find . -path ./lost+found -prune -o -printf '%y %m %U:%G %P\\n'"
-    " | LC_ALL=C sort | sha256sum | cut -d' ' -f1)\n"
-    "content=$(find . -path ./lost+found -prune -o -type f -print0 | LC_ALL=C sort -z"
-    " | xargs -0r sha256sum | sha256sum | cut -d' ' -f1)\n"
-    "printf 'entries %s\\nfiles %s\\nbytes %s\\nmetadata %s\\ncontent %s\\n'"
-    ' "$entries" "$files" "$bytes" "$metadata" "$content"\n'
-)
-"""The bash script each copy pod runs on its side, with the directory as `$1` (CronJob devops/volume-move).
-
-It counts the entries and the regular files, adds the bytes of the regular files (not `du`,
-which counts directory blocks), and makes a digest of each entry's type, mode, numeric owner and
-path, and a digest of the content of the regular files, both in byte order. Each `find` leaves out
-the top-level `lost+found`: mkfs makes it on a new ext4 volume, such as one of `longhorn`, and a
-local-path directory has none (#7414).
-"""
 
 
 # ── Dashboard TUI Domains ────────────────────────────────────────────────────
