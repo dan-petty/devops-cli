@@ -38,7 +38,7 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import load_settings, setting_default
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_worktree_root, get_repo_origin_name
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubNotAnIssueError, GitHubOperationError
 from devops_cli.github.client import GhCliClient, PullStatus
 from devops_cli.github.error_classifier import is_gh_refused_by_token
 from devops_cli.github.item_label_times import (
@@ -570,6 +570,16 @@ def _items_to_read(items: list[Item], record: ItemLabelTimesRecord) -> list[Item
     return sorted(stale, key=lambda item: _last_read(item, record))[:_MAX_ITEM_AGE_READS_PER_ROUND]
 
 
+def _read_label_times(store: RoadmapStore, item: Item) -> _LabelTimes | None:
+    """Read label times for `item`, or None when `item` left the repository (#7363)."""
+    try:
+        return _labeled_since(store.label_changes(item.number))
+    except GitHubNotAnIssueError as gone:
+        if gone.number != item.number:
+            raise
+        return None
+
+
 def _label_times(
     store: RoadmapStore,
     items: list[Item],
@@ -586,12 +596,13 @@ def _label_times(
     """
     if record is None:
         unrecorded = {
-            item.number: _labeled_since(store.label_changes(item.number)) for item in items
+            item.number: lt for item in items if (lt := _read_label_times(store, item)) is not None
         }
         return unrecorded, None
     read_times = {
-        item.number: _labeled_since(store.label_changes(item.number))
+        item.number: lt
         for item in _items_to_read(items, record)
+        if (lt := _read_label_times(store, item)) is not None
     }
     times: dict[int, _LabelTimes] = {}
     kept: dict[int, KeptItemLabelTimes] = {}

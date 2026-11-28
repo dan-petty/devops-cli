@@ -72,7 +72,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_STAGE_JOBS,
 )
 from devops_cli.config.settings import load_settings
-from devops_cli.exceptions import RoadmapStageError
+from devops_cli.exceptions import GitHubNotAnIssueError, RoadmapStageError
 from devops_cli.exceptions.k8s import ClusterJobError, ClusterJobExistsError
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.k8s.cluster_job import (
@@ -259,23 +259,28 @@ def _recover(
             continue
         evictions = _evictions(item)
         failure = _failure_of(api, job, end, evictions)
-        if job is not None and job.state is JobState.RUNNING:
-            api.delete_job(name)
-            deleted.append(name)
-        marks: dict[StageRecordKey, str | None] = {}
-        if end is StageJobEnd.EVICTED and failure is None:
-            marks[StageRecordKey.EVICTIONS] = evictions.record
-        written = check_in(
-            store,
-            item.number,
-            repo=repo,
-            job=name,
-            result=end.value,
-            now=now,
-            failure=failure,
-            marks=marks,
-            log_line=not (job is not None and LINE_PREFIX in _log_tail(api, job.name)),
-        )
+        try:
+            if job is not None and job.state is JobState.RUNNING:
+                api.delete_job(name)
+                deleted.append(name)
+            marks: dict[StageRecordKey, str | None] = {}
+            if end is StageJobEnd.EVICTED and failure is None:
+                marks[StageRecordKey.EVICTIONS] = evictions.record
+            written = check_in(
+                store,
+                item.number,
+                repo=repo,
+                job=name,
+                result=end.value,
+                now=now,
+                failure=failure,
+                marks=marks,
+                log_line=not (job is not None and LINE_PREFIX in _log_tail(api, job.name)),
+            )
+        except GitHubNotAnIssueError as gone:
+            if gone.number != item.number:
+                raise
+            continue
         if written is None:
             continue
         _count(repo, written.result, written.failure)
@@ -386,10 +391,15 @@ def run_stage_round(
     for target in read.selected:
         name = job_name_of(repo, target.item)
         old = held.get(name)
-        if old is not None and old.state is not JobState.RUNNING and name not in deleted:
-            api.delete_job(name)
-            deleted.append(name)
-        result = _submit(store, api, repo, target.item, name, cronjob, at)
+        try:
+            if old is not None and old.state is not JobState.RUNNING and name not in deleted:
+                api.delete_job(name)
+                deleted.append(name)
+            result = _submit(store, api, repo, target.item, name, cronjob, at)
+        except GitHubNotAnIssueError as gone:
+            if gone.number != target.item.number:
+                raise
+            continue
         if result is not None:
             _count(repo, result)
             (created if result == "created" else existed).append(name)

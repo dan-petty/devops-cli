@@ -1478,9 +1478,21 @@ class GitHubRoadmapStore(RoadmapStore):
 
     # ── What intake reads and writes ──
 
+    def _read_timeline(self, args: list[str], number: int, what: str) -> _TimelinePayload:
+        """Read a GraphQL issue timeline, dropping its record and raising `GitHubNotAnIssueError`
+        when the issue left the repository (#7363)."""
+        try:
+            return self._read(args, _TIMELINE, what)
+        except GitHubOperationError as failed:
+            if self._read_issue(number, f"issue #{number}") is None:
+                raise self._not_an_issue(number, "roadmap.read") from failed
+            raise
+
     def closures(self, number: int) -> list[Closure]:
         """Every close and reopen of issue `number` from its timeline, oldest first."""
-        timeline = self._read(closures_args(self._repo, number), _TIMELINE, f"#{number} timeline")
+        timeline = self._read_timeline(
+            closures_args(self._repo, number), number, f"#{number} timeline"
+        )
         self._require_whole(len(timeline.nodes), timeline.total_count, f"#{number} closes")
         return [node.closure() for node in timeline.nodes]
 
@@ -1498,7 +1510,9 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def last_renamed_at(self, number: int) -> datetime | None:
         """When the title of issue `number` last changed, from its timeline, or None."""
-        timeline = self._read(renames_args(self._repo, number), _TIMELINE, f"#{number} timeline")
+        timeline = self._read_timeline(
+            renames_args(self._repo, number), number, f"#{number} timeline"
+        )
         self._require_whole(len(timeline.nodes), timeline.total_count, f"#{number} renames")
         return max((node.created_at for node in timeline.nodes), default=None)
 
@@ -1929,8 +1943,8 @@ class GitHubRoadmapStore(RoadmapStore):
             )
         if self._all is not None and listed:
             self._all = {held: record for held, record in self._all.items() if held != number}
-            if self._incremental is not None:
-                self._incremental.drop(self._repo, number)
+        if self._incremental is not None:
+            self._incremental.drop(self._repo, number)
         self._forget_issue(number)
 
     def _listing_below[EntryT](

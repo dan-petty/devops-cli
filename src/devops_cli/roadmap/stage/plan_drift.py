@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Final, Protocol
 
 from devops_cli.config.settings import load_settings
-from devops_cli.exceptions.git import GitHubNotFoundError
+from devops_cli.exceptions.git import GitHubNotAnIssueError
 from devops_cli.github.client import IssueComment
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.clone_git import checkout_at, default_branch, git
@@ -86,6 +86,7 @@ class DriftReads(PlanReads, Protocol):
     def list_issue_comments(self, repo: str, number: int) -> list[IssueComment]: ...
     def create_issue_comment(self, repo: str, number: int, body: str) -> None: ...
     def update_issue_comment(self, repo: str, comment_id: int, body: str) -> None: ...
+    def close_pull(self, repo: str, number: int) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -258,8 +259,9 @@ def run_plan_drift(
                 reads=reads,
                 branch=branch,
             )
-        except GitHubNotFoundError:
-            # The one GitHub read of the check is the read of the issue that the plan names.
+        except GitHubNotAnIssueError:
+            # Close the orphan plan pull request and log one warning (#7363).
+            reads.close_pull(repo, pull.number)
             logger.warning(
                 MESSAGES.roadmap.plan_drift_no_issue.format(
                     pull=pull.number, issue=issue, repo=repo

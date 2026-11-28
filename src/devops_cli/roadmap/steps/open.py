@@ -31,6 +31,7 @@ from pydantic import ValidationError
 from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
 from devops_cli.exceptions.git import (
     GitHubFileNotFoundError,
+    GitHubNotAnIssueError,
     GitHubOperationError,
     GitHubUnauthenticatedError,
 )
@@ -302,7 +303,11 @@ def _record_pr_marks(
     }
     if kind == "plan" and issue_of_branch(head) == item_num:
         marks[StageRecordKey.BRANCH] = head
-    store.set_marks(item, marks)
+    try:
+        store.set_marks(item, marks)
+    except GitHubNotAnIssueError as gone:
+        if gone.number != item_num:
+            raise
 
 
 def _sync_status(store: RoadmapStore | None, item_num: int | None, kind: str) -> None:
@@ -312,7 +317,11 @@ def _sync_status(store: RoadmapStore | None, item_num: int | None, kind: str) ->
     item = store.item(item_num)
     if not item:
         return
-    write_status(store, item, StatusFacts(pull_open=True))
+    try:
+        write_status(store, item, StatusFacts(pull_open=True))
+    except GitHubNotAnIssueError as gone:
+        if gone.number != item_num:
+            raise
 
 
 def _resolve_desired_labels(request: OpenRequest, declared: tuple[str, ...] | None) -> set[str]:

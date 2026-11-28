@@ -141,6 +141,7 @@ from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.exceptions.git import (
     GitHubFileNotFoundError,
+    GitHubNotAnIssueError,
     GitHubOperationError,
     GitHubRateLimitError,
     GitHubUnauthenticatedError,
@@ -1213,10 +1214,27 @@ class _Planner:
         if not subjects:
             return
         _ = self.run.descriptions
-        checked = [_checked(self.run, subject) for subject in subjects]
-        own = self._embed(subjects, checked)
-        for subject, vector in zip(subjects, own, strict=True):
-            decision = self._decide(subject, vector)
+        kept_subjects: list[Subject] = []
+        checked: list[bool] = []
+        for subject in subjects:
+            try:
+                is_checked = _checked(self.run, subject)
+            except GitHubNotAnIssueError as gone:
+                if subject.number is None or gone.number != subject.number:
+                    raise
+                continue
+            kept_subjects.append(subject)
+            checked.append(is_checked)
+        if not kept_subjects:
+            return
+        own = self._embed(kept_subjects, checked)
+        for subject, vector in zip(kept_subjects, own, strict=True):
+            try:
+                decision = self._decide(subject, vector)
+            except GitHubNotAnIssueError as gone:
+                if subject.number is None or gone.number != subject.number:
+                    raise
+                continue
             joins = decision.outcome is Outcome.PLACE and not subject.sub_issues
             if joins and vector is not None:
                 self.entries.append(_Entry(subject.number, subject.title, subject.body, "open"))
@@ -1582,6 +1600,11 @@ def apply_intake(
             applied = _apply_decision(store, decision)
         except GitHubRateLimitError, GitHubUnauthenticatedError:
             raise
+        except GitHubNotAnIssueError as gone:
+            if number is None or gone.number != number:
+                failure = _failed_placement(decision.subject, gone)
+                failed.append(failure)
+                _count_candidate(repo, CandidateResult.FAILED, number, failure.failure_class)
         except RoadmapItemChangedError:
             logger.info(MESSAGES.roadmap.intake_item_changed.format(name=decision.subject.name))
             _count_candidate(repo, CandidateResult.SKIPPED, number, logged=False)

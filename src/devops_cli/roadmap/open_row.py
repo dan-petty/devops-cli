@@ -35,7 +35,12 @@ from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGE_FOLDER_RE,
     CONST_OPENSPEC_CHANGES_DIR,
 )
-from devops_cli.exceptions import DevOpsCLIError, GitHubFileNotFoundError, ValidationError
+from devops_cli.exceptions import (
+    DevOpsCLIError,
+    GitHubFileNotFoundError,
+    GitHubNotAnIssueError,
+    ValidationError,
+)
 from devops_cli.exceptions.roadmap import RoadmapOpenRefusedError
 from devops_cli.git.branch_form import issue_of_branch
 from devops_cli.git.worktree_add import read_remote_heads
@@ -258,6 +263,10 @@ def run_open_round(
                 store, repo=repo, candidate=candidate, base=base, source=source
             )
             opened = open_or_update(request)
+        except GitHubNotAnIssueError as gone:
+            if gone.number != number:
+                raise
+            continue
         except DevOpsCLIError as exc:
             logger.warning(texts.open_row_failed, repo, number, candidate.branch, exc)
             result.failed.append(number)

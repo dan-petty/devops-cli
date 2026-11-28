@@ -68,7 +68,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_LIMIT
 from devops_cli.config.settings import load_settings
 from devops_cli.dry_run.requests import PlannedRequest
-from devops_cli.exceptions import GitHubNotFoundError, GitOperationError
+from devops_cli.exceptions import GitHubNotAnIssueError, GitHubNotFoundError, GitOperationError
 from devops_cli.git.branch_form import BranchParts, branch_name, parse_branch
 from devops_cli.git.worktree_add import (
     issue_holder,
@@ -585,7 +585,12 @@ def _named(judge: _Judge, store: RoadmapStore, number: int) -> ImplementPlanPart
         return (), (LeftOut(number, MESSAGES.roadmap.item_left_not_item),)
     if item.state is not GitHubState.OPEN:
         return (), (_left(item, MESSAGES.roadmap.item_left_closed),)
-    verdict = judge.judge(item)
+    try:
+        verdict = judge.judge(item)
+    except GitHubNotAnIssueError as gone:
+        if gone.number != number:
+            raise
+        return (), ()
     if isinstance(verdict, str):
         return (), (_left(item, verdict),)
     return (verdict,), ()

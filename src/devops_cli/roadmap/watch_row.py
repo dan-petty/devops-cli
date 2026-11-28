@@ -50,6 +50,7 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions import (
     ConfigurationError,
+    GitHubNotAnIssueError,
     GitHubNotFoundError,
     GitHubOperationError,
     GitHubRateLimitError,
@@ -769,21 +770,26 @@ def _process_graphql_nodes(
         label_nodes = (node.get("labels") or {}).get("nodes") or []
         labels = tuple(str(label.get("name") or "") for label in label_nodes)
 
-        _evaluate_pull(
-            ctx,
-            pr_number=pr_number,
-            item=item,
-            is_plan=is_plan,
-            head_sha=head_sha,
-            base_ref=base_ref,
-            is_draft=is_draft,
-            mergeable=mergeable,
-            mergeable_state=mergeable_state,
-            author=author_login,
-            checks=checks,
-            commit_message=commit_message,
-            labels=labels,
-        )
+        try:
+            _evaluate_pull(
+                ctx,
+                pr_number=pr_number,
+                item=item,
+                is_plan=is_plan,
+                head_sha=head_sha,
+                base_ref=base_ref,
+                is_draft=is_draft,
+                mergeable=mergeable,
+                mergeable_state=mergeable_state,
+                author=author_login,
+                checks=checks,
+                commit_message=commit_message,
+                labels=labels,
+            )
+        except GitHubNotAnIssueError as gone:
+            if gone.number != item.number:
+                raise
+            continue
 
 
 def _delivered_candidates(
@@ -852,6 +858,25 @@ def _resolve_rest_item(
     return None
 
 
+def _record_closed_plan_rest(
+    ctx: _WatchContext,
+    pr_number: int,
+    pull_status: PullStatus,
+    known_item: Item | None,
+    is_plan_hint: bool,
+) -> None:
+    """Record a closed stage plan PR during REST fallback, leaving out an item that left (#7363)."""
+    if known_item is not None and is_plan_hint:
+        try:
+            ctx.store.set_marks(known_item, {StageRecordKey.READY: str(pr_number)})
+            if pull_status.merged:
+                sync_status(ctx.store, known_item, facts_of(known_item, plan_merged=True))
+        except GitHubNotAnIssueError as gone:
+            if gone.number != known_item.number:
+                raise
+        ctx.recorded_pulls.pop(pr_number, None)
+
+
 def _process_rest_pulls(
     ctx: _WatchContext, default_branch: str, pull_numbers: tuple[int, ...] = ()
 ) -> None:
@@ -868,11 +893,7 @@ def _process_rest_pulls(
         if known_item is not None and not _is_plan_of(known_item, pr_number, pull_status.head_ref):
             known_item, is_plan_hint = None, False
         if not pull_status.is_open_draft and not pull_status.draft and pull_status.state != "open":
-            if known_item is not None and is_plan_hint:
-                ctx.store.set_marks(known_item, {StageRecordKey.READY: str(pr_number)})
-                if pull_status.merged:
-                    sync_status(ctx.store, known_item, facts_of(known_item, plan_merged=True))
-                ctx.recorded_pulls.pop(pr_number, None)
+            _record_closed_plan_rest(ctx, pr_number, pull_status, known_item, is_plan_hint)
             continue
 
         resolved = _resolve_rest_item(
@@ -888,20 +909,25 @@ def _process_rest_pulls(
         checks = read_check_runs(owner, name, pull_status.head_sha)
         pull_author = getattr(pull_status, "author", "") or ""
 
-        _evaluate_pull(
-            ctx,
-            pr_number=pr_number,
-            item=item,
-            is_plan=is_plan,
-            head_sha=pull_status.head_sha,
-            base_ref=pull_status.base_ref,
-            is_draft=pull_status.draft,
-            mergeable=pull_status.mergeable,
-            mergeable_state=pull_status.mergeable_state,
-            author=pull_author,
-            checks=checks,
-            labels=pull_status.labels,
-        )
+        try:
+            _evaluate_pull(
+                ctx,
+                pr_number=pr_number,
+                item=item,
+                is_plan=is_plan,
+                head_sha=pull_status.head_sha,
+                base_ref=pull_status.base_ref,
+                is_draft=pull_status.draft,
+                mergeable=pull_status.mergeable,
+                mergeable_state=pull_status.mergeable_state,
+                author=pull_author,
+                checks=checks,
+                labels=pull_status.labels,
+            )
+        except GitHubNotAnIssueError as gone:
+            if gone.number != item.number:
+                raise
+            continue
 
 
 def _check_closed_stage_plans(ctx: _WatchContext, pull_numbers: tuple[int, ...] = ()) -> None:
@@ -925,9 +951,14 @@ def _check_closed_stage_plans(ctx: _WatchContext, pull_numbers: tuple[int, ...] 
         if not plan.is_pull(plan_pr, plan_status.head_ref):
             continue
         if not plan_status.is_open_draft:
-            ctx.store.set_marks(item, {StageRecordKey.READY: str(plan_pr)})
-            if plan_status.merged:
-                sync_status(ctx.store, item, facts_of(item, plan_merged=True))
+            try:
+                ctx.store.set_marks(item, {StageRecordKey.READY: str(plan_pr)})
+                if plan_status.merged:
+                    sync_status(ctx.store, item, facts_of(item, plan_merged=True))
+            except GitHubNotAnIssueError as gone:
+                if gone.number != item.number:
+                    raise
+                continue
             ctx.recorded_pulls.pop(plan_pr, None)
 
 
