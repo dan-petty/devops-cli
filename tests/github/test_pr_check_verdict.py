@@ -10,11 +10,13 @@ import pytest
 from devops_cli.github.check_verdict import (
     CheckBucket,
     CheckVerdictSummary,
+    CheckWatchEnd,
     PRCheckItem,
     classify_check_item,
     no_checks_reported,
     read_check_runs,
     read_pr_checks,
+    watch_pr_checks,
 )
 from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
@@ -336,6 +338,65 @@ def test_with_no_repository_gh_reads_the_pull_request_of_the_working_directory(
     verdict = read_pr_checks(335)
 
     assert (verdict.is_passing, [call.argv for call in gh_edge.calls]) == (True, [_PR_CHECKS[:6]])
+
+
+_WATCH = (
+    "gh",
+    "pr",
+    "checks",
+    "335",
+    "--watch",
+    "--interval",
+    "60",
+    "--repo",
+    "dan-petty/devops-cli",
+)
+
+
+@pytest.mark.parametrize(
+    ("answer", "end"),
+    [
+        (
+            ProcessAnswer(
+                stdout="Refreshing checks status every 60 seconds. Press Ctrl+C to quit."
+            ),
+            CheckWatchEnd.SETTLED,
+        ),
+        (
+            ProcessAnswer(returncode=1, stdout="CodeQL\tfail\t2m\thttps://example.com/1\n"),
+            CheckWatchEnd.ENDED,
+        ),
+        (ProcessAnswer(returncode=8), CheckWatchEnd.ENDED),
+        (ProcessAnswer(returncode=1, stderr="HTTP 502: Bad Gateway\n"), CheckWatchEnd.ENDED),
+        (
+            ProcessAnswer(returncode=1, stderr="no checks reported on the 'feat/x' branch\n"),
+            CheckWatchEnd.NONE_REPORTED,
+        ),
+        (ProcessAnswer(delay=601.0), CheckWatchEnd.TIMED_OUT),
+    ],
+    ids=[
+        "settled",
+        "check-failed",
+        "pending",
+        "gh-error",
+        "no-checks-reported",
+        "past-the-timeout",
+    ],
+)
+def test_the_watch_of_the_checks_ends_as_gh_pr_checks_watch_ends(
+    gh_edge: ProcessFake, answer: ProcessAnswer, end: CheckWatchEnd
+) -> None:
+    """`gh pr checks --watch` refreshes the checks each interval and exits 0 once none is pending
+    and none failed, 1 when one failed, and 1 at once with `no checks reported` for a head with no
+    check. A watch past the timeout is stopped (#7509)."""
+    gh_edge.answer(list(_WATCH), answer)
+
+    watched = watch_pr_checks(335, "dan-petty/devops-cli", interval=60, timeout=600.0)
+
+    assert (watched, [(call.argv, call.timeout) for call in gh_edge.calls]) == (
+        end,
+        [(_WATCH, 600.0)],
+    )
 
 
 _ACTIONS, _OTHER_APP = 15368, 57789

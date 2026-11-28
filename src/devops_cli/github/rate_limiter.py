@@ -56,6 +56,7 @@ from devops_cli.config.constants import (
     CONST_GH_REST_SBOM_SEGMENTS,
     CONST_GH_REST_SEARCH_CODE_PREFIX,
     CONST_GH_REST_SEARCH_PREFIX,
+    CONST_GH_TIMEOUT_EXIT_CODE,
     CONST_GITHUB_HOST,
     CONST_GITHUB_IDENTITY_DIGEST_CHARS,
     CONST_GITHUB_IDENTITY_LIMITERS_KEPT,
@@ -1761,7 +1762,7 @@ def _execute_gh_single_attempt(
     except subprocess.TimeoutExpired:
         proc = subprocess.CompletedProcess(
             args=full_cmd,
-            returncode=124,
+            returncode=CONST_GH_TIMEOUT_EXIT_CODE,
             stdout="",
             stderr=f"GitHub API command timed out after {timeout} seconds",
         )

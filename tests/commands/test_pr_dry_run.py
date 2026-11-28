@@ -225,6 +225,17 @@ def test_dry_run_plans_match_dispatched_arguments() -> None:
     assert plan_close[0].argv == tuple(pr_close_args(42, "closing", True, "owner/repo"))
 
 
+def test_the_monitor_plan_lists_the_watch_of_the_checks() -> None:
+    """While a check runs, the monitor waits with `gh pr checks --watch` at its interval (#7509)."""
+    from devops_cli.github.check_verdict import watch_pr_checks_args
+    from devops_cli.github.pr_plans import plan_pr_monitor
+
+    plan = plan_pr_monitor(42, interval=30, repo="owner/repo")
+
+    watches = [(request.argv, request.condition) for request in plan if "--watch" in request.argv]
+    assert watches == [(tuple(watch_pr_checks_args(42, "owner/repo", interval=30)), "a check runs")]
+
+
 def test_the_check_readiness_plan_lists_the_check_read_and_the_rules_read() -> None:
     """The verdict reads the checks with `gh pr checks`, and reads the rules of the base branch
     only when the head reports no check (#7508)."""

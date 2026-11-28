@@ -57,6 +57,7 @@ _ISSUE_704 = {
 }
 _THREADS = "GetReviewThreads"
 _PR_CHECKS = f"gh pr checks 335 --json name,state,bucket,workflow,link --repo {_REPO}"
+_WATCH = ("gh", "pr", "checks", "335", "--watch", "--interval", "60", "--repo", _REPO)
 _RULES = f"/repos/{_REPO}/rules/branches/main?per_page=100"
 
 
@@ -807,6 +808,73 @@ def test_the_monitor_waits_for_the_checks_and_names_every_blocker(
         "PR #335 has 1 failing check(s): CodeQL." in output,
         "PR #335 has 1 unresolved review discussion thread(s)." in output,
     ) == (1, 2, True, True), output
+
+
+def _check_reads(github: _GitHub, *answers: ProcessAnswer) -> None:
+    """Answer the reads of `gh pr checks --json` with `answers` in turn, the last one again."""
+    reads = list(answers)
+    github.gh.answer(
+        lambda call: _PR_CHECKS in " ".join(call.argv),
+        lambda _call: reads.pop(0) if len(reads) > 1 else reads[0],
+    )
+
+
+def _watches(github: _GitHub) -> list[tuple[tuple[str, ...], float]]:
+    """Each `gh pr checks --watch` the monitor ran, with the time limit of its process."""
+    return [(call.argv, call.timeout) for call in github.gh.calls if "--watch" in call.argv]
+
+
+def test_the_monitor_waits_for_a_running_check_with_gh_pr_checks_watch(
+    cli: Callable[..., Any], monitored: _GitHub, clock: ClockFake
+) -> None:
+    """gh refreshes the checks each interval and ends once none is pending, so the monitor runs
+    one watch within the time left, reads the pull request again at once, and sleeps for nothing
+    itself (#7509)."""
+    _check_reads(monitored, _listed(_check("CI", "IN_PROGRESS", "pending")), _listed(_check("CI")))
+    monitored.gh.answer(list(_WATCH), ProcessAnswer())
+    exit_code, output = _monitor(cli, "--timeout", "600")
+    assert (exit_code, _watches(monitored), clock.waits) == (0, [(_WATCH, 600.0)], []), output
+
+
+def test_the_monitor_exits_3_when_the_watch_passes_the_timeout(
+    cli: Callable[..., Any], monitored: _GitHub, clock: ClockFake
+) -> None:
+    """The monitor stops the watch at its timeout, and names the check that still runs."""
+    _check_reads(monitored, _listed(_check("CI", "IN_PROGRESS", "pending")))
+    monitored.gh.answer(list(_WATCH), ProcessAnswer(delay=601.0))
+    exit_code, output = _monitor(cli, "--timeout", "600")
+    assert (exit_code, "timed out" in output, "1 check(s) pending: CI" in output, clock.waits) == (
+        3,
+        True,
+        True,
+        [],
+    ), output
+
+
+def test_the_monitor_waits_an_interval_for_a_head_with_no_check(
+    cli: Callable[..., Any], monitored: _GitHub, clock: ClockFake
+) -> None:
+    """gh ends a watch at once when the head reports no check. The rules of `main` require a
+    check, so the monitor reads the pull request again after one interval (#7509)."""
+    _check_reads(monitored, _listed(), _listed(_check("CI")))
+    monitored.gh.answer(
+        list(_WATCH),
+        ProcessAnswer(returncode=1, stderr="no checks reported on the 'feat/x' branch\n"),
+    )
+    exit_code, output = _monitor(cli, "--timeout", "600")
+    assert (exit_code, len(_watches(monitored)), clock.waits) == (0, 1, [60.0]), output
+
+
+def test_a_check_that_still_runs_after_a_watch_ends_waits_an_interval_before_the_next(
+    cli: Callable[..., Any], monitored: _GitHub, clock: ClockFake
+) -> None:
+    """A check can start after gh ends its watch. The monitor then waits one interval before it
+    watches again, so a watch that ends at once never repeats with no pause (#7509)."""
+    running = _listed(_check("CI", "IN_PROGRESS", "pending"))
+    _check_reads(monitored, running, running, _listed(_check("CI")))
+    monitored.gh.answer(list(_WATCH), ProcessAnswer())
+    exit_code, output = _monitor(cli, "--timeout", "600")
+    assert (exit_code, len(_watches(monitored)), clock.waits) == (0, 1, [60.0]), output
 
 
 def test_the_monitor_reports_a_conflict_before_it_waits_for_a_check(

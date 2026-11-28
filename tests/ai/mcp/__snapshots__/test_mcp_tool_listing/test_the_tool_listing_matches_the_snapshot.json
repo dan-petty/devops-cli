@@ -4012,7 +4012,7 @@
     }
   },
   "pr_monitor": {
-    "description": "Wait until the checks of a PR settle, then name every blocker of its merge.\n\nWhile a check runs or a Copilot review is active, it waits. Then it reports the blockers of\nthe merge-readiness verdict and of its review gate (requested changes, Copilot's review, an\napproval of the head with --require-reviews). A merged or closed PR stops the wait at once.\nExit 0: ready, or merged; 1: a check failed or could not be read; 2: another blocker, or\nclosed without a merge; 3: the timeout passed first.",
+    "description": "Wait until the checks of a PR settle, then name every blocker of its merge.\n\nWhile a check runs, gh pr checks --watch waits. While the head reports no check yet or a\nCopilot review is active, it reads the PR again after each interval. Then it reports the\nblockers of the merge-readiness verdict and of its review gate (requested changes, Copilot's\nreview, an approval of the head with --require-reviews). A merged or closed PR stops the wait at once.\nExit 0: ready, or merged; 1: a check failed or could not be read; 2: another blocker, or\nclosed without a merge; 3: the timeout passed first.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -4023,7 +4023,7 @@
         },
         "interval": {
           "default": 60,
-          "description": "Polling interval in seconds between check queries.",
+          "description": "Seconds between two reads of the checks by gh pr checks --watch, and between two reads of the pull request while no check runs.",
           "minimum": 1,
           "type": "integer"
         },

@@ -23,7 +23,12 @@ from devops_cli.config.defaults import (
 from devops_cli.core import clock
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitHubOperationError
-from devops_cli.github.check_verdict import CheckBucket, PRCheckItem
+from devops_cli.github.check_verdict import (
+    CheckBucket,
+    CheckWatchEnd,
+    PRCheckItem,
+    watch_pr_checks,
+)
 from devops_cli.github.merge_readiness import (
     CHECK_FAILURE_KINDS,
     BlockerKind,
@@ -643,6 +648,27 @@ def _build_monitor_timeout_result(
 _MAX_CONSECUTIVE_READ_FAILURES = 3
 
 
+def _ride_out_read_failure(
+    error: GitHubOperationError, failures: int, max_deadline: float, interval: int
+) -> None:
+    """Say that `failures` reads in a row failed, and wait one interval before the next read.
+
+    One slow read is no verdict. A run of `_MAX_CONSECUTIVE_READ_FAILURES` failures, or a failure
+    after the timeout, raises `error`, the last one (#4838).
+    """
+    if failures >= _MAX_CONSECUTIVE_READ_FAILURES:
+        raise error
+    print_warning(
+        MESSAGES.pr.monitor_read_failed.format(
+            failure=failures, limit=_MAX_CONSECUTIVE_READ_FAILURES
+        )
+    )
+    time_left = max_deadline - clock.monotonic()
+    if time_left <= 0:
+        raise error
+    clock.sleep(min(float(interval), time_left))
+
+
 def monitor_pr(
     owner: str,
     repo: str,
@@ -654,12 +680,16 @@ def monitor_pr(
     require_reviews: bool = True,
     status_callback: Callable[[PRMonitorStatus, int], None] | None = None,
 ) -> PRMonitorResult:
-    """Poll a pull request until no check runs and no Copilot review is active, then report every
-    blocker at once; return the timeout result if it passes first.
+    """Wait until no check runs and no Copilot review is active, then report every blocker at
+    once; return the timeout result if the timeout passes first.
 
-    While a check runs the monitor waits, whatever other blockers it sees, so a blocker that
-    comes later is not left for a second run (#998). With `require_reviews`, it also waits out
-    `settle_timeout`, so a Copilot review that starts late is seen.
+    While a check runs, `gh pr checks --watch` waits within the time left and reads the checks
+    each `interval` (#7509); the monitor then reads the pull request again at once. While a check
+    runs the monitor waits, whatever other blockers it sees, so a blocker that comes later is not
+    left for a second run (#998). It waits `interval` itself before it reads again when the head
+    reports no check yet, when a check still runs after a watch ended, or while a Copilot review
+    is active. With `require_reviews`, it also waits out `settle_timeout`, so a Copilot review
+    that starts late is seen.
     """
     valid_interval = max(1, interval)
     valid_timeout = max(1, timeout)
@@ -669,6 +699,7 @@ def monitor_pr(
     settle_deadline = start_time + valid_settle
     max_deadline = start_time + valid_timeout
     failures = 0
+    may_watch = True
 
     while True:
         now = clock.monotonic()
@@ -680,21 +711,9 @@ def monitor_pr(
                 pr_number,
                 require_reviews=require_reviews,
             )
-        except GitHubOperationError:
-            # One slow read is no verdict: count it, say so, and poll again. A run of failures
-            # ends the watch with the last error (#4838).
+        except GitHubOperationError as error:
             failures += 1
-            if failures >= _MAX_CONSECUTIVE_READ_FAILURES:
-                raise
-            print_warning(
-                MESSAGES.pr.monitor_read_failed.format(
-                    failure=failures, limit=_MAX_CONSECUTIVE_READ_FAILURES
-                )
-            )
-            time_left = max_deadline - clock.monotonic()
-            if time_left <= 0:
-                raise
-            clock.sleep(min(float(valid_interval), time_left))
+            _ride_out_read_failure(error, failures, max_deadline, valid_interval)
             continue
         failures = 0
 
@@ -710,4 +729,18 @@ def monitor_pr(
         if time_left <= 0:
             return _build_monitor_timeout_result(latest_status, pr_number, elapsed)
 
+        if latest_status.pending_checks and may_watch:
+            watched = watch_pr_checks(
+                pr_number, f"{owner}/{repo}", interval=valid_interval, timeout=time_left
+            )
+            if watched is CheckWatchEnd.TIMED_OUT:
+                elapsed = int(clock.monotonic() - start_time)
+                return _build_monitor_timeout_result(latest_status, pr_number, elapsed)
+            # The next read follows at once, but the next watch only after an interval, so a
+            # watch that gh ends at once never repeats with no pause.
+            may_watch = False
+            if watched is not CheckWatchEnd.NONE_REPORTED:
+                continue
+
         clock.sleep(min(float(valid_interval), time_left))
+        may_watch = True

@@ -1035,6 +1035,9 @@ CONST_GITHUB_UNAUTHENTICATED_PATTERNS: tuple[str, ...] = (
 )
 # gh's exit status for a command that requires authentication (`gh help exit-codes`).
 CONST_GH_AUTH_REQUIRED_EXIT_CODE: Final[int] = 4
+# The exit code of the answer that `run_gh` gives in place of a gh command that it stopped at its
+# time limit, as GNU `timeout` exits. gh itself exits 0, 1, 2, 4 or 8.
+CONST_GH_TIMEOUT_EXIT_CODE: Final[int] = 124
 # The HTTP status gh names on stderr: `gh api` writes `<message> (HTTP <status>)` or
 # `HTTP <status>`, and its other commands go-gh's `HTTP <status>: <message> (<url>)`.
 CONST_GH_HTTP_STATUS_RE: Final[re.Pattern[str]] = re.compile(r"\bHTTP (?P<status>\d{3})\b")

@@ -19,6 +19,7 @@ from devops_cli.config.constants import (
     CONST_GH_CHECK_BUCKET_SKIPPING,
     CONST_GH_CHECK_BUCKET_UNREAD,
     CONST_GH_CLI,
+    CONST_GH_TIMEOUT_EXIT_CODE,
     CONST_MAX_ERROR_DETAIL_LENGTH,
 )
 from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
@@ -355,3 +356,56 @@ def read_pr_checks(
     if items is None:
         return CheckVerdictSummary(unread_reason="gh pr checks printed no list of checks")
     return CheckVerdictSummary(items=items or [no_checks_reported()])
+
+
+class CheckWatchEnd(StrEnum):
+    """How `gh pr checks --watch` ended (#7509)."""
+
+    SETTLED = "settled"
+    """gh exited 0: no check is pending, and none failed."""
+    ENDED = "ended"
+    """gh exited with another code: a check failed or was cancelled, or gh could not read them."""
+    NONE_REPORTED = "none_reported"
+    """The head reports no check, so gh ended at once."""
+    TIMED_OUT = "timed_out"
+    """A check still ran when the time limit passed, and the watch was stopped."""
+
+
+def watch_pr_checks_args(number: int | str, repo: str | None = None, *, interval: int) -> list[str]:
+    """The `gh pr checks` command that waits until no check of pull request `number` is pending,
+    and reads the checks each `interval` seconds."""
+    cmd = [CONST_GH_CLI, "pr", "checks", str(number), "--watch", "--interval", str(interval)]
+    return [*cmd, "--repo", repo] if repo else cmd
+
+
+def watch_pr_checks(
+    number: int,
+    repo: str | None = None,
+    *,
+    interval: int,
+    timeout: float,
+    runner: Any = run_gh,
+) -> CheckWatchEnd:
+    """Wait with `gh pr checks --watch` until no check of pull request `number` is pending, at
+    most `timeout` seconds, and say how the watch ended.
+
+    gh reads the checks each `interval` seconds and ends once none is pending. A head with no
+    check ends the watch at once, with the error `no checks reported` and the exit code of a
+    failed check. gh prints a table on each read; the caller reads the checks again after the
+    watch, so the output is not kept. A stopped watch is not sent again, since a second try would
+    pass the time limit.
+    """
+    res = runner(
+        watch_pr_checks_args(number, repo, interval=interval),
+        check=False,
+        quiet=True,
+        timeout=timeout,
+        max_retries=0,
+    )
+    if res.returncode == 0:
+        return CheckWatchEnd.SETTLED
+    if res.returncode == CONST_GH_TIMEOUT_EXIT_CODE:
+        return CheckWatchEnd.TIMED_OUT
+    if (res.stderr or "").strip().startswith(_NO_CHECKS_REPORTED):
+        return CheckWatchEnd.NONE_REPORTED
+    return CheckWatchEnd.ENDED

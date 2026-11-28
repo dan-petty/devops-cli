@@ -9,7 +9,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE, DEFAULT_PR_MONITOR_TIMEOUT_SECONDS
 from devops_cli.dry_run.requests import PlannedRequest
-from devops_cli.github.check_verdict import pr_checks_args
+from devops_cli.github.check_verdict import pr_checks_args, watch_pr_checks_args
 from devops_cli.github.pr_threads import (
     reply_thread_args,
     resolve_thread_args,
@@ -440,6 +440,13 @@ def plan_pr_monitor(
             repeat=repeat_desc,
         ),
         _branch_rules_request(target_repo, repeat=repeat_desc),
+        PlannedRequest(
+            method="GET",
+            target=f"repos/{target_repo}/pulls/{num_str}/checks",
+            argv=tuple(watch_pr_checks_args(num_str, repo, interval=interval)),
+            condition="a check runs",
+            repeat=repeat_desc,
+        ),
         PlannedRequest(
             method="GRAPHQL",
             target="reviewThreads",

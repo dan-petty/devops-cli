@@ -1437,7 +1437,10 @@ class PRCommandHelp:
     monitor: str = (
         "Monitor PR checks, Copilot review sessions, and unresolved threads until ready for merge."
     )
-    monitor_interval: str = "Polling interval in seconds between check queries."
+    monitor_interval: str = (
+        "Seconds between two reads of the checks by gh pr checks --watch, and between two reads "
+        "of the pull request while no check runs."
+    )
     monitor_timeout: str = "Maximum time in seconds to wait for checks and reviews."
     settle_timeout: str = "Grace period in seconds to allow Copilot review sessions to initialize."
     require_reviews: str = (

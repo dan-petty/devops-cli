@@ -912,9 +912,10 @@ devops gh pr evidence [OPTIONS] <number>
 
 Wait until the checks of a PR settle, then name every blocker of its merge.
 
-While a check runs or a Copilot review is active, it waits. Then it reports the blockers of
-the merge-readiness verdict and of its review gate (requested changes, Copilot's review, an
-approval of the head with --require-reviews). A merged or closed PR stops the wait at once.
+While a check runs, gh pr checks --watch waits. While the head reports no check yet or a
+Copilot review is active, it reads the PR again after each interval. Then it reports the
+blockers of the merge-readiness verdict and of its review gate (requested changes, Copilot's
+review, an approval of the head with --require-reviews). A merged or closed PR stops the wait at once.
 Exit 0: ready, or merged; 1: a check failed or could not be read; 2: another blocker, or
 closed without a merge; 3: the timeout passed first.
 
@@ -932,7 +933,7 @@ devops gh pr wait [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
+| `--interval`, `-i` | `integer` | `60` | Seconds between two reads of the checks by gh pr checks --watch, and between two reads of the pull request while no check runs. |
 | `--timeout`, `-t` | `integer` | `600` | Maximum time in seconds to wait for checks and reviews. |
 | `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
 | `--require-reviews` / `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
@@ -946,9 +947,10 @@ devops gh pr wait [OPTIONS] <number>
 
 Wait until the checks of a PR settle, then name every blocker of its merge.
 
-While a check runs or a Copilot review is active, it waits. Then it reports the blockers of
-the merge-readiness verdict and of its review gate (requested changes, Copilot's review, an
-approval of the head with --require-reviews). A merged or closed PR stops the wait at once.
+While a check runs, gh pr checks --watch waits. While the head reports no check yet or a
+Copilot review is active, it reads the PR again after each interval. Then it reports the
+blockers of the merge-readiness verdict and of its review gate (requested changes, Copilot's
+review, an approval of the head with --require-reviews). A merged or closed PR stops the wait at once.
 Exit 0: ready, or merged; 1: a check failed or could not be read; 2: another blocker, or
 closed without a merge; 3: the timeout passed first.
 
@@ -966,7 +968,7 @@ devops gh pr monitor [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
+| `--interval`, `-i` | `integer` | `60` | Seconds between two reads of the checks by gh pr checks --watch, and between two reads of the pull request while no check runs. |
 | `--timeout`, `-t` | `integer` | `600` | Maximum time in seconds to wait for checks and reviews. |
 | `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
 | `--require-reviews` / `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
