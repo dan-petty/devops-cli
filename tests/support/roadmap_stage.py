@@ -3,12 +3,14 @@
 `stage_repo` is real git in `tmp_path`: a bare `origin` whose path ends in `example/roadmap.git`,
 so the clone's origin name reads `example/roadmap`, and a clone of it with the files a stage run
 reads (`CONTEXT.md`, `openspec/config.yaml`, one spec and `src/devops_cli/sample.py`). The clone
-commits as the identity `STAGE_EMAIL`.
+commits as the identity `STAGE_EMAIL`. Each test process builds the repository once, in
+`stage_repo_template`, and each test gets a copy of it (#7530).
 """
 
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -163,16 +165,14 @@ class StageRepo:
             self.git("switch", "-q", "main")
 
 
-@pytest.fixture
-def stage_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> StageRepo:
-    """A bare origin and a clone on `main`, with its remote branches fetched. The write of a plan
-    clones and pushes `origin` in place of the repository on GitHub (#6704)."""
-    origin = tmp_path / "origin" / "example" / "roadmap.git"
-    monkeypatch.setattr(stage_phases, "CONST_GITHUB_CLONE_URL", str(origin))
+def _build_stage_repo(root: Path) -> StageRepo:
+    """A bare origin under `root` and a clone of it on `main`, with its remote branches fetched.
+    The build starts 11 git processes."""
+    origin = root / "origin" / "example" / "roadmap.git"
     origin.mkdir(parents=True)
     run_git(origin, "init", "-q", "--bare", "-b", "main")
-    clone = tmp_path / "clone"
-    run_git(tmp_path, "clone", "-q", str(origin), str(clone))
+    clone = root / "clone"
+    run_git(root, "clone", "-q", str(origin), str(clone))
     for key, value in (
         ("user.name", STAGE_NAME),
         ("user.email", STAGE_EMAIL),
@@ -194,6 +194,32 @@ def stage_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> StageRepo:
     run_git(clone, "push", "-q", "origin", "main")
     run_git(origin, "symbolic-ref", "HEAD", "refs/heads/main")
     run_git(clone, "remote", "set-head", "origin", "--auto")
+    return StageRepo(origin, clone)
+
+
+@pytest.fixture(scope="session")
+def stage_repo_template(tmp_path_factory: pytest.TempPathFactory) -> StageRepo:
+    """The repository of `stage_repo`, built once in each test process. No test changes it: each
+    test changes its own copy."""
+    return _build_stage_repo(tmp_path_factory.mktemp("stage-repo-template"))
+
+
+@pytest.fixture
+def stage_repo(
+    stage_repo_template: StageRepo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> StageRepo:
+    """A bare origin and a clone on `main`, with its remote branches fetched: a copy of
+    `stage_repo_template` in `tmp_path`. The copy starts 2 git processes in place of the 11 of a
+    build (#7530): the clone's `origin` names the copy of `origin`, and the refresh of the clone's
+    index records the stat data of the copied files. The write of a plan clones and pushes
+    `origin` in place of the repository on GitHub (#6704)."""
+    origin = tmp_path / "origin" / "example" / "roadmap.git"
+    clone = tmp_path / "clone"
+    shutil.copytree(stage_repo_template.origin, origin)
+    shutil.copytree(stage_repo_template.clone, clone)
+    run_git(clone, "remote", "set-url", "origin", str(origin))
+    run_git(clone, "update-index", "-q", "--refresh")
+    monkeypatch.setattr(stage_phases, "CONST_GITHUB_CLONE_URL", str(origin))
     return StageRepo(origin, clone)
 
 
