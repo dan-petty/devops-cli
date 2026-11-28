@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.232.4](https://github.com/dan-petty/devops-cli/compare/v0.232.3...v0.232.4) (2026-11-28)
+
+
+### Bug Fixes
+
+* **ai:** persist rag-ingest state in Qdrant instead of state.json ([#7535](https://github.com/dan-petty/devops-cli/issues/7535)) ([9f9e8d3](https://github.com/dan-petty/devops-cli/commit/9f9e8d3abae4fb0e53ee3d98415388f5d120c8ff))
+* **deps:** lock file maintenance ([#7543](https://github.com/dan-petty/devops-cli/issues/7543)) ([d01fc91](https://github.com/dan-petty/devops-cli/commit/d01fc91400a6f1d52a50c4dd49ee773e5ae11ce3))
+* **deps:** update dan-petty/devtools Docker tag to v1.5.0 ([#7541](https://github.com/dan-petty/devops-cli/issues/7541)) ([01c37e0](https://github.com/dan-petty/devops-cli/commit/01c37e01b546286491aa494ea7b5261651c3d0eb))
+* **deps:** update python:3.14-slim-trixie Docker digest to f57c4c2 ([#7537](https://github.com/dan-petty/devops-cli/issues/7537)) ([a79075e](https://github.com/dan-petty/devops-cli/commit/a79075e6efff166aaeea50eb0792ee28bd53f69e))
+* **k8s:** refuse a volume move under an ApplicationSet ([#7529](https://github.com/dan-petty/devops-cli/issues/7529)) ([3a98031](https://github.com/dan-petty/devops-cli/commit/3a98031b3de5056c74ecd7fd3a5553d4da129169))
+
 ## [0.232.3](https://github.com/dan-petty/devops-cli/compare/v0.232.2...v0.232.3) (2026-11-28)
 
 
