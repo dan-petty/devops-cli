@@ -41,6 +41,7 @@ from devops_cli.github.onboard.model import (
     differences,
     held_differences,
 )
+from devops_cli.github.onboard.ruleset_merge import merge_live_ruleset
 
 if TYPE_CHECKING:
     from devops_cli.config.settings import Settings
@@ -632,6 +633,38 @@ def _checks_rules(ruleset: dict[str, Any] | None) -> list[dict[str, Any]]:
     ]
 
 
+def _without_checks(live: dict[str, Any] | None, dropped: tuple[str, ...]) -> dict[str, Any] | None:
+    """`live` without the required check entries of `dropped`, as the merge of row 10 reads it."""
+    if live is None or not dropped:
+        return live
+    gone = frozenset(dropped)
+    kept = copy.deepcopy(live)
+    for rule in _checks_rules(kept):
+        parameters = rule.setdefault("parameters", {})
+        parameters["required_status_checks"] = [
+            entry
+            for entry in parameters.get("required_status_checks") or []
+            if str(entry.get("context")) not in gone
+        ]
+    return kept
+
+
+def _kept_live_ruleset(
+    live: dict[str, Any] | None,
+    own: dict[str, Any] | None,
+    baseline: dict[str, Any],
+    successful: tuple[str, ...],
+    skipped: tuple[str, ...],
+) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
+    """The live ruleset without each check that only a skipped check run gave or that is the leg of
+    a job that ended `success`, and the names of those checks (#7318)."""
+    declared = [
+        str(entry.get("context")) for entry in (*_check_entries(own), *_check_entries(baseline))
+    ]
+    dropped = _dropped_checks(live, declared, successful, skipped)
+    return _without_checks(live, dropped), dropped
+
+
 def _check_entries(ruleset: dict[str, Any] | None) -> list[dict[str, Any]]:
     """Each required check of `ruleset`."""
     return [
@@ -742,17 +775,20 @@ def ruleset_row(
     session: GitHubSession, writer: RouteWriter, ctx: RowContext, baseline: Baseline
 ) -> Row:
     """Row 10: each ruleset of the baseline, with the required checks of D3 and of the
-    `github/repository.yaml` that the repository holds on its default branch (#7423). A live
-    required check that only a skipped check run gave, or that is the leg of a job that ended
-    `success`, leaves the set, and the change line names it after `; dropped` (#7318). A key that
-    the reply does not hold, such as `bypass_actors` for a token without write access to the
-    ruleset, is unknown: with no other difference the row is `not readable` (#6875)."""
+    `github/repository.yaml` that the repository holds on its default branch (#7423). The write
+    body keeps each live rule, each live required check and each live value that is stricter than
+    the baseline value, and it names each kept setting in a warning line (#7326). A live required
+    check that only a skipped check run gave, or that is the leg of a job that ended `success`,
+    leaves the set, and the change line names it after `; dropped` (#7318). A key that the reply
+    does not hold, such as `bypass_actors` for a token without write access to the ruleset, is
+    unknown: with no other difference the row is `not readable` (#6875)."""
     if ctx.plan_limited:
         step = PersonStep("Rulesets need a public repository or a paid plan.", DOC_RULESETS)
         return Row(10, "Ruleset", RowState.SKIPPED, reason=_D2_REASON, steps=(step,))
     own = read_repository_settings(session, ctx.repo, ctx.default_branch, baseline) or {}
     own_rulesets = {item.get("name"): item for item in own.get("rulesets") or []}
     changes: list[str] = []
+    warnings: list[str] = []
     unread: list[str] = []
     for ruleset in baseline.settings.get("rulesets") or []:
         match = next(
@@ -760,9 +796,14 @@ def ruleset_row(
         )
         live = session.rest("GET", f"/repos/{ctx.repo}/rulesets/{match['id']}") if match else None
         own_ruleset = own_rulesets.get(ruleset.get("name"))
-        desired, dropped = _with_required_checks(
-            ruleset, own_ruleset, live, ctx.successful_checks, ctx.skipped_checks
+        kept_live, dropped = _kept_live_ruleset(
+            live, own_ruleset, ruleset, ctx.successful_checks, ctx.skipped_checks
         )
+        merged, kept = merge_live_ruleset(ruleset, kept_live, _REQUIRED_CHECKS_RULE)
+        desired, _ = _with_required_checks(
+            merged, own_ruleset, kept_live, ctx.successful_checks, ctx.skipped_checks
+        )
+        warnings.extend(f"ruleset {ruleset.get('name')}: {line}" for line in kept)
         checks = [
             entry["context"]
             for rule in desired.get("rules") or []
@@ -787,9 +828,15 @@ def ruleset_row(
     )
     if not changes:
         state = RowState.NOT_READABLE if unread else RowState.PRESENT
-        return Row(10, "Ruleset", state, reason=reason, steps=steps)
+        return Row(10, "Ruleset", state, reason=reason, steps=steps, warnings=tuple(warnings))
     return Row(
-        10, "Ruleset", _write_state(writer), changes=tuple(changes), reason=reason, steps=steps
+        10,
+        "Ruleset",
+        _write_state(writer),
+        changes=tuple(changes),
+        warnings=tuple(warnings),
+        reason=reason,
+        steps=steps,
     )
 
 

@@ -263,10 +263,12 @@ def _report(run: _Run) -> OnboardReport:
 
 
 def _row_lines(row: Row) -> list[str]:
-    """The lines of one row: its number, name and state, its reason, and each change."""
+    """The lines of one row: its number, name and state, its reason, each change, and each setting
+    that it keeps because the live value is stricter than the baseline value."""
     head = f"{row.number}. {row.name}: {row.state.value}"
     lines = [head if row.reason is None else f"{head} ({row.reason})"]
     lines.extend(f"   - {change}" for change in row.changes)
+    lines.extend(f" ! {warning}" for warning in row.warnings)
     return lines
 
 
