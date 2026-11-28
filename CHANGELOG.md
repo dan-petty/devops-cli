@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.232.2](https://github.com/dan-petty/devops-cli/compare/v0.232.1...v0.232.2) (2026-11-28)
+
+
+### Code Refactoring
+
+* **pr:** read the readiness checks with gh pr checks ([#7519](https://github.com/dan-petty/devops-cli/issues/7519)) ([14d401a](https://github.com/dan-petty/devops-cli/commit/14d401ac366065cf70ef2cb29e051792a49e450a)), closes [#7508](https://github.com/dan-petty/devops-cli/issues/7508)
+
 ## [0.232.1](https://github.com/dan-petty/devops-cli/compare/v0.232.0...v0.232.1) (2026-11-28)
 
 
