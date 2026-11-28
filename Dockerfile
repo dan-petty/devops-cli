@@ -22,7 +22,7 @@ FROM ghcr.io/dan-petty/devtools:1.5.0@sha256:d0e510e4940d602a5f3f5da64ce64569d97
 # their cache when only `src/` and the version change, and a node that holds the previous release
 # pulls only the project layer. The stage also gives the uv seed its input: the dev requirements,
 # and a stub project with the build backend of `pyproject.toml`.
-FROM python:3.14-slim-trixie@sha256:22eafb370920ad8b429e0aec3fff433e0669968519f5d60469d83729c138b28b AS lock
+FROM python:3.14-slim-trixie@sha256:f57c4c23b985d95deea5bc5249e2f9c8a512b4cc9d5d3fd31900cbd2f5f0a604 AS lock
 COPY --from=uv /uv /usr/local/bin/
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
@@ -35,7 +35,7 @@ RUN uv export --locked --no-dev --extra review --no-emit-project --format requir
 
 # uv and the venv of the runtime requirements, for the Service and MCP server images. No file of the
 # project is in this stage. Each uv install mounts the uv cache of root, so no layer holds the cache.
-FROM python:3.14-slim-trixie@sha256:22eafb370920ad8b429e0aec3fff433e0669968519f5d60469d83729c138b28b AS deps
+FROM python:3.14-slim-trixie@sha256:f57c4c23b985d95deea5bc5249e2f9c8a512b4cc9d5d3fd31900cbd2f5f0a604 AS deps
 
 COPY --from=uv /uv /uvx /usr/local/bin/
 
@@ -187,7 +187,7 @@ COPY --link --from=uv-seed-record /seed.json /seed.json
 # The layers of the Service and MCP server images that a change of `src/` keeps: git, the Node
 # runtime, gh and OpenSpec, and the venv of the runtime requirements. gh comes from the devtools
 # image, and OpenSpec from the `openspec` stage. The image holds no uv, curl or pip.
-FROM python:3.14-slim-trixie@sha256:22eafb370920ad8b429e0aec3fff433e0669968519f5d60469d83729c138b28b AS service-deps
+FROM python:3.14-slim-trixie@sha256:f57c4c23b985d95deea5bc5249e2f9c8a512b4cc9d5d3fd31900cbd2f5f0a604 AS service-deps
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     git \
