@@ -528,6 +528,16 @@ def test_a_valkey_that_goes_away_in_a_watch_transaction_opens_the_breaker(
     )
 
 
+def test_the_cache_tier_reads_a_hash_whose_field_name_is_not_utf8(
+    valkey_server: FakeServer, valkey_client: ValkeyClient
+) -> None:
+    """A field name that is not UTF-8 reads with the replacement character, as a value that is not
+    UTF-8 does, and the other fields read as they are."""
+    FakeValkey(server=valkey_server).hset("hash", mapping={b"\xff\xfe": b"x", b"7": _BINARY})
+
+    assert _tier(valkey_client).hscan("hash", 0, 500) == (0, {"\ufffd\ufffd": b"x", "7": _BINARY})
+
+
 def test_a_failed_tier_command_counts_its_command_and_error(
     valkey_server: FakeServer, valkey_client: ValkeyClient, otlp: FakeCollector
 ) -> None:

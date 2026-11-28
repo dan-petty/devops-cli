@@ -6,15 +6,16 @@ can agree with the checks of the items that named the same tool. It comes from t
 item in the brain index of `valkey-roadmap` (`devops_cli.roadmap.brain_index`):
 
 - **The near items.** The `near` field of the entry: at most `CONST_ROADMAP_BRAIN_ITEM_MAX_NEAR`
-  other items of the repository whose check named the same tool, the newest check first. A near
-  item with no entry is left out.
+  other items of the repository whose check named the same tool, the newest check first. The item
+  itself, a repeated number and a near item with no entry are left out.
 - **Each near item** gives the date of its check, its verdict, the canonical id of its tool and the
   name that its tool entry holds. The date of the check is the date of its verdict and its tool.
 - **The ADR status of a tool.** The ADRs in force that the check reads, and that reject the tool
   under a rejected option (`devops_cli.roadmap.adr.rejects`).
-- **The bound.** The digest holds whole entries in the order of the near items, and its JSON text
-  holds at most `CONST_ROADMAP_BRAIN_DIGEST_MAX_TOKENS` tokens. An entry that does not fit is left
-  out, and a later entry that fits stays.
+- **The bound.** The digest holds whole entries in the order of the near items, and its text in the
+  request holds at most `CONST_ROADMAP_BRAIN_DIGEST_MAX_TOKENS` tokens. The cut counts the value
+  of `DIGEST_KEY` as the JSON of the request writes it, one level down. An entry that does not fit
+  is left out, and a later entry that fits stays.
 - **No ring and no area verdict.** The brain index holds no ring of a tool and no area check, so
   the digest holds neither. The aggregate and improve tasks of #4693 add them to the brain.
 
@@ -35,7 +36,7 @@ import json
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.config.constants import (
@@ -58,6 +59,14 @@ if TYPE_CHECKING:
     from devops_cli.config.settings import Settings
 
 logger = logging.getLogger(__name__)
+
+# The key of the digest in the request of the model, and the indent of the JSON of the request
+# (`alternatives_request`). The cut counts the digest as that JSON holds it.
+DIGEST_KEY: Final[str] = "brain"
+REQUEST_INDENT: Final[int] = 1
+# The text of a JSON document of the one key `DIGEST_KEY` before its value, and after it.
+_MEMBER_HEAD: Final[str] = f"{{\n{' ' * REQUEST_INDENT}{json.dumps(DIGEST_KEY)}: "
+_MEMBER_TAIL: Final[str] = "\n}"
 
 
 @dataclass(frozen=True)
@@ -102,12 +111,15 @@ class BrainDigest:
 
 
 def _text(values: Sequence[dict[str, Any]]) -> str:
-    """The JSON text of the digest entries `values`, as the request writes it."""
-    return json.dumps(list(values), ensure_ascii=False, indent=1)
+    """The text of the digest entries `values` as the request holds it: the value of `DIGEST_KEY`,
+    one level down in a JSON document with the indent `REQUEST_INDENT`. The JSON of a value
+    depends only on its level, so this is the text that the model reads."""
+    document = json.dumps({DIGEST_KEY: list(values)}, ensure_ascii=False, indent=REQUEST_INDENT)
+    return document.removeprefix(_MEMBER_HEAD).removesuffix(_MEMBER_TAIL)
 
 
 def _fitted(entries: Sequence[DigestEntry]) -> tuple[DigestEntry, ...]:
-    """The entries of `entries`, in their order, whose JSON text holds at most
+    """The entries of `entries`, in their order, whose text in the request holds at most
     `CONST_ROADMAP_BRAIN_DIGEST_MAX_TOKENS` tokens. The cut takes whole entries."""
     kept: list[DigestEntry] = []
     for entry in entries:
@@ -128,12 +140,16 @@ def _entry(item: HeldItem, tool: HeldTool | None, adrs: Sequence[Adr]) -> Digest
 
 
 def _near_items(index: BrainIndex, number: int) -> list[HeldItem] | None:
-    """The entry of each near item of the entry of item `number`, in the order of the entry; none
-    when the index holds no entry of the item. None when the store does not answer."""
+    """The entry of each near item of the entry of item `number`, in the order of the entry, with
+    no repeated item and not the item itself; none when the index holds no entry of the item. None
+    when the store does not answer."""
     own = index.items([number])
     if own is None:
         return None
-    near = own[number].near[:CONST_ROADMAP_BRAIN_ITEM_MAX_NEAR] if number in own else ()
+    named = own[number].near if number in own else ()
+    near = tuple(dict.fromkeys(other for other in named if other != number))[
+        :CONST_ROADMAP_BRAIN_ITEM_MAX_NEAR
+    ]
     held = index.items(near)
     if held is None:
         return None
@@ -170,4 +186,11 @@ def digest_index(repo: str, settings: Settings) -> BrainIndex | None:
     return None if tier is None else BrainIndex(tier, RepoRef(repo))
 
 
-__all__ = ["BrainDigest", "DigestEntry", "digest_index", "read_digest"]
+__all__ = [
+    "DIGEST_KEY",
+    "REQUEST_INDENT",
+    "BrainDigest",
+    "DigestEntry",
+    "digest_index",
+    "read_digest",
+]
