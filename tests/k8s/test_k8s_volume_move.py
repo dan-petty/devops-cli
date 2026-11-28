@@ -147,6 +147,8 @@ class Cluster:
     owner_kind: str | None = None
     tracked: bool = True
     known_applications: tuple[str, ...] = ("bootstrap", "cluster", "grafana", "loki")
+    application_owners: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    application_sets: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     timeout_on: str | None = None
     # The provisioner of each StorageClass, the CSIDrivers, and the drivers of each CSINode: only
     # worker-a has the Longhorn driver, as only the storage nodes of the homelab do.
@@ -208,6 +210,7 @@ class Cluster:
             "statefulset": lambda _args: json.dumps(self._workload()),
             "applications": lambda _args: json.dumps({"items": self._applications()}),
             "application": lambda _args: self.operation_phase,
+            "applicationset": self._get_application_set,
             "namespace": self._get_namespace,
             "storageclass": self._get_storage_class,
             "csidriver": self._get_csi_driver,
@@ -359,14 +362,28 @@ class Cluster:
         )
         return {"metadata": {"name": CLAIM, "annotations": annotations}, "spec": spec}
 
-    def _applications(self) -> list[dict[str, Any]]:
-        return [
+    def _get_application_set(self, args: list[str]) -> str:
+        name = args[2]
+        return json.dumps(
             {
                 "metadata": {"name": name},
-                "spec": {"syncPolicy": {"automated": {"enabled": True, "selfHeal": True}}},
+                "spec": {"ignoreApplicationDifferences": self.application_sets.get(name, [])},
             }
-            for name in self.known_applications
-        ]
+        )
+
+    def _applications(self) -> list[dict[str, Any]]:
+        items = []
+        for name in self.known_applications:
+            metadata: dict[str, Any] = {"name": name}
+            if name in self.application_owners:
+                metadata["ownerReferences"] = self.application_owners[name]
+            items.append(
+                {
+                    "metadata": metadata,
+                    "spec": {"syncPolicy": {"automated": {"enabled": True, "selfHeal": True}}},
+                }
+            )
+        return items
 
     # ── pv-migrate ─────────────────────────────────────────────────────────
 
@@ -1653,3 +1670,101 @@ def test_move_refuses_a_claim_that_is_not_namespace_slash_claim(
 
     assert result.exit_code == 2
     assert process_fake.calls == []
+
+
+def _applicationset_owner(name: str = "service-workloads") -> list[dict[str, Any]]:
+    return [
+        {
+            "apiVersion": "argoproj.io/v1alpha1",
+            "kind": "ApplicationSet",
+            "name": name,
+            "controller": True,
+        }
+    ]
+
+
+def test_applicationset_owned_application_without_pause_ignore_is_refused(
+    cluster: Cluster,
+) -> None:
+    cluster.application_owners["grafana"] = _applicationset_owner()
+    cluster.application_sets["service-workloads"] = [
+        {"jsonPointers": ["/spec/source/kustomize/images"]}
+    ]
+
+    with pytest.raises(VolumeMoveRefusedError) as refused:
+        _plan()
+
+    assert (refused.value.error_code, refused.value.exit_code) == ("K8S_VOLUME_MOVE_REFUSED", 1)
+    assert len(refused.value.problems) == 1
+    problem = refused.value.problems[0]
+    assert "service-workloads" in problem
+    assert "grafana" in problem
+    assert "/spec/syncPolicy" in problem
+    assert "ignoreApplicationDifferences" in problem
+    assert cluster.changes == []
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"jsonPointers": ["/spec"]},
+        {"jsonPointers": ["/spec/syncPolicy"]},
+        {"jsonPointers": ["/spec/syncPolicy/automated"]},
+        {"jsonPointers": ["/spec/syncPolicy/automated/enabled"]},
+        {"name": "grafana", "jsonPointers": ["/spec/syncPolicy"]},
+    ],
+)
+def test_applicationset_owned_application_with_covering_ignore_is_allowed(
+    cluster: Cluster, entry: dict[str, Any]
+) -> None:
+    cluster.application_owners["grafana"] = _applicationset_owner()
+    cluster.application_sets["service-workloads"] = [entry]
+
+    plan = _plan()
+
+    assert plan == PLAN
+
+
+@pytest.mark.parametrize(
+    "entries",
+    [
+        [{"jsonPointers": ["/spec/syncPolicy2"]}],
+        [{"jsonPointers": ["/spec/syncPolicy/automated/selfHeal"]}],
+        [{"name": "loki", "jsonPointers": ["/spec/syncPolicy"]}],
+        [],
+    ],
+)
+def test_applicationset_owned_application_with_non_covering_ignore_is_refused(
+    cluster: Cluster, entries: list[dict[str, Any]]
+) -> None:
+    cluster.application_owners["grafana"] = _applicationset_owner()
+    cluster.application_sets["service-workloads"] = entries
+
+    with pytest.raises(VolumeMoveRefusedError) as refused:
+        _plan()
+
+    assert "service-workloads" in refused.value.problems[0]
+    assert "/spec/syncPolicy" in refused.value.problems[0]
+    assert cluster.changes == []
+
+
+def test_applicationset_is_not_read_when_no_application_has_an_applicationset_owner(
+    cluster: Cluster, process_fake: ProcessFake
+) -> None:
+    plan = _plan()
+
+    assert plan == PLAN
+    assert not any("applicationset" in call.argv for call in process_fake.calls)
+
+
+def test_dry_run_lists_the_conditional_applicationset_read(process_fake: ProcessFake) -> None:
+    requests = dry_run_volume_move(NAMESPACE, CLAIM, parents=PARENTS, context=CONTEXT)
+
+    assert process_fake.calls == []
+    reads = [r for r in requests if r.argv[3:5] == ("get", "applicationset")]
+    assert len(reads) == 1
+    assert reads[0].condition
+    argvs = [r.argv for r in requests]
+    apps_index = next(i for i, a in enumerate(argvs) if a[3:5] == ("get", "applications"))
+    appset_index = next(i for i, a in enumerate(argvs) if a[3:5] == ("get", "applicationset"))
+    assert apps_index < appset_index

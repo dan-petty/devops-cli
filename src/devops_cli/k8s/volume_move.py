@@ -39,6 +39,8 @@ from typing import Any
 
 from devops_cli.config.commands import BIN_PV_MIGRATE, build_kubectl_cmd
 from devops_cli.config.constants import (
+    CONST_ARGO_API_GROUP,
+    CONST_ARGO_API_VERSION,
     CONST_ARGOCD_OPERATION_PHASES_RUNNING,
     CONST_ARGOCD_TRACKING_ID_ANNOTATION,
     CONST_K8S_ACCESS_MODES,
@@ -99,6 +101,11 @@ _FS_GROUP_POLICY_NONE = "None"
 # and no setuid, setgid or sticky bit. The kubelet gives the group its read and write bits back,
 # with the fsGroup of the workload, when the workload mounts the volume.
 _PV_MIGRATE_NON_ROOT_RSYNC_ARGS = "--no-perms"
+_ARGO_API_VERSION = f"{CONST_ARGO_API_GROUP}/{CONST_ARGO_API_VERSION}"
+_APPLICATIONSET_KIND = "ApplicationSet"
+_APPLICATIONSET_PLURAL = "applicationset"
+_PAUSE_SYNC_POINTER_PARTS = ("spec", "syncPolicy", "automated", "enabled")
+_PAUSE_SYNC_POINTER = "/spec/syncPolicy"
 
 
 @dataclass(frozen=True)
@@ -786,11 +793,83 @@ def _automated(application: dict[str, Any]) -> bool:
     return isinstance(automated, dict) and automated.get("enabled", True) is not False
 
 
+def _applicationset_owner(application: dict[str, Any]) -> str | None:
+    """The name of the ApplicationSet that owns `application`, if any."""
+    for owner in (application.get("metadata") or {}).get("ownerReferences") or []:
+        if (
+            isinstance(owner, dict)
+            and owner.get("kind") == _APPLICATIONSET_KIND
+            and owner.get("apiVersion") == _ARGO_API_VERSION
+        ):
+            name = owner.get("name")
+            if isinstance(name, str) and name:
+                return name
+    return None
+
+
+def _covers_pause_pointer(pointer: Any) -> bool:
+    """True when a JSON Pointer equals or is a parent prefix of `/spec/syncPolicy/automated/enabled`."""
+    if not isinstance(pointer, str) or not pointer.startswith("/"):
+        return False
+    parts = tuple(pointer.split("/")[1:])
+    return (
+        1 <= len(parts) <= len(_PAUSE_SYNC_POINTER_PARTS)
+        and parts == _PAUSE_SYNC_POINTER_PARTS[: len(parts)]
+    )
+
+
+def _applicationset_ignores_pause(applicationset: dict[str, Any], application: str) -> bool:
+    """True when `spec.ignoreApplicationDifferences` keeps `/spec/syncPolicy/automated/enabled`."""
+    entries = (applicationset.get("spec") or {}).get("ignoreApplicationDifferences") or []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        target = entry.get("name")
+        if target and target != application:
+            continue
+        if any(_covers_pause_pointer(pointer) for pointer in entry.get("jsonPointers") or []):
+            return True
+    return False
+
+
+def _applicationset_problems(
+    paused: Sequence[str], by_name: dict[str, dict[str, Any]], context: str | None
+) -> list[str]:
+    """Refusal lines for paused Applications whose owning ApplicationSet restores `spec.syncPolicy`."""
+    sets: dict[str, dict[str, Any]] = {}
+    problems: list[str] = []
+    for name in paused:
+        item = by_name.get(name)
+        owner = _applicationset_owner(item) if item is not None else None
+        if owner is None:
+            continue
+        if owner not in sets:
+            sets[owner] = _read_json(
+                [
+                    "get",
+                    _APPLICATIONSET_PLURAL,
+                    owner,
+                    "-n",
+                    DEFAULT_ARGOCD_NAMESPACE,
+                    "-o",
+                    "json",
+                ],
+                context,
+            )
+        if not _applicationset_ignores_pause(sets[owner], name):
+            problems.append(
+                MESSAGES.k8s.volume_move_applicationset_owned.format(
+                    applicationset=owner, application=name, pointer=_PAUSE_SYNC_POINTER
+                )
+            )
+    return problems
+
+
 def _pause_order(
     applications: Sequence[str], parents: Sequence[str], context: str | None
 ) -> tuple[tuple[str, ...], list[str]]:
     """The Applications to pause, top down (the root Applications `parents` first), and a problem
-    for each tracked one that is missing."""
+    for each tracked one that is missing or owned by an ApplicationSet that overwrites the pause."""
     if not applications:
         return (), []
     items = (
@@ -799,7 +878,8 @@ def _pause_order(
         ).get("items")
         or []
     )
-    automated = {(item.get("metadata") or {}).get("name", ""): _automated(item) for item in items}
+    by_name = {(item.get("metadata") or {}).get("name", ""): item for item in items}
+    automated = {name: _automated(item) for name, item in by_name.items()}
     problems = [
         MESSAGES.k8s.volume_move_unknown_application.format(
             application=name, namespace=DEFAULT_ARGOCD_NAMESPACE
@@ -808,7 +888,9 @@ def _pause_order(
         if name not in automated
     ]
     order = dict.fromkeys((*parents, *applications))
-    return tuple(name for name in order if automated.get(name)), problems
+    paused = tuple(name for name in order if automated.get(name))
+    problems += _applicationset_problems(paused, by_name, context)
+    return paused, problems
 
 
 def plan_volume_move(
@@ -1525,6 +1607,21 @@ def _dry_run_reads(
             context,
             "the Argo CD Applications",
             condition="an Argo CD Application tracks the claim or a workload",
+        ),
+        _planned(
+            [
+                "get",
+                _APPLICATIONSET_PLURAL,
+                "<applicationset>",
+                "-n",
+                DEFAULT_ARGOCD_NAMESPACE,
+                "-o",
+                "json",
+            ],
+            context,
+            "the ApplicationSet that owns a paused Application",
+            condition="an ApplicationSet owns a paused Application",
+            repeat="for each such ApplicationSet",
         ),
     ]
 
