@@ -1147,39 +1147,61 @@ class _MoveRun:
     # Each step adds the undo of a change before it asks for the change: a request can fail after
     # the API server made the change, and each undo is harmless when the change did not happen.
 
+    def _operation_phase(self, application: str) -> str:
+        return self._kubectl(
+            [
+                "get",
+                "application",
+                application,
+                "-n",
+                DEFAULT_ARGOCD_NAMESPACE,
+                "-o",
+                "jsonpath={.status.operationState.phase}",
+            ]
+        ).strip()
+
     def _settle(self) -> None:
-        """Wait until no paused Application runs a sync operation (#7464).
+        """End the sync operation of each paused Application that still runs (#7464, #7485).
 
         A pause turns off automated sync, but an operation that already runs, such as the retry
         of a sync that failed on the immutable class of the claim, goes on, and it can make the
-        deleted claim again from git. `kubectl wait` waits until the operation has `finishedAt`.
+        deleted claim again from git. Between two attempts the operation has `finishedAt` and
+        still the phase `Running`, so the run ends it as `argocd app terminate-op` does, and waits
+        until it is `Failed`. An operation that ends in another phase before that is ended too.
         """
         seconds = DEFAULT_K8S_VOLUME_MOVE_SYNC_WAIT_SECONDS
         for application in self.plan.paused:
-            phase = self._kubectl(
+            if self._operation_phase(application) not in CONST_ARGOCD_OPERATION_PHASES_RUNNING:
+                continue
+            terminate = {"status": {"operationState": {"phase": "Terminating"}}}
+            self._kubectl(
                 [
-                    "get",
+                    "patch",
                     "application",
                     application,
                     "-n",
                     DEFAULT_ARGOCD_NAMESPACE,
-                    "-o",
-                    "jsonpath={.status.operationState.phase}",
+                    "--type",
+                    "merge",
+                    "-p",
+                    json.dumps(terminate),
                 ]
-            ).strip()
-            if phase not in CONST_ARGOCD_OPERATION_PHASES_RUNNING:
-                continue
-            self._kubectl(
-                [
-                    "wait",
-                    f"application/{application}",
-                    "-n",
-                    DEFAULT_ARGOCD_NAMESPACE,
-                    "--for=jsonpath={.status.operationState.finishedAt}",
-                    f"--timeout={seconds}s",
-                ],
-                timeout=_wait_timeout(seconds),
             )
+            try:
+                self._kubectl(
+                    [
+                        "wait",
+                        f"application/{application}",
+                        "-n",
+                        DEFAULT_ARGOCD_NAMESPACE,
+                        "--for=jsonpath={.status.operationState.phase}=Failed",
+                        f"--timeout={seconds}s",
+                    ],
+                    timeout=_wait_timeout(seconds),
+                )
+            except VolumeMoveError:
+                if self._operation_phase(application) in CONST_ARGOCD_OPERATION_PHASES_RUNNING:
+                    raise
 
     def pause(self) -> None:
         for application in self.plan.paused:
@@ -1640,7 +1662,7 @@ def _dry_run_copy(plan: VolumeMovePlan, context: str | None) -> list[PlannedRequ
 
 
 def _dry_run_settle(context: str | None) -> list[PlannedRequest]:
-    """The wait for the sync operation of each paused Application that still runs (#7464)."""
+    """The end of the sync operation of each paused Application that still runs (#7464, #7485)."""
     seconds = DEFAULT_K8S_VOLUME_MOVE_SYNC_WAIT_SECONDS
     paused = "for each paused Application"
     return [
@@ -1660,11 +1682,28 @@ def _dry_run_settle(context: str | None) -> list[PlannedRequest]:
         ),
         _planned(
             [
+                "patch",
+                "application",
+                "<application>",
+                "-n",
+                DEFAULT_ARGOCD_NAMESPACE,
+                "--type",
+                "merge",
+                "-p",
+                json.dumps({"status": {"operationState": {"phase": "Terminating"}}}),
+            ],
+            context,
+            "the end of that sync operation",
+            condition="the operation runs",
+            repeat=paused,
+        ),
+        _planned(
+            [
                 "wait",
                 "application/<application>",
                 "-n",
                 DEFAULT_ARGOCD_NAMESPACE,
-                "--for=jsonpath={.status.operationState.finishedAt}",
+                "--for=jsonpath={.status.operationState.phase}=Failed",
                 f"--timeout={seconds}s",
             ],
             context,
