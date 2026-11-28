@@ -1004,11 +1004,14 @@ def test_the_repository_file_wins_a_live_parameter_of_the_required_checks_rule(
     ] = True
     _declare_checks(onboard_github, [], strict_required_status_checks_policy=False)
 
-    _run(onboard_github, confirm=True, only=frozenset({10}))
+    report = _run(onboard_github, confirm=True, only=frozenset({10}))
 
     assert onboard_github.writes() == ["PUT /repos/example-org/app/rulesets/7"]
     parameters = _live_rule(onboard_github, "required_status_checks")["parameters"]
     assert parameters["strict_required_status_checks_policy"] is False
+    assert "strict_required_status_checks_policy" not in render_report(report), (
+        "the row writes the value of the file, so no warning line may say that it keeps the live one"
+    )
 
 
 def test_a_live_required_check_that_only_skipped_is_dropped(

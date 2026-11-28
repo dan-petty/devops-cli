@@ -176,6 +176,53 @@ def test_merge_takes_the_baseline_value_of_a_weaker_live_parameter() -> None:
     assert warnings == ()
 
 
+@pytest.mark.parametrize(
+    ("kind", "baseline", "live"),
+    [
+        (
+            "code_scanning",
+            {"code_scanning_tools": [{"tool": "CodeQL", "security_alerts_threshold": "critical"}]},
+            {"code_scanning_tools": [{"tool": "CodeQL", "security_alerts_threshold": "none"}]},
+        ),
+        (
+            "code_scanning",
+            {"code_scanning_tools": [{"tool": "CodeQL", "security_alerts_threshold": "all"}]},
+            {
+                "code_scanning_tools": [
+                    {"tool": "CodeQL", "security_alerts_threshold": "medium_or_higher"}
+                ]
+            },
+        ),
+        (
+            "code_scanning",
+            {"code_scanning_tools": [{"tool": "CodeQL", "alerts_threshold": "errors"}]},
+            {"code_scanning_tools": [{"tool": "CodeQL", "alerts_threshold": "none"}]},
+        ),
+        ("code_quality", {"severity": "all"}, {"severity": "notes"}),
+        ("code_coverage", {"max_coverage_drop": 2}, {"max_coverage_drop": 5}),
+    ],
+    ids=[
+        "no security alerts below critical",
+        "medium security alerts below all",
+        "no alerts below errors",
+        "notes below all",
+        "larger coverage drop",
+    ],
+)
+def test_merge_takes_the_baseline_value_at_each_end_of_the_github_values(
+    kind: str, baseline: dict[str, Any], live: dict[str, Any]
+) -> None:
+    from devops_cli.github.onboard.ruleset_merge import merge_live_ruleset
+
+    # The values of GitHub for each parameter: https://docs.github.com/en/rest/repos/rules
+    merged, warnings = merge_live_ruleset(
+        _ruleset(_rule(kind, **baseline)), _ruleset(_rule(kind, **live)), _CHECKS
+    )
+
+    assert _parameters(merged, kind) == baseline
+    assert warnings == ()
+
+
 def test_merge_keeps_an_unranked_parameter() -> None:
     from devops_cli.github.onboard.ruleset_merge import merge_live_ruleset
 
@@ -231,7 +278,7 @@ def test_merge_keeps_a_scanning_tool_that_the_baseline_lacks() -> None:
         _rule(
             "code_scanning",
             code_scanning_tools=[
-                {"tool": "CodeQL", "security_alerts_threshold": "low_or_higher"},
+                {"tool": "CodeQL", "security_alerts_threshold": "all"},
                 {"tool": "Bandit"},
             ],
         )
@@ -250,7 +297,7 @@ def test_merge_keeps_a_scanning_tool_that_the_baseline_lacks() -> None:
 
     assert _parameters(merged, "code_scanning")["code_scanning_tools"] == [
         {"tool": "Bandit"},
-        {"tool": "CodeQL", "security_alerts_threshold": "low_or_higher"},
+        {"tool": "CodeQL", "security_alerts_threshold": "all"},
         {"tool": "Trivy", "security_alerts_threshold": "critical"},
     ]
     assert warnings == (

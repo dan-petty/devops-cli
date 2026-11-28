@@ -718,6 +718,17 @@ def _dropped_checks(
     return tuple(sorted(set(dropped)))
 
 
+def _own_check_parameters(own: dict[str, Any] | None) -> dict[str, Any]:
+    """Each parameter of the required checks rule of `own`, except its checks. The settings file
+    of the repository wins each such parameter (#7423)."""
+    return {
+        key: copy.deepcopy(value)
+        for rule in _checks_rules(own)
+        for key, value in (rule.get("parameters") or {}).items()
+        if key != "required_status_checks"
+    }
+
+
 def _with_required_checks(
     desired: dict[str, Any],
     own: dict[str, Any] | None,
@@ -744,12 +755,7 @@ def _with_required_checks(
         added: dict[str, Any] = {"type": _REQUIRED_CHECKS_RULE, "parameters": {}}
         rules = [added]
         result["rules"] = [*(result.get("rules") or []), added]
-    own_parameters = {
-        key: copy.deepcopy(value)
-        for rule in own_rules
-        for key, value in (rule.get("parameters") or {}).items()
-        if key != "required_status_checks"
-    }
+    own_parameters = _own_check_parameters(own)
     dropped: list[str] = []
     for rule in rules:
         parameters = rule.setdefault("parameters", {})
@@ -799,7 +805,9 @@ def ruleset_row(
         kept_live, dropped = _kept_live_ruleset(
             live, own_ruleset, ruleset, ctx.successful_checks, ctx.skipped_checks
         )
-        merged, kept = merge_live_ruleset(ruleset, kept_live, _REQUIRED_CHECKS_RULE)
+        merged, kept = merge_live_ruleset(
+            ruleset, kept_live, _REQUIRED_CHECKS_RULE, frozenset(_own_check_parameters(own_ruleset))
+        )
         desired, _ = _with_required_checks(
             merged, own_ruleset, kept_live, ctx.successful_checks, ctx.skipped_checks
         )

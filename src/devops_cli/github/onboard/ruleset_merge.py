@@ -11,7 +11,7 @@ each setting that it keeps, so the row names a setting that only the owner may l
 from __future__ import annotations
 
 import copy
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import Any, Final
 
 # The parameter of the required checks rule that names each check of a pull request.
@@ -23,16 +23,18 @@ _TOOL_NAME: Final[str] = "tool"
 # The order of the named values of a parameter, weakest first, so a later value of the table admits
 # more findings and enforces more. GitHub gives no order to these names, so a text comparison would
 # keep `high_or_higher` over `medium_or_higher`, which admits fewer alerts. A value that no table
-# ranks stays, so a parameter that GitHub adds is never lowered.
+# ranks stays, so a parameter that GitHub adds is never lowered. Each table holds each value of
+# the parameter in the REST API (https://docs.github.com/en/rest/repos/rules).
 _VALUE_ORDER: Final[dict[str, tuple[str, ...]]] = {
-    "severity": ("errors", "warnings", "notes"),
+    "severity": ("errors", "warnings", "notes", "all"),
     "security_alerts_threshold": (
+        "none",
         "critical",
         "high_or_higher",
         "medium_or_higher",
-        "low_or_higher",
+        "all",
     ),
-    "alerts_threshold": ("errors", "errors_and_warnings", "all"),
+    "alerts_threshold": ("none", "errors", "errors_and_warnings", "all"),
 }
 # The stricter value of each parameter that the order table does not name: a number names its
 # direction (`higher` or `lower`), and a boolean names the value that enforces more. `false` is the
@@ -40,6 +42,7 @@ _VALUE_ORDER: Final[dict[str, tuple[str, ...]]] = {
 # creation.
 _STRICTER_WHEN: Final[dict[str, bool | str]] = {
     "minimum_coverage": "higher",
+    "max_coverage_drop": "lower",
     "required_approving_review_count": "higher",
     "do_not_enforce_on_create": False,
     "dismiss_stale_reviews_on_push": True,
@@ -191,8 +194,28 @@ def _add_live_rule(merged: dict[str, Any], rule: Mapping[str, Any], check_rule: 
     return lines or [_kept_rule_line(str(rule.get("type")))]
 
 
+def _without_file_parameters(
+    rule: Mapping[str, Any], check_rule: str, file_parameters: Collection[str]
+) -> Mapping[str, Any]:
+    """A live rule without each parameter that the settings file of the repository sets, when the
+    rule is the required checks rule. The file wins such a parameter (#7423), so the merge keeps
+    no live value of it and gives it no warning line."""
+    if str(rule.get("type")) != check_rule or "parameters" not in rule or not file_parameters:
+        return rule
+    parameters = rule.get("parameters") or {}
+    return {
+        **rule,
+        "parameters": {
+            key: value for key, value in parameters.items() if key not in file_parameters
+        },
+    }
+
+
 def merge_live_ruleset(
-    desired: dict[str, Any], live: dict[str, Any] | None, check_rule: str
+    desired: dict[str, Any],
+    live: dict[str, Any] | None,
+    check_rule: str,
+    file_parameters: Collection[str] = (),
 ) -> tuple[dict[str, Any], tuple[str, ...]]:
     """`desired` with each rule and each parameter of the live ruleset that is stricter than the
     baseline value or that no table ranks, and one warning line for each kept setting.
@@ -200,7 +223,9 @@ def merge_live_ruleset(
     `check_rule` is the type of the required checks rule. Its entries are a union by `context`, so
     each live check stays and each baseline check is added. A live value that is weaker than the
     baseline value takes the baseline value, so the baseline raises a weaker live setting and never
-    lowers a stricter one (#7326). The merge reads and writes no network: the caller gives both
+    lowers a stricter one (#7326). `file_parameters` names each parameter of the required checks
+    rule that the settings file of the repository sets: the caller writes the file value, so the
+    merge keeps no live value of it. The merge reads and writes no network: the caller gives both
     bodies.
     """
     merged = copy.deepcopy(desired)
@@ -208,7 +233,8 @@ def merge_live_ruleset(
     rules: list[dict[str, Any]] = merged["rules"]
     by_type = {str(rule.get("type")): rule for rule in rules}
     kept: list[str] = []
-    for rule in (live or {}).get("rules") or []:
+    for live_rule in (live or {}).get("rules") or []:
+        rule = _without_file_parameters(live_rule, check_rule, file_parameters)
         kind = str(rule.get("type"))
         base = by_type.get(kind)
         if base is None:
