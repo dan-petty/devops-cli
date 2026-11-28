@@ -89,20 +89,32 @@ class Verdict(StrEnum):
 # of the stage title. A test holds the two equal; the import of that module costs about 1 s.
 PLAN_TITLE_PREFIX: Final = "docs(spec): plan #"
 LEGACY_PLAN_TITLE_PREFIX: Final = "docs(openspec): plan #"
+SCOPED_PLAN_PREFIX: Final = "docs(spec): plan"
+UNSCOPED_PLAN_PREFIX: Final = "docs: plan"
+LEGACY_PLAN_PREFIX: Final = "docs(openspec): plan"
 PLAN_TITLE_PREFIXES: Final[tuple[str, ...]] = (
     PLAN_TITLE_PREFIX,
+    "docs: plan #",
     LEGACY_PLAN_TITLE_PREFIX,
 )
 
 
-def is_plan_title(title: str) -> bool:
+def plan_title_prefix(has_spec_scope: bool) -> str:
+    """Return the plan PR title prefix for whether a repository declares `scope/spec`."""
+    return SCOPED_PLAN_PREFIX if has_spec_scope else UNSCOPED_PLAN_PREFIX
+
+
+def is_plan_title(title: str, *, has_spec_scope: bool | None = None) -> bool:
     """Whether `title` begins with a plan pull-request prefix (with `#`)."""
-    return title.strip().startswith(PLAN_TITLE_PREFIXES)
+    stripped = title.strip()
+    if has_spec_scope is None:
+        return stripped.startswith(PLAN_TITLE_PREFIXES)
+    return stripped.startswith((f"{plan_title_prefix(has_spec_scope)} #", LEGACY_PLAN_TITLE_PREFIX))
 
 
-def is_plan_title_prefix(title: str) -> bool:
-    """Whether `title` begins like a plan pull request (`docs(spec): plan` or legacy)."""
-    return title.strip().startswith(("docs(spec): plan", "docs(openspec): plan"))
+def is_plan_title_prefix(title: str, *, has_spec_scope: bool = True) -> bool:
+    """Whether `title` begins like a plan pull request (`docs(spec): plan` / `docs: plan` or legacy)."""
+    return title.strip().startswith((plan_title_prefix(has_spec_scope), LEGACY_PLAN_PREFIX))
 
 
 logger = logging.getLogger(__name__)
@@ -470,6 +482,8 @@ __all__ = [
     "first_verdict_label",
     "forge_outcome",
     "grade_verdicts",
+    "is_plan_title_prefix",
+    "plan_title_prefix",
     "plan_verdict_request",
     "pull_kind",
     "read_bot_pulls",

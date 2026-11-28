@@ -61,6 +61,7 @@ from devops_cli.roadmap.implement.implement_pull import (
     Draft,
     draft_readiness,
     kind_of,
+    store_has_spec_scope,
 )
 from devops_cli.roadmap.jev_completeness import (
     CompletenessOutcome,
@@ -174,7 +175,18 @@ def _settle(store: RoadmapStore, repo: str, item: Item, number: int) -> _Outcome
     owner, name = repo.split("/", 1)
     checks = read_check_runs(owner, name, status.head_sha)
     change = _read_plan_change(client, repo, status, item)
-    draft = Draft(kind_of(item, number, status.title), status, item, checks, change=change)
+    draft = Draft(
+        kind_of(
+            item,
+            number,
+            status.title,
+            has_spec_scope=store_has_spec_scope(store, ref=status.base_ref),
+        ),
+        status,
+        item,
+        checks,
+        change=change,
+    )
     readiness = draft_readiness(draft)
     if readiness.answer is not Answer.READY:
         return _Outcome.WAITING

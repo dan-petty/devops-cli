@@ -58,6 +58,7 @@ from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.agent_run import TraceFacts
 from devops_cli.roadmap.commit_title import commit_scope
+from devops_cli.roadmap.pr_verdict import plan_title_prefix
 from devops_cli.roadmap.pull_form import (
     SUMMARY_MAX_CHARS as SUMMARY_MAX_CHARS,
 )
@@ -113,7 +114,7 @@ logger = logging.getLogger(__name__)
 # revert add a line to the changelog, so a pull request that only plans an item has this type.
 STAGING_TYPE: Final[str] = "docs(spec)"
 LEGACY_STAGING_TYPE: Final[str] = "docs(openspec)"
-_STAGING_TYPES: Final[tuple[str, ...]] = (STAGING_TYPE, LEGACY_STAGING_TYPE)
+_STAGING_TYPES: Final[tuple[str, ...]] = (STAGING_TYPE, LEGACY_STAGING_TYPE, "docs")
 # The end that GitHub adds to the subject of a squash commit: ` (#<pull>)` (CONTRIBUTING.md).
 _SQUASH_SUFFIX: Final[re.Pattern[str]] = re.compile(r" \(#[0-9]+\)$")
 _ELLIPSIS: Final[str] = "..."
@@ -3604,24 +3605,30 @@ def _shows_something(char: str) -> bool:
     return char not in _BLANK_FILLERS and unicodedata.category(char) not in _INVISIBLE_CATEGORIES
 
 
-def staging_title(number: int, summary: str) -> str:
-    """The title of the draft pull request of item `number`: `docs(spec): plan #<number>
-    <summary>`. It is on one line, with a handle or a link in a code span, so it pings no one. The
-    part after the colon has at most `SUMMARY_MAX_CHARS` characters (#2714). A summary that the
-    schema accepts (`STAGE_SUMMARY_MAX_CHARS`) always fits, for a number of `ISSUE_NUMBER_DIGITS`
-    digits or fewer. The title is never cut, because a cut text ends with `...` and the form check
-    refuses it (#3249): a summary that does not fit stops the item with `RoadmapStageError`."""
-    lead = MESSAGES.roadmap.stage_title_lead.format(number=number)
+def stage_plan_title(issue: int, summary: str, *, has_spec_scope: bool = True) -> str:
+    """Build the plan PR title for `issue` and `summary` using `plan_title_prefix(has_spec_scope)`."""
+    lead = MESSAGES.roadmap.stage_title_lead.format(number=issue)
     shown = safe_title(summary)
     length = summary_length(lead + shown)
     if length > SUMMARY_MAX_CHARS:
         raise RoadmapStageError(
             MESSAGES.roadmap.stage_title_long.format(
-                number=number, length=length, limit=SUMMARY_MAX_CHARS
+                number=issue, length=length, limit=SUMMARY_MAX_CHARS
             ),
-            failed_items=[number],
+            failed_items=[issue],
         )
-    return f"{STAGING_TYPE}: {lead}{shown}"
+    prefix = plan_title_prefix(has_spec_scope)
+    return f"{prefix.split(':', 1)[0]}: {lead}{shown}"
+
+
+def staging_title(number: int, summary: str, *, has_spec_scope: bool = True) -> str:
+    """The title of the draft pull request of item `number`: `docs(spec): plan #<number>
+    <summary>` (or `docs: plan` when `has_spec_scope` is False). It is on one line, with a handle or a link in a code span, so it pings no one. The
+    part after the colon has at most `SUMMARY_MAX_CHARS` characters (#2714). A summary that the
+    schema accepts (`STAGE_SUMMARY_MAX_CHARS`) always fits, for a number of `ISSUE_NUMBER_DIGITS`
+    digits or fewer. The title is never cut, because a cut text ends with `...` and the form check
+    refuses it (#3249): a summary that does not fit stops the item with `RoadmapStageError`."""
+    return stage_plan_title(number, summary, has_spec_scope=has_spec_scope)
 
 
 def plan_summary(subject: str, number: int) -> str | None:

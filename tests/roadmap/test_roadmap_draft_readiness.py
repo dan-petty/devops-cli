@@ -660,3 +660,53 @@ def test_draft_readiness_accepts_colliding_stage_plan_with_unticked_tasks() -> N
 
     assert draft.kind is DraftKind.STAGE_PLAN
     assert readiness.answer is Answer.READY
+
+
+def test_kind_of_uses_has_spec_scope_for_unscoped_plan_title() -> None:
+    item = Item(
+        number=166,
+        title="one",
+        url="u1",
+        job_record={ImplementRecordKey.PR: "193", StageRecordKey.PR: "193"},
+    )
+    assert (
+        kind_of(item, 193, title="docs: plan #166 add the plan", has_spec_scope=False),
+        kind_of(item, 193, title="docs: plan #166 add the plan", has_spec_scope=True),
+    ) == (DraftKind.STAGE_PLAN, DraftKind.IMPLEMENT)
+
+
+def test_read_draft_classifies_unscoped_plan_pr_when_repo_lacks_spec_scope() -> None:
+    store = InMemoryRoadmapStore()
+    store.seed_file(
+        ".github/labels.yml",
+        '- name: "scope/infra"\n  color: "DCDCD6"\n  description: "Infra"\n',
+    )
+    issue_num = store.seed_issue(
+        "Issue 1",
+        body=with_record(
+            "",
+            encode_job_record({}, {StageRecordKey.PR: "193", ImplementRecordKey.PR: "193"}),
+        ),
+        fields={ItemField.PRIORITY: "P1-High"},
+    )
+    client = MagicMock()
+    pull = PullStatus(
+        state="open",
+        draft=True,
+        title="docs: plan #1 add the plan",
+        body="Plans #1",
+        head_ref=f"fix/{issue_num}-add-the-plan",
+        head_sha="sha123",
+    )
+    client.get_compare_files.return_value = CompareFiles(
+        files=[
+            PullRequestFile(filename=f"openspec/changes/{issue_num}-plan/tasks.md", status="added")
+        ],
+        truncated=False,
+        merge_base="base123",
+    )
+    client.get_file_at.return_value = _COMPLETE_TASKS
+
+    draft = read_draft("dan-petty/infra", 193, pull=pull, store=store, client=client)
+
+    assert draft.kind is DraftKind.STAGE_PLAN
