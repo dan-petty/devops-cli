@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.233.0](https://github.com/dan-petty/devops-cli/compare/v0.232.11...v0.233.0) (2026-11-28)
+
+
+### Features
+
+* **gh:** refuse agent deployment review routes ([#7571](https://github.com/dan-petty/devops-cli/issues/7571)) ([b3c8edf](https://github.com/dan-petty/devops-cli/commit/b3c8edf975c1d00f0e99fca9511a1db4c5d25598))
+
+
+### Bug Fixes
+
+* **ci:** run Tests & Coverage in six balanced shards ([#7572](https://github.com/dan-petty/devops-cli/issues/7572)) ([e6f5026](https://github.com/dan-petty/devops-cli/commit/e6f50267e4e1f7cfe177df9eabfe1b420e0ac53d)), closes [#7550](https://github.com/dan-petty/devops-cli/issues/7550)
+* **roadmap:** the other rows leave out an item that left ([#7566](https://github.com/dan-petty/devops-cli/issues/7566)) ([97c4576](https://github.com/dan-petty/devops-cli/commit/97c4576147af03587432d8edf2cbc7f55bc64d7b))
+* **security:** set non-root securityContext on ollama-profiles fixture ([#7567](https://github.com/dan-petty/devops-cli/issues/7567)) ([53e5aaa](https://github.com/dan-petty/devops-cli/commit/53e5aaa110778cfc16e91b3cf37af97cf53eeed7))
+* **security:** skip .venv in TrivyConfigScanner ([#7570](https://github.com/dan-petty/devops-cli/issues/7570)) ([1502b93](https://github.com/dan-petty/devops-cli/commit/1502b9338dc3758d6fa876fce30fc0d4f2846c81))
+
 ## [0.232.11](https://github.com/dan-petty/devops-cli/compare/v0.232.10...v0.232.11) (2026-11-28)
 
 
