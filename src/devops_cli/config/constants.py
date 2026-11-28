@@ -5695,6 +5695,8 @@ CONST_OSV_CONFIG_FILE_NAMES: Final[tuple[str, ...]] = ("osv-scanner.toml",)
 CONST_TRIVY_CACHE_DIR_ENV: Final[str] = "TRIVY_CACHE_DIR"
 CONST_TRIVY_CACHE_DIR_NAME: Final[str] = "trivy"
 CONST_TRIVY_CONFIG_SCAN_TYPE: Final[str] = "config"
+# Skip root and nested virtual environments in `trivy config` so third-party packages are ignored.
+CONST_TRIVY_CONFIG_SKIP_DIRS: Final[tuple[str, ...]] = (".venv", "**/.venv")
 # The ignore file of the IaC scan: an entry holds the path, the `statement` and `expired_at` of one
 # finding, and Trivy reads it only when it is named with `--ignorefile` (#4401).
 CONST_TRIVY_CONFIG_IGNORE_FILE: Final[str] = ".trivyignore.yaml"

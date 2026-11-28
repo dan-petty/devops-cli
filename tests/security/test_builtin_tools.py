@@ -825,6 +825,10 @@ def test_the_agent_iac_tool_runs_the_misconfiguration_scan_of_trivy(
                 "--format",
                 "json",
                 "--quiet",
+                "--skip-dirs",
+                ".venv",
+                "--skip-dirs",
+                "**/.venv",
             ]
         ],
         "Trivy scan status: ok\nNo findings.",

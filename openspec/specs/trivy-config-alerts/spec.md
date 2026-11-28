@@ -61,23 +61,9 @@ The `trivy config` scan SHALL name `.trivyignore.yaml` of its directory with `--
 - **WHEN** the scan starts in a directory that holds `.trivyignore.yaml`
 - **THEN** the command holds `--ignorefile` and the path of that file, and Trivy hides a finding of an entry whose `expired_at` is later than today
 
-### Requirement: The harbor template Dockerfile holds a dated ignore entry
-The repository SHALL hold one `misconfigurations` entry of `.trivyignore.yaml` for the rule `DS-0029` on the path `.venv/lib/python3.14/site-packages/harbor/cli/template-adapter/task-template/environment/Dockerfile`, with a `statement` that names the harbor task-template Dockerfile and issue #5947, and an `expired_at` date no more than 3 days after the entry.
+### Requirement: Trivy config scan skips virtual environments
+`TrivyConfigScanner.build_command` SHALL pass `--skip-dirs .venv` and `--skip-dirs **/.venv` so `trivy config` skips root and nested `.venv` directories when scanning a checkout.
 
-#### Scenario: The entry of the harbor template Dockerfile
-- **WHEN** a test reads the ignore file of the repository
-- **THEN** it finds one misconfiguration entry of the rule DS-0029 and the path `.venv/lib/python3.14/site-packages/harbor/cli/template-adapter/task-template/environment/Dockerfile`, and the entry holds a statement with the issue #5947 and an expiry date
-
-### Requirement: Dated ignore entry for the harbor template Dockerfile
-`.trivyignore.yaml` SHALL hold an entry with `id: DS-0002`, a `paths` value that names `.venv/lib/python3.14/site-packages/harbor/cli/template-adapter/task-template/environment/Dockerfile`, a statement and an `expired_at` date.
-
-#### Scenario: The IaC scan hides DS-0002 in the harbor template
-- **WHEN** a maintainer runs `trivy config --ignorefile .trivyignore.yaml .venv/lib/python3.14/site-packages/harbor/cli/template-adapter/task-template/environment` at the merge commit
-- **THEN** the scan reports no DS-0002 finding and exits 0
-
-### Requirement: The entry carries an expiry that the scan reads
-The entry MUST set `expired_at` to a date after the merge date, so the IaC scan hides the finding only until that date.
-
-#### Scenario: The scan reads a valid expiry
-- **WHEN** a maintainer runs `trivy config --ignorefile .trivyignore.yaml .venv/lib/python3.14/site-packages/harbor/cli/template-adapter/task-template/environment` at the merge commit
-- **THEN** the scan reports no expired-entry error and exits 0
+#### Scenario: Config scan arguments exclude virtualenv directories
+- **WHEN** `TrivyConfigScanner().build_command(target, cwd=target)` builds arguments for a configuration scan
+- **THEN** the argument list includes `--skip-dirs` for `.venv` and `**/.venv`, while `TrivyScanner().build_command(target, cwd=target)` adds neither

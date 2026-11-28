@@ -19,6 +19,7 @@ from devops_cli.config.constants import (
     CONST_TRIVY_CHECKS_METADATA,
     CONST_TRIVY_CONFIG_IGNORE_FILE,
     CONST_TRIVY_CONFIG_SCAN_TYPE,
+    CONST_TRIVY_CONFIG_SKIP_DIRS,
     CONST_TRIVY_DB_METADATA,
     CONST_TRIVY_NO_DB_ERROR,
 )
@@ -239,6 +240,8 @@ class TrivyConfigScanner(TrivyScanner):
         file exists: Trivy reads the entries with a path, a `statement` and `expired_at` only from
         a YAML file that `--ignorefile` names (#4401)."""
         cmd = super().build_command(target_path, scan_type, severity, **kwargs)
+        for skip_dir in CONST_TRIVY_CONFIG_SKIP_DIRS:
+            cmd.extend(("--skip-dirs", skip_dir))
         cwd = kwargs.get("cwd")
         ignore = Path(cwd) / CONST_TRIVY_CONFIG_IGNORE_FILE if cwd else None
         if ignore is not None and ignore.is_file():

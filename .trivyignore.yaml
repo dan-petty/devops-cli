@@ -4,26 +4,6 @@ misconfigurations:
       - tests/fixtures/prompt_adversaries/kubernetes_adversary.yaml
     statement: Prompt adversary test fixture with injected root filesystem text (#6267)
     expired_at: 2026-11-21
-  - id: DS-0029
-    paths:
-      - .venv/lib/python3.14/site-packages/harbor/cli/template-adapter/task-template/environment/Dockerfile
-    statement: Harbor task-template Dockerfile in local virtualenv (#5947, #6856)
-    expired_at: 2026-11-26
-  - id: DS-0002
-    paths:
-      - .venv/lib/python3.14/site-packages/harbor/cli/template-adapter/task-template/environment/Dockerfile
-    statement: Harbor task-template Dockerfile in local virtualenv (#6855)
-    expired_at: 2026-11-26
-  - id: DS-0002
-    paths:
-      - .venv/lib/python3.14/site-packages/harbor/cli/template-task/environment/Dockerfile
-    statement: Harbor template-task Dockerfile in local virtualenv (#6969)
-    expired_at: 2026-11-27
-  - id: DS-0002
-    paths:
-      - .venv/lib/python3.14/site-packages/harbor/cli/template-task/pytest-tests/Dockerfile
-    statement: Harbor template-task pytest-tests Dockerfile in local virtualenv (#7103)
-    expired_at: 2026-11-28
 # The image findings that no released version of the pinned tool fixes yet (SECURITY.md, A Finding
 # with No Fix). Each entry names one finding in one binary: `paths` is the Trivy target of the
 # binary and `purls` is the package that Trivy reports, so the entry hides no other binary.
