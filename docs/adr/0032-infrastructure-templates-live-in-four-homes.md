@@ -4,6 +4,7 @@ date: 2026-11-21
 decision-makers: [owner]
 issue: 6674
 amends: ["0026", "0027"]
+amended-by: ["0041"]
 body-hash: "552c4ed9e8a6a119ae8724c36dbc0ea07836d6fbb10bf1ff837247b83994a927"
 ---
 
@@ -95,3 +96,4 @@ The private-data check of the infra CI refuses a private value in infra (dan-pet
 
 2026-11-21: Accepted by the owner, the merge of #6683.
 2026-11-27: Fact out of date: sections 1, 3 and 5, dan-petty/github-workflows holds the reusable workflows and the repository template, and releases them with its own tags (dan-petty/infra#217, #7482).
+2026-11-28: Amended by ADR 0041, section 1.

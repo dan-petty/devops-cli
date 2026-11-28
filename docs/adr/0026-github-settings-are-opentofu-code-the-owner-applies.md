@@ -70,3 +70,4 @@ The ruleset of `devops-cli` stays in the GitHub UI. The record changes when the 
 2026-11-21: Amended by ADR 0032, section 8.
 2026-11-22: Amended by ADR 0035, section 6.
 2026-11-28: Amended by ADR 0041, sections 1, 2 and 3.
+2026-11-28: Amended by ADR 0041, section 5.

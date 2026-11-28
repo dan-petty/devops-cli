@@ -81,7 +81,7 @@ A private repository whose ruleset probe answers 403 SHALL get no release flow, 
 **Migration**: The requirement "The security row writes only what the provider cannot hold", and "OpenTofu holds the provider settings of each repository" of `github-settings-opentofu`.
 
 ### Requirement: The create row runs with create only
-**Reason**: `github_repository` of the root `tf/github/<owner>` creates the repository when the owner applies (ADR 0041).
+**Reason**: `github_repository` of a root of OpenTofu creates the repository after the owner approves the apply (ADR 0041).
 **Migration**: The requirement "A missing repository goes to OpenTofu" sends a missing repository to the root. The capability `github-settings-opentofu` holds the repository.
 
 ### Requirement: The release environment and its variable
@@ -94,7 +94,7 @@ A private repository whose ruleset probe answers 403 SHALL get no release flow, 
 
 ### Requirement: A key that the reply does not hold is not readable
 **Reason**: Rows 2 and 10 no longer compare the repository or the `main` ruleset. The provider reads them, and the token of a plan must read the merge settings (upstream #3382).
-**Migration**: The requirement "The owner applies, and an agent plans" of `github-settings-opentofu`.
+**Migration**: The requirement "CI applies after the owner approves" of `github-settings-opentofu`.
 
 ### Requirement: Row 10 refuses a repository file that does not load
 **Reason**: The command reads no `github/repository.yaml`. The module types and the key check of the root check the facts of each repository.
@@ -150,7 +150,7 @@ Row 10 SHALL send `POST /repos/<repo>/rulesets` with the ruleset `quality` on th
 - **THEN** the run sends no `PUT` and no `DELETE` of a ruleset
 
 ### Requirement: A row number of OpenTofu is refused
-`--only` SHALL refuse the numbers 1, 2 and 5 with a usage error that names the root `tf/github/<owner>` of dan-petty/homelab, because that root holds their settings (ADR 0041). The options `--create` and `--visibility` SHALL NOT exist.
+`--only` SHALL refuse the numbers 1, 2 and 5 with a usage error that names the root `tf/github/<owner>` of dan-petty/infra, because the roots of OpenTofu hold their settings (ADR 0041). The options `--create` and `--visibility` SHALL NOT exist.
 
 #### Scenario: A row that OpenTofu holds
 - **WHEN** `--only 2` runs
@@ -190,7 +190,7 @@ Row 0 SHALL read the OAuth scopes of a gh token and SHALL need `repo` and `workf
 - **THEN** row 0 is `failed` and names `workflow`, and the fake GitHub gets no write
 
 ### Requirement: A missing repository goes to OpenTofu
-For a repository that does not exist, row 0 SHALL fail with a person step that names the root `tf/github/<owner>` of dan-petty/homelab and the apply of the owner, and each later row SHALL be `skipped`.
+For a repository that does not exist, row 0 SHALL fail with a step that names the roots `tf/github/<owner>` of dan-petty/infra and `tf/github/<owner>-private` of dan-petty/homelab, and the apply that the owner approves, and each later row SHALL be `skipped`.
 
 #### Scenario: A missing repository
 - **WHEN** the fake GitHub has no repository of the name and `--confirm` runs
