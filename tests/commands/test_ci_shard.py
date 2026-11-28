@@ -143,7 +143,7 @@ def test_a_shard_reports_each_test_id_and_the_reason_of_each_skip_and_failure(
     )
 
 
-@pytest.mark.parametrize("shards", [2, 3, 4])
+@pytest.mark.parametrize("shards", [2, 3, 4, 6])
 def test_the_shards_cover_every_test_module_once(shards: int) -> None:
     """Each test module is in exactly one shard, and no shard is empty."""
     every_module = directory_modules("tests", REPO_ROOT)
