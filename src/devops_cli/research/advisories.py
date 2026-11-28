@@ -134,11 +134,19 @@ def _plan(inventory: Inventory, watch: WatchList) -> _Plan:
             if component.ecosystem is Ecosystem.GITHUB_ACTIONS
             else watch.entry_of(component.ecosystem, component.name)
         )
-        if component.ecosystem is not Ecosystem.GITHUB_ACTIONS and entry is None:
+        has_osv = bool(component.osv_ecosystem and component.osv_name)
+        is_action = component.ecosystem is Ecosystem.GITHUB_ACTIONS
+        if not is_action and entry is None and not has_osv:
             plan.not_covered[component.ecosystem.value] += 1
-        elif (release := pinned_version(component.version)) is None:
+            continue
+        release = pinned_version(component.version)
+        if release is None:
             plan.unpinned += 1
-        else:
+            continue
+        if has_osv:
+            key = (component.osv_name, component.version, component.osv_ecosystem)
+            plan.osv.setdefault(key, []).append(component)
+        if is_action or entry is not None:
             pin = (component.name, component.version)
             group = (
                 plan.actions
@@ -329,7 +337,7 @@ def _osv_findings(plan: _Plan, osv: OSVClient) -> tuple[list[AdvisoryFinding], l
             failures.append(_failure(components, "", answer.reason))
             continue
         for named in answer.vulnerabilities:
-            record_key = (named.id, components[0].name, key[2])
+            record_key = (named.id, key[0], key[2])
             if record_key not in records:
                 records[record_key] = osv.get_vulnerability(*record_key)
             record = records[record_key]

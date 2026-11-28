@@ -426,3 +426,92 @@ def test_a_lookup_without_an_answer_exits_1_and_sets_no_gauge(
 
     tracer_module.get_tracer().flush()
     assert (result.exit_code, otlp.points(RESEARCH_OPEN_FINDINGS.name)) == (1, [])
+
+
+def test_the_dry_run_lists_watch_list_osv_and_github_requests(
+    tmp_path: Any, cli: Callable[..., Any], github_api: GitHubApiFake
+) -> None:
+    (tmp_path / "Dockerfile").write_text("FROM ollama/ollama:0.40.18\n", encoding="utf-8")
+    (tmp_path / ".devops").mkdir()
+    (tmp_path / ".devops" / "research-watch.toml").write_text(
+        '[[watch]]\necosystem = "docker"\nname = "ollama/ollama"\nrepo = "ollama/ollama"\n'
+        'osv_ecosystem = "Go"\nosv_name = "github.com/ollama/ollama"\n',
+        encoding="utf-8",
+    )
+
+    result = cli(
+        "research", "sweep", "--root", str(tmp_path), "--repo", _REPO, "--dry-run", "--json"
+    )
+
+    payload = json.loads(result.output)
+    assert (result.exit_code, payload["dry_run"], github_api.requested) == (0, True, [])
+    assert any("api.osv.dev/v1/querybatch" in line for line in payload["requests"])
+    assert any("ollama/ollama/security-advisories" in line for line in payload["requests"])
+
+
+def test_the_command_sweeps_watch_list_finding_and_records_gauge(
+    tmp_path: Any,
+    cli: Callable[..., Any],
+    github_api: GitHubApiFake,
+    roadmap_store: Any,
+    model_fake: ModelFake,
+    embedder: Any,
+    keyring_store: Any,
+    otlp: FakeCollector,
+) -> None:
+    from devops_cli.security.vulnerability_lookup import OSVClient
+    from devops_cli.telemetry import tracer as tracer_module
+
+    (tmp_path / "Dockerfile").write_text("FROM ollama/ollama:0.40.18\n", encoding="utf-8")
+    (tmp_path / ".devops").mkdir()
+    (tmp_path / ".devops" / "research-watch.toml").write_text(
+        '[[watch]]\necosystem = "docker"\nname = "ollama/ollama"\nrepo = "ollama/ollama"\n'
+        'osv_ecosystem = "Go"\nosv_name = "github.com/ollama/ollama"\n',
+        encoding="utf-8",
+    )
+    github_api.route(
+        "POST", OSVClient.BATCH_URL, github_json({"results": [{"vulns": [{"id": "GO-2026-5750"}]}]})
+    )
+    github_api.route(
+        "GET",
+        f"{OSVClient.RECORD_URL}/GO-2026-5750",
+        github_json(
+            {
+                "id": "GO-2026-5750",
+                "aliases": [],
+                "summary": "Critical mapped watch vulnerability",
+                "database_specific": {"severity": "CRITICAL"},
+                "affected": [
+                    {
+                        "package": {"name": "github.com/ollama/ollama", "ecosystem": "Go"},
+                        "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}]}],
+                    }
+                ],
+            }
+        ),
+    )
+    github_api.route(
+        "GET",
+        "https://api.github.com/repos/ollama/ollama/security-advisories?per_page=100",
+        github_json([]),
+    )
+    _route_search(github_api)
+    roadmap_store.seed_file(
+        ".github/labels.yml",
+        '- name: "scope/deps"\n  color: "DCDCD6"\n  description: "Dependencies"\n',
+    )
+    model_fake.answer(json.dumps({**_PROPOSAL, "priority": "P1-High"}))
+
+    result = cli(
+        "research", "sweep", "--root", str(tmp_path), "--repo", _REPO, "--confirm", "--json"
+    )
+
+    tracer_module.get_tracer().flush()
+    payload = json.loads(result.output)
+    points = otlp.points(RESEARCH_OPEN_FINDINGS.name)
+    assert (
+        result.exit_code,
+        [(e["advisory_id"], e["result"]) for e in payload["entries"]],
+        payload["open_findings"]["CRITICAL"],
+        {a["severity"]: v for a, v in points}["critical"],
+    ) == (0, [("GO-2026-5750", "filed")], 1, 1.0)

@@ -25,7 +25,6 @@ from devops_cli.output import print_error, print_info, print_table, write_stdout
 from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.research.advisories import advisory_requests, find_advisories
 from devops_cli.research.github_advisories import GitHubAdvisoryClient
-from devops_cli.research.inventory import read_inventory
 from devops_cli.research.mapping import mapped_inventory
 from devops_cli.research.models import AdvisoryReport
 from devops_cli.research.render import renderer_for
@@ -119,7 +118,7 @@ def advisories(
 ) -> None:
     """List the advisories that affect the pins of the project."""
     repo_root = find_repo_root(root)
-    inventory = read_inventory(repo_root)
+    inventory = mapped_inventory(repo_root)
     watch = read_watch_list(repo_root)
     resolved = resolve_format(output_format, json_output=json_output)
     if dry_run or is_dry_run():
@@ -251,10 +250,11 @@ def sweep(
     if not target or "/" not in target:
         print_error(MESSAGES.review.hand_off_no_repo, prefix=False)
         raise typer.Exit(1)
-    inventory = read_inventory(checkout)
+    inventory = mapped_inventory(checkout)
+    watch = read_watch_list(checkout)
     resolved = resolve_format(output_format, json_output=json_output)
     if dry_run or is_dry_run():
-        planned = sweep_dry_run(inventory, target)
+        planned = sweep_dry_run(inventory, target, watch)
         if resolved != CONST_OUTPUT_FORMAT_TABLE:
             emit_serialized(planned.model_dump(mode="json"), resolved)
         else:
@@ -262,7 +262,9 @@ def sweep(
             write_stdout("\n".join([MESSAGES.research.sweep_dry_run_title, *numbered]) + "\n")
         return
 
-    found = find_advisories(inventory)
+    found = find_advisories(
+        inventory, watch=watch, github=GitHubAdvisoryClient(token=_optional_github_token())
+    )
     swept = run_sweep(
         found,
         repo=target,
