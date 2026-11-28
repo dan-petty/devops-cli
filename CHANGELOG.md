@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.232.6](https://github.com/dan-petty/devops-cli/compare/v0.232.5...v0.232.6) (2026-11-28)
+
+
+### Bug Fixes
+
+* **k8s:** refuse the project-review label on Service Jobs ([#7548](https://github.com/dan-petty/devops-cli/issues/7548)) ([cba5b22](https://github.com/dan-petty/devops-cli/commit/cba5b228ec47c920d875bc46a3949792282ce9de))
+
 ## [0.232.5](https://github.com/dan-petty/devops-cli/compare/v0.232.4...v0.232.5) (2026-11-28)
 
 
