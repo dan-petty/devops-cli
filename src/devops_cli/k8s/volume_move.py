@@ -133,11 +133,18 @@ class VolumeMovePlan:
     target_storage_class: str = ""
     # The access modes of the new claims when the move changes them; empty when it keeps them.
     target_access_modes: tuple[str, ...] = ()
+    # The size of the new claims when the move changes it; empty when it keeps the size (#7484).
+    target_size: str = ""
 
     @property
     def changes_class(self) -> bool:
         """True when the new volume has another class than the old claim."""
         return bool(self.target_storage_class)
+
+    @property
+    def new_size(self) -> str:
+        """The size of the temporary claim and of the claim made again (#7484)."""
+        return self.target_size or self.size
 
     @property
     def new_access_modes(self) -> tuple[str, ...]:
@@ -434,7 +441,7 @@ def _move_claim_manifest(plan: VolumeMovePlan) -> dict[str, Any]:
             "accessModes": list(plan.new_access_modes),
             "storageClassName": plan.new_storage_class,
             "volumeMode": plan.volume_mode,
-            "resources": {"requests": {"storage": plan.size}},
+            "resources": {"requests": {"storage": plan.new_size}},
         },
     }
 
@@ -525,6 +532,7 @@ def rebound_claim(
     volume: str,
     storage_class: str | None = None,
     access_modes: Sequence[str] = (),
+    size: str | None = None,
 ) -> tuple[dict[str, Any], str | None]:
     """The saved claim made again on `volume`, and its last-applied configuration to put back.
 
@@ -555,6 +563,8 @@ def rebound_claim(
         spec["storageClassName"] = storage_class
     if access_modes:
         spec["accessModes"] = list(access_modes)
+    if size:
+        spec["resources"] = {**(spec.get("resources") or {}), "requests": {"storage": size}}
     manifest = {
         "apiVersion": "v1",
         "kind": "PersistentVolumeClaim",
@@ -565,6 +575,24 @@ def rebound_claim(
 
 
 # ── The plan ─────────────────────────────────────────────────────────────────
+
+
+def _size_problem(size: str, old_size: str) -> str | None:
+    """The problem of a size for the new claim, or None: a quantity, not under the old size."""
+    from kubernetes.utils import quantity
+
+    parse_fn: Any = quantity.parse_quantity
+    try:
+        new = parse_fn(size)
+    except ValueError:
+        return MESSAGES.k8s.volume_move_bad_size.format(size=size)
+    try:
+        old = parse_fn(old_size)
+    except ValueError:
+        return None
+    if new < old:
+        return MESSAGES.k8s.volume_move_smaller_size.format(size=size, old=old_size)
+    return None
 
 
 def parse_claim_ref(ref: str) -> tuple[str, str]:
@@ -881,6 +909,7 @@ def plan_volume_move(
     to_node: str | None = None,
     storage_class: str | None = None,
     access_mode: str | None = None,
+    size: str | None = None,
     context: str | None = None,
 ) -> VolumeMovePlan:
     """Read what the move needs and return its plan; refuse a move that cannot run safely.
@@ -923,6 +952,11 @@ def plan_volume_move(
             )
         )
     new_modes = (access_mode,) if access_mode and (access_mode,) != old_modes else ()
+    old_size = ((spec.get("resources") or {}).get("requests") or {}).get("storage", "")
+    size_problem = _size_problem(size, old_size) if size else None
+    if size_problem:
+        problems.append(size_problem)
+    new_size = size if size and not size_problem and size != old_size else ""
     change = storage_class if storage_class and storage_class != old_class else ""
     new_class = _target_class(change, context) if change else None
     target = (
@@ -957,7 +991,7 @@ def plan_volume_move(
         target_hostname=node.hostname,
         target_free_bytes=free,
         storage_class=old_class,
-        size=((spec.get("resources") or {}).get("requests") or {}).get("storage", ""),
+        size=old_size,
         access_modes=old_modes,
         volume_mode=spec.get("volumeMode", "Filesystem"),
         workloads=tuple(state.workload for state in states),
@@ -968,6 +1002,7 @@ def plan_volume_move(
         image=image,
         target_storage_class=change,
         target_access_modes=new_modes,
+        target_size=new_size,
     )
 
 
@@ -982,7 +1017,7 @@ def describe_volume_move(plan: VolumeMovePlan) -> tuple[str, ...]:
         else m.volume_move_step_no_pause,
         m.volume_move_step_destination.format(
             claim=plan.move_claim,
-            size=plan.size,
+            size=plan.new_size,
             storage_class=plan.new_storage_class,
             policy=plan.copy_policy,
             port=CONST_K8S_VOLUME_MOVE_COPY_PORT,
@@ -1332,7 +1367,11 @@ class _MoveRun:
     def recreate_claim(self) -> None:
         plan = self.plan
         manifest, last_applied = rebound_claim(
-            self.saved, self.new_volume, plan.new_storage_class, plan.new_access_modes
+            self.saved,
+            self.new_volume,
+            plan.new_storage_class,
+            plan.new_access_modes,
+            plan.target_size or None,
         )
         self._create(manifest)
         if last_applied is not None:
@@ -1482,6 +1521,7 @@ def _placeholder_plan(
     parents: Sequence[str],
     storage_class: str | None = None,
     access_mode: str | None = None,
+    size: str | None = None,
 ) -> VolumeMovePlan:
     return VolumeMovePlan(
         namespace=namespace,
@@ -1503,6 +1543,7 @@ def _placeholder_plan(
         image="<template image>",
         target_storage_class=storage_class or "",
         target_access_modes=(access_mode,) if access_mode else (),
+        target_size=size or "",
     )
 
 
@@ -1693,6 +1734,7 @@ def _dry_run_writes(plan: VolumeMovePlan, context: str | None) -> list[PlannedRe
         "<new-volume>",
         plan.new_storage_class,
         plan.new_access_modes,
+        plan.target_size or None,
     )
     return [
         _planned(
@@ -1862,10 +1904,11 @@ def dry_run_volume_move(
     to_node: str | None = None,
     storage_class: str | None = None,
     access_mode: str | None = None,
+    size: str | None = None,
     context: str | None = None,
 ) -> tuple[PlannedRequest, ...]:
     """The requests a move would make, in order, making none: not even the claim is read."""
-    plan = _placeholder_plan(namespace, claim, to_node, parents, storage_class, access_mode)
+    plan = _placeholder_plan(namespace, claim, to_node, parents, storage_class, access_mode, size)
     return (*_dry_run_reads(plan, to_node, context), *_dry_run_writes(plan, context))
 
 

@@ -1074,6 +1074,7 @@ devops k8s volume move [OPTIONS] <claim>
 | `--to-node` | `string` | - | The worker node to move the volume to. Default: the worker node with the most free disk, for a volume on the control-plane node. A volume on a worker node moves only to the node that this option names, unless --storage-class changes its class. |
 | `--storage-class` | `string` | - | The StorageClass of the new volume. Default: the class of the old claim. With another class, the default target is the worker node with the most free disk that can attach a volume of the class (its CSINode lists the CSI driver of the class), and it can be the node of the old volume. The class must hold the data in the size of the claim. |
 | `--access-mode` | `string` | - | The access mode of the new claim, such as ReadWriteMany for a claim that pods on more than one node mount. Default: the access modes of the old claim. |
+| `--size` | `string` | - | The size of the new claim, such as 10Gi, for a class that limits the data to the size of the claim when the old volume holds more. Default: the size of the old claim. |
 | `--plan` | `boolean` | - | Read the claim, its volume, the nodes, the workloads and the Argo CD Applications, print each step with the real names, and change nothing. |
 | `--dry-run` | `boolean` | - | Make no request, reads included: print the requests a move would make, in order, with placeholders for each value that a read gives. Wins over --plan. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
