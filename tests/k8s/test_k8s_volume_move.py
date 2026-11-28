@@ -142,6 +142,7 @@ class Cluster:
     # The phase of the sync operation of each Application, and whether its end never comes.
     operation_phase: str = "Succeeded"
     operation_never_ends: bool = False
+    operation_ends_alone: bool = False
     claim_exists: bool = True
     owner_kind: str | None = None
     tracked: bool = True
@@ -175,7 +176,9 @@ class Cluster:
         if args[0] == "wait":
             if args[1].startswith("application/"):
                 self.changes.append(f"wait {args[1]}")
-                if self.operation_never_ends:
+                if self.operation_never_ends or self.operation_ends_alone:
+                    if self.operation_ends_alone:
+                        self.operation_phase = "Succeeded"
                     return _failed("error: timed out waiting for the condition")
             return _ok("")
         if args[0] == "exec":
@@ -450,6 +453,9 @@ class Cluster:
 
 
 def _patch_summary(body: dict[str, Any]) -> str:
+    if "status" in body:
+        assert body == {"status": {"operationState": {"phase": "Terminating"}}}
+        return "terminate"
     spec = body["spec"]
     if "syncPolicy" in spec:
         return f"enabled={str(spec['syncPolicy']['automated']['enabled']).lower()}"
@@ -789,13 +795,30 @@ def test_a_running_sync_of_a_paused_application_is_waited_for(
 
     _move(tmp_path)
 
-    waits = [f"wait application/{name}" for name in PAUSE]
-    first = cluster.changes.index(waits[0])
-    assert cluster.changes[first : first + 3] == waits
+    # A retrying operation has `finishedAt` between its attempts, so the run ends it (#7485).
+    ends = [
+        step
+        for name in PAUSE
+        for step in (f"patch application {name} terminate", f"wait application/{name}")
+    ]
+    first = cluster.changes.index(ends[0])
+    assert cluster.changes[first : first + 6] == ends
     assert first > cluster.changes.index(_pause(False, PAUSE)[-1])
-    second = cluster.changes.index(waits[0], first + 1)
-    assert cluster.changes[second : second + 3] == waits
+    second = cluster.changes.index(ends[0], first + 1)
+    assert cluster.changes[second : second + 6] == ends
     assert second < cluster.changes.index("delete pod grafana-src grafana-dst")
+
+
+def test_a_sync_that_ends_by_itself_during_the_wait_lets_the_move_go_on(
+    cluster: Cluster, tmp_path: Path
+) -> None:
+    cluster.operation_phase = "Running"
+    cluster.operation_ends_alone = True
+
+    result = _move(tmp_path)
+
+    assert result.new_volume == NEW_VOLUME
+    assert cluster.changes[-3:] == _pause(True, ("grafana", "cluster", "bootstrap"))
 
 
 def test_no_running_sync_means_no_wait(cluster: Cluster, tmp_path: Path) -> None:
