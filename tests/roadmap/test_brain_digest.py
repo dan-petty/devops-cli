@@ -455,3 +455,23 @@ def test_a_digest_of_eleven_entries_records_ten_used_entries_in_one_write(
         item.job_record.get(AlternativesRecordKey.BRAIN_USED),
         store.writes[before:],
     ) == (" ".join(used[:10]), ["set_marks", "comment"])
+
+
+@pytest.mark.usefixtures("searches", "roadmap_state_valkey")
+def test_a_check_with_an_empty_digest_clears_the_used_entries_of_an_earlier_check() -> None:
+    """The record of item 1 holds `alternatives.brain_used` of an earlier check, and the index holds
+    no entry of the item: the check clears the key to null."""
+    store = _roadmap("Build a widget")
+    earlier = store.item(1)
+    assert earlier is not None
+    store.set_marks(earlier, {AlternativesRecordKey.BRAIN_USED: "item:1 item:9"})
+
+    _check(store)
+
+    item = store.item(1)
+    assert item is not None
+    assert (
+        item.job_record.get(AlternativesRecordKey.VERDICT),
+        AlternativesRecordKey.BRAIN_USED in item.job_record,
+        item.job_record.get(AlternativesRecordKey.BRAIN_USED),
+    ) == ("none", True, None)
