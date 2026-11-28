@@ -77,12 +77,14 @@ DOC_COPIER: Final[str] = "https://copier.readthedocs.io/en/stable/#installation"
 @dataclass(frozen=True)
 class Row:
     """One step of the run: its number, its name, its state, what it changed or would change,
-    why, and the person steps that stay. A row that `informs_only` never changes the exit code."""
+    what it kept that is stricter than the baseline, why, and the person steps that stay. A row
+    that `informs_only` never changes the exit code."""
 
     number: int
     name: str
     state: RowState
     changes: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
     reason: str | None = None
     steps: tuple[PersonStep, ...] = ()
     informs_only: bool = False

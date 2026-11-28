@@ -166,6 +166,7 @@ def test_an_onboarded_repository_plans_no_change(
     assert report.failing is False, render_report(report)
     assert {request.method for request in onboard_github.api.sent} == {"GET"}
     assert report.person_steps == ()
+    assert " ! " not in render_report(report), "an equal ruleset gives no warning"
     assert render_report(report).endswith("Person steps: none.")
     assert _row(report, 16).state is P
 
@@ -949,6 +950,68 @@ def _require_live_checks(harness: OnboardHarness, checks: list[str]) -> None:
     rule["parameters"]["required_status_checks"] += [
         {"context": name, "integration_id": _ACTIONS} for name in checks
     ]
+
+
+def _live_rule(harness: OnboardHarness, kind: str) -> dict[str, Any]:
+    """The rule of a type in the live ruleset `main` of REPO."""
+    return next(rule for rule in harness.state.rulesets[0]["rules"] if rule["type"] == kind)
+
+
+def test_a_stricter_live_ruleset_keeps_its_rule_and_names_it(
+    onboard_github: OnboardHarness, config: Any
+) -> None:
+    # `code_coverage` has no definition in the baseline file, so the write of row 10 must keep it.
+    _onboarded(onboard_github, config)
+    onboard_github.state.rulesets[0]["rules"].append(
+        {"type": "code_coverage", "parameters": {"minimum_coverage": 90}}
+    )
+
+    report = _run(onboard_github, only=frozenset({10}))
+
+    row = _row(report, 10)
+    assert (row.state, row.changes) == (P, ()), render_report(report)
+    assert report.failing is False
+    assert " ! ruleset main: keeps code_coverage.minimum_coverage 90" in render_report(report)
+
+
+def test_the_required_checks_rule_keeps_each_live_check_with_no_warning(
+    onboard_github: OnboardHarness, config: Any
+) -> None:
+    # The change line of row 10 names each required check, so a kept live check gets no warning.
+    _onboarded(onboard_github, config)
+    _require_live_checks(onboard_github, ["Extra"])
+
+    report = _run(onboard_github, only=frozenset({10}))
+
+    row = _row(report, 10)
+    assert (row.state, row.changes) == (P, ()), render_report(report)
+    assert "Extra" in _required_checks(onboard_github)
+    assert not [
+        line
+        for line in render_report(report).splitlines()
+        if line.startswith(" ! ") and "required_status_checks" in line
+    ], render_report(report)
+
+
+def test_the_repository_file_wins_a_live_parameter_of_the_required_checks_rule(
+    onboard_github: OnboardHarness, config: Any
+) -> None:
+    # The merge keeps the stricter live policy, and then the repository file wins the parameter
+    # that it sets (#7423).
+    _onboarded(onboard_github, config)
+    _live_rule(onboard_github, "required_status_checks")["parameters"][
+        "strict_required_status_checks_policy"
+    ] = True
+    _declare_checks(onboard_github, [], strict_required_status_checks_policy=False)
+
+    report = _run(onboard_github, confirm=True, only=frozenset({10}))
+
+    assert onboard_github.writes() == ["PUT /repos/example-org/app/rulesets/7"]
+    parameters = _live_rule(onboard_github, "required_status_checks")["parameters"]
+    assert parameters["strict_required_status_checks_policy"] is False
+    assert "strict_required_status_checks_policy" not in render_report(report), (
+        "the row writes the value of the file, so no warning line may say that it keeps the live one"
+    )
 
 
 def test_a_live_required_check_that_only_skipped_is_dropped(
