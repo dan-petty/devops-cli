@@ -25,7 +25,11 @@ When `valkey.url` has the scheme `valkeys`, each Valkey client that reads the `v
 - **THEN** the Valkey panel of the dashboard shows the server as connected, with the version, the uptime and the key count that the server sends
 
 ### Requirement: valkey.url names the address and the database
-The host, the port and the database of `valkey.url` SHALL be the endpoint that a Valkey client dials. The database SHALL come from the path or the query key `db`, and SHALL be 0 when neither names one. An unset or empty `valkey.url` SHALL be `valkey://localhost:6379/0`. No other setting, variable or option SHALL name a Valkey address. `DEVOPS_CLI_VALKEY_URL` SHALL replace `valkey.url`, and `--url` SHALL replace both.
+The host, port, and database of `valkey.url` SHALL be the endpoint that a Valkey client dials, with database from path or `db` query (default 0). `ValkeyConfig.url` SHALL default to `None`, and when unset or empty, `ValkeyConfig.endpoint` SHALL raise `ConfigurationError` naming `valkey.url`. No other setting, variable, or option SHALL name a Valkey address. `DEVOPS_CLI_VALKEY_URL` SHALL replace `valkey.url`, and `--url` SHALL replace both.
+
+#### Scenario: Unset or empty valkey.url is refused
+- **WHEN** `valkey.url` is unset, empty, or null
+- **THEN** `ValkeyConfig.url` defaults to `None`, `ValkeyConfig.endpoint` raises `ConfigurationError` naming `valkey.url`, and `devops valkey ping` exits non-zero naming `valkey.url`
 
 #### Scenario: The path of the URL names the database
 - **WHEN** `valkey.url` is `valkey://example.com:<port>/2`
