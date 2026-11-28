@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.231.1](https://github.com/dan-petty/devops-cli/compare/v0.231.0...v0.231.1) (2026-11-28)
+
+
+### Bug Fixes
+
+* **repos:** Keep live rules and stricter thresholds ([#7481](https://github.com/dan-petty/devops-cli/issues/7481)) ([3e187f1](https://github.com/dan-petty/devops-cli/commit/3e187f1e6f6ac19f536fb61960cdb473a08622b5))
+
 ## [0.231.0](https://github.com/dan-petty/devops-cli/compare/v0.230.0...v0.231.0) (2026-11-28)
 
 
