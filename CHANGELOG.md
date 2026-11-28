@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.232.10](https://github.com/dan-petty/devops-cli/compare/v0.232.9...v0.232.10) (2026-11-28)
+
+
+### Bug Fixes
+
+* **ci:** resolve gate root from nearest git work tree ([#7369](https://github.com/dan-petty/devops-cli/issues/7369)) ([#7563](https://github.com/dan-petty/devops-cli/issues/7563)) ([b2bf505](https://github.com/dan-petty/devops-cli/commit/b2bf505e3c3523f8e575c57ad4b8b970f1ca6fb4))
+* **ci:** Resolve the gate root from the nearest git work tree. ([b2bf505](https://github.com/dan-petty/devops-cli/commit/b2bf505e3c3523f8e575c57ad4b8b970f1ca6fb4))
+
 ## [0.232.9](https://github.com/dan-petty/devops-cli/compare/v0.232.8...v0.232.9) (2026-11-28)
 
 
