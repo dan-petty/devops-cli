@@ -128,6 +128,7 @@ def _print_plan(plan: VolumeMovePlan) -> None:
             old=", ".join(plan.access_modes), new=", ".join(plan.new_access_modes)
         )
     )
+    _say(m.volume_move_plan_size.format(old=plan.size, new=plan.new_size))
     workloads = ", ".join(f"{w.ref} (replicas: {w.replicas})" for w in plan.workloads)
     _say(m.volume_move_plan_workloads.format(workloads=workloads, pods=", ".join(plan.pods)))
     if plan.applications:
@@ -215,6 +216,7 @@ def _plan_or_exit(
     to_node: str | None,
     storage_class: str | None,
     access_mode: str | None,
+    size: str | None,
     context: str | None,
 ) -> VolumeMovePlan:
     """The plan, or exit 1 naming each problem: the plan only reads, so nothing changed."""
@@ -229,6 +231,7 @@ def _plan_or_exit(
             to_node=to_node,
             storage_class=storage_class,
             access_mode=access_mode,
+            size=size,
             context=context,
         )
     except VolumeMoveRefusedError as exc:
@@ -291,6 +294,10 @@ def volume_move_cmd(
         str | None,
         typer.Option("--access-mode", metavar="MODE", help=HELP.k8s.volume_move_access_mode),
     ] = None,
+    size: Annotated[
+        str | None,
+        typer.Option("--size", metavar="QUANTITY", help=HELP.k8s.volume_move_size),
+    ] = None,
     plan: Annotated[bool, typer.Option("--plan", help=HELP.k8s.volume_move_plan)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.k8s.volume_move_dry_run)] = False,
     context: Annotated[
@@ -321,6 +328,7 @@ def volume_move_cmd(
                 to_node=to_node,
                 storage_class=storage_class,
                 access_mode=access_mode,
+                size=size,
                 context=effective_context,
             ),
             (
@@ -332,7 +340,7 @@ def volume_move_cmd(
         )
         return
     move_plan = _plan_or_exit(
-        namespace, name, to_node, storage_class, access_mode, effective_context
+        namespace, name, to_node, storage_class, access_mode, size, effective_context
     )
     _print_plan(move_plan)
     if plan:
