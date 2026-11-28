@@ -318,7 +318,9 @@ class ValkeyClient:
 
     def hscan(self, key: str, cursor: int, count: int) -> tuple[int, dict[str, bytes]]:
         """One step of `HSCAN`: the next cursor, 0 at the end, and the fields of the step with
-        the bytes of their values. `count` is the number of fields that the server is asked for."""
+        the bytes of their values. `count` is the number of fields that the server is asked for.
+        A field name that is not UTF-8 reads with the replacement character, as a value does when
+        a reader decodes it, so a hash that another writer changed raises no decode error."""
         reply = self._call(
             self._raw.execute_command,
             "HSCAN",
@@ -330,7 +332,7 @@ class ValkeyClient:
         )
         next_cursor, flat = reply
         fields = {
-            bytes(name).decode(): bytes(value)
+            bytes(name).decode("utf-8", "replace"): bytes(value)
             for name, value in zip(flat[::2], flat[1::2], strict=True)
         }
         return int(next_cursor), fields

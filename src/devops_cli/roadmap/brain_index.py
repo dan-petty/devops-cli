@@ -67,6 +67,9 @@ _CHECKED_AT: Final[str] = "checked_at"
 # The kind of an entry in its id in `alternatives.brain_used` (#4682).
 _ID_ITEM: Final[str] = "item"
 _ID_TOOL: Final[str] = "tool"
+# The most digits of an issue number in a field of the index. `int` refuses a text of more than
+# 4,300 digits, and an issue number has far fewer.
+_NUMBER_MAX_DIGITS: Final[int] = 10
 # How many fields or keys one step of a scan asks the server for.
 _SCAN_COUNT: Final[int] = 500
 
@@ -140,6 +143,15 @@ def _numbers(numbers: Sequence[int]) -> str:
     return " ".join(str(number) for number in numbers)
 
 
+def _number(word: str) -> int | None:
+    """The issue number that `word` gives: ASCII digits, at most `_NUMBER_MAX_DIGITS` of them;
+    None for any other text. A person or another writer can change a field of the index, so no
+    value makes the read raise."""
+    if word.isascii() and word.isdecimal() and len(word) <= _NUMBER_MAX_DIGITS:
+        return int(word)
+    return None
+
+
 def _time(text: str | None) -> datetime | None:
     """The time that `text` gives, a time with no zone as UTC; None when it gives none."""
     try:
@@ -165,19 +177,20 @@ def _held_item(number: int, fields: Mapping[str, str]) -> HeldItem | None:
         verdict = Verdict(fields.get("verdict", ""))
     except ValueError:
         return None
-    near = tuple(int(word) for word in fields.get("near", "").split() if word.isdecimal())
+    words = fields.get("near", "").split()
+    near = tuple(other for other in map(_number, words) if other is not None)
     return HeldItem(number, verdict, checked_at, fields.get("tool_id", ""), near)
 
 
 def _watermark_of(fields: Mapping[str, str]) -> Watermark:
     """The watermark that the fields of its hash give; empty for a hash of another schema or
-    with a number that is no number."""
-    number = fields.get("number", "0")
-    if fields.get("schema") != SCHEMA or not number.isdecimal():
+    with a number that is no issue number."""
+    number = _number(fields.get("number", "0"))
+    if fields.get("schema") != SCHEMA or number is None:
         return Watermark()
     return Watermark(
         changed=_time(fields.get("changed")),
-        number=int(number),
+        number=number,
         synced_at=_time(fields.get("synced_at")),
     )
 

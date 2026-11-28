@@ -159,25 +159,22 @@ def test_the_digest_holds_the_date_of_the_check_of_each_near_item(index: BrainIn
     ]
 
 
-def test_a_digest_over_2000_tokens_holds_whole_entries_of_at_most_2000_tokens(
+def test_a_digest_over_2000_tokens_leaves_out_each_whole_entry_that_does_not_fit(
     index: BrainIndex,
 ) -> None:
-    """Each of 5 near items names a tool whose name holds about 800 tokens, so the 5 entries hold
-    about 4,000 tokens. The digest holds the first 2 entries whole, and its text holds at most
-    2,000 tokens."""
+    """The tool names of 5 near items hold about 900, 1,200, 300, 1,200 and 10 tokens, about
+    3,600 together. The digest holds the first entry, leaves out the second, which does not fit
+    after it, and holds the third and the fifth, which fit after the first."""
+    sizes = (900, 1200, 300, 1200, 10)
     near = [
-        _entry(number, tool_id=f"github.com/acme/kit-{number}", tool_name="kit " * 800)
-        for number in range(2, 7)
+        _entry(number, tool_id=f"github.com/acme/kit-{number}", tool_name="kit " * size)
+        for number, size in zip(range(2, 7), sizes, strict=True)
     ]
     _brain(index, 1, near)
 
     digest = read_digest(index, 1, ())
 
-    text = json.dumps(digest.value(), ensure_ascii=False, indent=1)
-    assert (digest.value(), count_tokens(text) <= MAX_TOKENS) == (
-        [_value(near[0]), _value(near[1])],
-        True,
-    )
+    assert digest.value() == [_value(near[0]), _value(near[2]), _value(near[4])]
 
 
 def test_the_digest_names_the_adr_in_force_that_rejects_the_tool_of_a_near_item(
@@ -202,17 +199,19 @@ def test_the_digest_names_the_adr_in_force_that_rejects_the_tool_of_a_near_item(
     assert digest.value() == [_value(temporal, rejected_by=["ADR 0008"]), _value(argo)]
 
 
-def test_the_digest_holds_no_area_verdict_while_the_index_holds_no_area_check(
-    index: BrainIndex,
+def test_the_near_items_leave_out_the_item_itself_and_a_repeated_number(
+    index: BrainIndex, valkey_server: FakeServer
 ) -> None:
-    """The brain index of #4676 has no kind of entry for an area check, so the digest of an item
-    with 2 near items holds the 2 near items and nothing else."""
-    near = [_entry(2), _entry(3, verdict=Verdict.COVERS)]
-    _brain(index, 1, near)
+    """The `near` field of the entry of item 1 is `1 1 2 2`: the digest holds item 2 one time."""
+    _brain(index, 1, [_entry(2)])
+    FakeValkey(server=valkey_server).hset("roadmap:v1:brain-item:acme/widgets:1", "near", "1 1 2 2")
 
     digest = read_digest(index, 1, ())
 
-    assert digest.value() == [_value(entry) for entry in near]
+    assert (digest.value(), digest.used) == (
+        [_value(_entry(2))],
+        ("item:1", "item:2", f"tool:{tool_key_id(TOOL_ID)}"),
+    )
 
 
 def test_a_near_item_with_no_entry_or_an_entry_of_another_form_gives_no_digest_entry(
@@ -315,6 +314,99 @@ def _request(script: Script, index: int = 0) -> dict[str, Any]:
     """The request of the model at `index`, as the model read it."""
     request: dict[str, Any] = json.loads(script.prompt(index))
     return request
+
+
+def _brain_text(script: Script) -> str | None:
+    """The text of the value of `brain` in the first request of the model, as the model read it;
+    None when the request holds no `brain`."""
+    text = script.prompt(0)
+    start = text.find('"brain": ')
+    if start < 0:
+        return None
+    return text[start + len('"brain": ') : text.index(',\n "search_budget"')]
+
+
+# The JSON fields of a digest entry with a tool.
+ENTRY_KEYS = ["checked", "item", "rejected_by", "tool", "tool_name", "verdict"]
+
+
+@pytest.mark.usefixtures("searches", "roadmap_state_valkey")
+def test_the_area_read_is_empty_while_the_index_holds_no_area_check(index: BrainIndex) -> None:
+    """The brain index of #4676 has no kind of entry for an area check. The request of an item
+    with 2 near items holds no `area`, and each entry of its digest holds no `area`."""
+    _brain(index, 1, [_entry(2), _entry(3, verdict=Verdict.COVERS)])
+
+    request = _request(_check(_roadmap("Build a widget")))
+
+    assert ("area" in request, [sorted(entry) for entry in request["brain"]]) == (
+        False,
+        [ENTRY_KEYS, ENTRY_KEYS],
+    )
+
+
+@pytest.mark.usefixtures("searches", "roadmap_state_valkey")
+@pytest.mark.parametrize(
+    ("words", "held"),
+    [pytest.param(1938, True, id="2000-tokens-as-sent"), pytest.param(1940, False, id="2002")],
+)
+def test_the_digest_as_the_request_holds_it_has_at_most_2000_tokens(
+    index: BrainIndex, words: int, held: bool
+) -> None:
+    """The tool name of the one near item of item 1 holds `words` words. As the request holds
+    it, one level down in the JSON of the request, the digest of 1,938 words holds 2,000 tokens
+    and stays. The digest of 1,940 words holds 2,002 tokens there, so the request holds no
+    `brain`. As a JSON document of its own, that digest holds 2,000 tokens."""
+    _brain(index, 1, [_entry(2, tool_id="github.com/acme/kit-2", tool_name="kit " * words)])
+
+    text = _brain_text(_check(_roadmap("Build a widget")))
+
+    assert (text is not None, text is None or count_tokens(text) <= MAX_TOKENS) == (held, True)
+
+
+def _corrupt_near(server: FakeServer) -> None:
+    """The `near` field of the entry of item 1 holds a word of 5,000 digits between 2 and 3."""
+    near = f"2 {'9' * 5000} 3"
+    FakeValkey(server=server).hset("roadmap:v1:brain-item:acme/widgets:1", "near", near)
+
+
+def _name_on_own_entry(server: FakeServer) -> None:
+    """The hash of the entry of item 1 holds a field whose name is not UTF-8."""
+    FakeValkey(server=server).hset("roadmap:v1:brain-item:acme/widgets:1", b"\xff\xfe", b"x")
+
+
+def _name_on_near_entry(server: FakeServer) -> None:
+    """The hash of the entry of near item 2 holds a field whose name is not UTF-8."""
+    FakeValkey(server=server).hset("roadmap:v1:brain-item:acme/widgets:2", b"\xff\xfe", b"x")
+
+
+@pytest.mark.usefixtures("searches", "roadmap_state_valkey")
+@pytest.mark.parametrize(
+    "corrupt",
+    [
+        pytest.param(_corrupt_near, id="near-word-of-5000-digits"),
+        pytest.param(_name_on_own_entry, id="non-utf8-field-name-on-the-entry-of-the-item"),
+        pytest.param(_name_on_near_entry, id="non-utf8-field-name-on-a-near-entry"),
+    ],
+)
+def test_a_brain_entry_of_a_wrong_form_leaves_the_round_and_its_verdict_whole(
+    index: BrainIndex, valkey_server: FakeServer, corrupt: Callable[[FakeServer], None]
+) -> None:
+    """The brain holds near items 2 and 3 of item 1, and then one of its hashes gets a value or a
+    field name of a wrong form. The round completes, the check writes the verdict of its reply,
+    and the digest holds the 2 sound near items."""
+    near = [_entry(2), _entry(3)]
+    _brain(index, 1, near)
+    corrupt(valkey_server)
+    store = _roadmap("Build a widget")
+
+    script = _check(store)
+
+    item = store.item(1)
+    assert item is not None
+    assert (
+        item.job_record.get(AlternativesRecordKey.VERDICT),
+        _request(script).get("brain"),
+    ) == ("none", [_value(entry) for entry in near])
 
 
 @pytest.mark.usefixtures("searches", "roadmap_state_valkey")

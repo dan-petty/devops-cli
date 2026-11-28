@@ -160,7 +160,13 @@ from devops_cli.roadmap.body_hash import (
     hash_text,
     job_block_bounds,
 )
-from devops_cli.roadmap.brain_digest import BrainDigest, digest_index, read_digest
+from devops_cli.roadmap.brain_digest import (
+    DIGEST_KEY,
+    REQUEST_INDENT,
+    BrainDigest,
+    digest_index,
+    read_digest,
+)
 from devops_cli.roadmap.brain_index import BrainIndex
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.decision_point import Mode, ResolverChain, chain_of
@@ -895,7 +901,7 @@ def alternatives_request(
         ),
         "replies": person_replies,
         **({"decisions": "\n\n".join(adr.entry for adr in adrs)} if adrs else {}),
-        **({"brain": digest.value()} if digest and digest.entries else {}),
+        **({DIGEST_KEY: digest.value()} if digest and digest.entries else {}),
         "search_budget": {
             "searches": CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
             "results_per_search": CONST_ROADMAP_ALTERNATIVES_SEARCH_RESULTS,
@@ -908,7 +914,7 @@ def alternatives_request(
     if fitted.index or fitted.unlisted:
         document["note"] = _READ_COMMENT_NOTE
 
-    return json.dumps(document, ensure_ascii=False, indent=1)
+    return json.dumps(document, ensure_ascii=False, indent=REQUEST_INDENT)
 
 
 _request = alternatives_request

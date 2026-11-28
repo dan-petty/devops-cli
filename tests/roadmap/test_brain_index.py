@@ -23,7 +23,14 @@ from devops_cli.roadmap.brain_entries import (
     reference_key_id,
     tool_key_id,
 )
-from devops_cli.roadmap.brain_index import BrainIndex, Related, Watermark, Written
+from devops_cli.roadmap.brain_index import (
+    BrainIndex,
+    HeldItem,
+    HeldTool,
+    Related,
+    Watermark,
+    Written,
+)
 from devops_cli.roadmap.stores.store import GitHubState, Verdict
 from tests.support.fakes.valkey import valkey_client_on
 
@@ -296,6 +303,32 @@ def test_the_watermark_comes_back_as_the_sync_wrote_it(index: BrainIndex) -> Non
         Watermark(),
         Watermark(changed=CHECKED_AT, number=7, synced_at=later),
     )
+
+
+def test_the_read_of_an_entry_gives_its_check_its_near_items_and_its_tool(
+    index: BrainIndex,
+) -> None:
+    """The index holds the entry of item 7, with near items 9 and 3, and its tool. A read of items
+    7 and 8 gives the entry of item 7 only, and a read of 2 tools gives the one that it holds."""
+    index.write(_entry(), RELATED)
+
+    assert (index.items([7, 8]), index.tools([TOOL_ID, "github.com/acme/frames"])) == (
+        {7: HeldItem(7, Verdict.COVERS, CHECKED_AT, TOOL_ID, (9, 3))},
+        {TOOL_ID: HeldTool(TOOL_ID, "Widget Kit")},
+    )
+
+
+def test_a_watermark_number_of_5000_digits_gives_an_empty_watermark(
+    index: BrainIndex, reader: FakeValkey
+) -> None:
+    """The watermark hash holds a number of 5,000 digits, which `int` refuses: the read gives the
+    empty watermark, so the next sync copies each check again, and raises nothing."""
+    reader.hset(
+        SYNC_KEY,
+        mapping={"schema": "1", "changed": CHECKED_AT.isoformat(), "number": "9" * 5000},
+    )
+
+    assert index.watermark() == Watermark()
 
 
 def test_a_store_that_does_not_answer_gives_no_watermark_no_keys_and_no_write(
