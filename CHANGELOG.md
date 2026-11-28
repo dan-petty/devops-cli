@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.232.8](https://github.com/dan-petty/devops-cli/compare/v0.232.7...v0.232.8) (2026-11-28)
+
+
+### Bug Fixes
+
+* **research:** read the whole watch list in advisories and sweep ([#7554](https://github.com/dan-petty/devops-cli/issues/7554)) ([1f621a5](https://github.com/dan-petty/devops-cli/commit/1f621a595c58e439a33796d654322e851352060f))
+
 ## [0.232.7](https://github.com/dan-petty/devops-cli/compare/v0.232.6...v0.232.7) (2026-11-28)
 
 
