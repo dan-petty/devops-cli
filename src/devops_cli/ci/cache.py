@@ -28,7 +28,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
-from devops_cli.core.repo import find_worktree_root, resolve_data_path
+from devops_cli.core.repo import find_gate_root, resolve_data_path
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ def resolve_ci_cache_path(root: Path = Path(".")) -> Path:
         cache_dir = base_dir / CONST_CACHE_DIR_NAME
     cache_dir = resolve_data_path(cache_dir, root)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    worktree = hashlib.sha256(str(find_worktree_root(root)).encode()).hexdigest()[:16]
+    worktree = hashlib.sha256(str(find_gate_root(root)).encode()).hexdigest()[:16]
     cache_file = Path(CONST_CI_CACHE_FILENAME)
     return cache_dir / f"{cache_file.stem}-{worktree}{cache_file.suffix}"
 

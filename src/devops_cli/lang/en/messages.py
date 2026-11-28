@@ -2439,6 +2439,7 @@ class CIMessages:
         "of times longer than on a Linux filesystem, so the tests run several times slower. "
         "Clone the repository into the WSL filesystem or a container volume and reopen it there."
     )
+    not_in_work_tree: str = "{path} is not in a git work tree."
     gate_slot_wait: str = (
         "Waiting for a CI gate slot. Allowed at one time: {slots}. Held by: {holders}."
     )

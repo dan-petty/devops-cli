@@ -555,3 +555,55 @@ def test_a_tree_that_changes_during_the_run_prints_the_warning(
         " ".join(result.output.split()).count(MESSAGES.ci.cache_tree_changed),
         cache_file.read_text(encoding="utf-8"),
     ) == (0, 1, '{"existing": true}')
+
+
+def test_cache_and_coverage_index_keyed_by_nested_clone_gate_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git_fake: GitFake
+) -> None:
+    """Cache and coverage index paths of a nested `repos/` clone worktree differ from the outer checkout."""
+    from devops_cli.ci.cache import resolve_coverage_index_path, save_ci_cache
+
+    outer = tmp_path / "outer"
+    (outer / ".git").mkdir(parents=True)
+    clone = outer / "repos" / "dan-petty" / "homelab"
+    wt = outer / ".data" / "agent" / "worktrees" / "h-1"
+    wt_git = clone / ".git" / "worktrees" / "h-1"
+    wt_git.mkdir(parents=True)
+    wt.mkdir(parents=True)
+    (wt / ".git").write_text(f"gitdir: {wt_git}\n", encoding="utf-8")
+    (wt_git / "gitdir").write_text(f"{wt / '.git'}\n", encoding="utf-8")
+    (wt_git / "commondir").write_text("../..\n", encoding="utf-8")
+    cache_dir = outer / ".data" / "cache"
+    cache_dir.mkdir(parents=True)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(outer / ".data"))
+
+    def show_toplevel(call: ProcessCall) -> ProcessAnswer:
+        c_idx = call.argv.index("-C") if "-C" in call.argv else -1
+        target = Path(call.argv[c_idx + 1]).resolve() if c_idx >= 0 else outer.resolve()
+        resolved = wt.resolve() if target.is_relative_to(wt.resolve()) else outer.resolve()
+        return ProcessAnswer(returncode=0, stdout=f"{resolved}\n")
+
+    git_fake.answer(lambda call: "--show-toplevel" in call.argv, show_toplevel)
+
+    wt_cache = resolve_ci_cache_path(wt)
+    outer_cache = resolve_ci_cache_path(outer)
+    wt_index = resolve_coverage_index_path(wt)
+    outer_index = resolve_coverage_index_path(outer)
+
+    save_ci_cache(
+        fingerprint="wt-fp",
+        head_sha="wt-head",
+        checks=[
+            CICachedCheck(name="lint", display_title="ruff", passed=True, duration_seconds=0.1)
+        ],
+        options={"fix": False, "check": True},
+        passed=True,
+        root=wt,
+    )
+
+    assert (
+        wt_cache != outer_cache,
+        wt_index != outer_index,
+        wt_cache.is_file(),
+        outer_cache.is_file(),
+    ) == (True, True, True, False)

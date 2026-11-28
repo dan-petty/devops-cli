@@ -279,6 +279,25 @@ def find_worktree_root(start_path: Path | str | None = None) -> Path:
     )
 
 
+def find_gate_root(start_path: Path | str | None = None) -> Path:
+    """The quality gate root enclosing `start_path` (#7369).
+
+    Resolves the nearest ancestor holding `.git`, so a linked worktree of a clone under `repos/`
+    checks itself instead of the outer workspace and a stale linked worktree still resolves to
+    itself. Raises `GitOperationError` outside any git work tree without spawning a subprocess.
+    """
+    from devops_cli.exceptions.git import GitOperationError
+    from devops_cli.lang import MESSAGES
+
+    current = Path(start_path or Path.cwd()).resolve()
+    if current.is_file():
+        current = current.parent
+    checkout = nearest_checkout(current)
+    if checkout is not None and CONST_GIT_DIR_NAME not in current.relative_to(checkout).parts:
+        return checkout.resolve()
+    raise GitOperationError(MESSAGES.ci.not_in_work_tree.format(path=current))
+
+
 def main_worktree_root(start_path: Path | str | None = None) -> Path:
     """The main worktree of the repository at `start_path`; a linked worktree resolves to it.
 
