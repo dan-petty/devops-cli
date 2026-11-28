@@ -101,6 +101,14 @@ def test_the_release_of_a_commit_is_a_full_release_tag_at_it(
         ("3.5.4", ">= 3.0.0, < 3.3.15 || >= 3.4.0, < 3.4.10 || >= 3.5.0, < 3.5.4", False),
         ("3.5.3", ">= 3.0.0, < 3.3.15 || >= 3.4.0, < 3.4.10 || >= 3.5.0, < 3.5.4", True),
         ("3.4.0", "< 3.3.15 || >= 3.4.0", True),
+        ("0.6.5", "0.6.5", True),
+        ("0.6.4", "0.6.5", False),
+        ("0.1.111", "v0.1.111", True),
+        ("0.1.112", "v0.1.111", False),
+        ("1.83.9", "< 1.83.10-stable", True),
+        ("1.83.10", "< 1.83.10-stable", False),
+        ("1.82.5", ">= v1.82.0-stable, < v1.83.0-stable", True),
+        ("1.83.0", ">= v1.82.0-stable, < v1.83.0-stable", False),
     ],
 )
 def test_a_version_is_in_the_range_of_an_advisory_when_every_comparator_holds(
@@ -110,8 +118,30 @@ def test_a_version_is_in_the_range_of_an_advisory_when_every_comparator_holds(
 
 
 @pytest.mark.parametrize(
-    "range_text", ["", "  , ", "since 1.2", "< one", "3.2.0 through 3.2.11", "< 1.0 || "]
+    ("version", "range_text", "patched_version", "expected"),
+    [
+        ("1.111.0", ">= 1.86.0", "1.86.3", False),
+        ("1.86.2", ">= 1.86.0", "1.86.3", True),
+        ("1.86.3", ">= 1.86.0", "1.86.3", False),
+        ("1.111.0", ">= 1.86.0", "v1.86.3-stable", False),
+        ("1.111.0", ">= 1.86.0", "", True),
+        ("1.81.0", ">= 1.80.0, < 1.81.2 || >= 1.86.0", "1.86.3", True),
+        ("1.111.0", ">= 1.80.0, < 1.81.2 || >= 1.86.0", "1.86.3", False),
+    ],
+)
+def test_an_open_lower_bound_closes_at_patched_version(
+    version: str, range_text: str, patched_version: str, expected: bool
+) -> None:
+    assert in_range(Version(version), range_text, patched_version=patched_version) is expected
+
+
+@pytest.mark.parametrize(
+    "range_text",
+    ["", "  , ", "since 1.2", "< one", "3.2.0 through 3.2.11", "< 1.0 || ", "< 1.83.10-custom"],
 )
 def test_a_range_that_cannot_be_read_is_an_error_and_not_a_miss(range_text: str) -> None:
     with pytest.raises(ValueError, match=r"."):
         in_range(Version("1.2.3"), range_text)
+
+    with pytest.raises(ValueError, match="-custom"):
+        in_range(Version("1.2.3"), "< 1.83.10-custom")

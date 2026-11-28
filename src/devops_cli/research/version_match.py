@@ -63,27 +63,47 @@ def release_for_commit(tags: Iterable[tuple[str, str]], commit: str) -> str | No
     return releases[max(releases)]
 
 
-def _specifier_set(comparators: str) -> SpecifierSet:
+_OPERATORS = ("===", "==", "!=", "<=", ">=", "~=", "=", "<", ">")
+_UPPER_BOUND_OPERATORS = frozenset({"<", "<=", "==", "==="})
+
+
+def _normalize_version(text: str) -> str:
+    """Drop a leading `v` prefix and a trailing `-stable` release tag suffix."""
+    return text.removeprefix("v").removesuffix("-stable")
+
+
+def _normalize_comparator(part: str) -> str:
+    """Normalize a comparator: map a bare version or `=` to `==` and normalize its version."""
+    for operator in _OPERATORS:
+        if part.startswith(operator):
+            mapped = "==" if operator == "=" else operator
+            return f"{mapped}{_normalize_version(part[len(operator) :].strip())}"
+    return f"=={_normalize_version(part)}"
+
+
+def _specifier_set(comparators: str, patched_version: str = "") -> SpecifierSet:
     parts = [part.strip() for part in comparators.split(",") if part.strip()]
     if not parts:
         raise ValueError("the advisory names an empty range of versions")
-    return SpecifierSet(
-        ",".join(
-            f"={part}" if part.startswith("=") and not part.startswith("==") else part
-            for part in parts
-        )
-    )
+    spec_set = SpecifierSet(",".join(_normalize_comparator(part) for part in parts))
+    patched = patched_version.strip()
+    if patched and not any(spec.operator in _UPPER_BOUND_OPERATORS for spec in spec_set):
+        spec_set = SpecifierSet(f"{spec_set},<{_normalize_version(patched)}")
+    return spec_set
 
 
-def in_range(version: Version, range_text: str) -> bool:
+def in_range(version: Version, range_text: str, *, patched_version: str | None = None) -> bool:
     """Whether `version` is in the range of an advisory: in any of the ranges that `||` joins.
 
-    A range that is empty or that `packaging` cannot read raises `ValueError`: the caller reports
-    the advisory as unread, and never as one that does not apply.
+    When `patched_version` is given, each open lower-bound alternative without an upper comparator
+    (`<=`, `<`, `==`, `===`) is bounded below `<patched_version>`. A range that is empty or that
+    `packaging` cannot read raises `ValueError`: the caller reports the advisory as unread, and
+    never as one that does not apply.
     """
     if not range_text.strip():
         raise ValueError("the advisory names no range of versions")
+    patched = patched_version or ""
     return any(
-        _specifier_set(alternative).contains(version, prereleases=True)
+        _specifier_set(alternative, patched).contains(version, prereleases=True)
         for alternative in range_text.split("||")
     )

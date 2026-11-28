@@ -384,7 +384,11 @@ def _github_matches(
             ):
                 continue
             try:
-                affected = in_range(version, vulnerability.vulnerable_version_range or "")
+                affected = in_range(
+                    version,
+                    vulnerability.vulnerable_version_range or "",
+                    patched_version=vulnerability.fixed_version,
+                )
             except ValueError as exc:
                 failures.append(_failure(components, advisory.ghsa_id, str(exc)))
                 break
