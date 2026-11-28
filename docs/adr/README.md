@@ -170,7 +170,7 @@ The links to the OpenSpec change, the spec, the settings and the issue.
 | [0023](0023-the-project-brain-is-a-derived-index-in-two-cache-tiers-and-two-scheduled-runs-keep-it.md) | The project brain is a derived index in two cache tiers, and two scheduled runs keep it | accepted | 2026-11-11 | amends 0020, 0021, 0022; amended by 0025 |
 | [0024](0024-the-project-owns-its-design-tokens-in-the-dtcg-format-and-style-dictionary-builds-them.md) | The project owns its design tokens in the DTCG format, and Style Dictionary builds them | accepted | 2026-11-12 |  |
 | [0025](0025-generated-documents-stay-in-git-and-the-project-brain-cites-them.md) | Generated documents stay in git, and the project brain cites them | accepted | 2026-11-11 | amends 0012, 0023 |
-| [0026](0026-github-settings-are-opentofu-code-the-owner-applies.md) | GitHub settings are OpenTofu code the owner applies | accepted | 2026-11-15 | amended by 0032, 0035 |
+| [0026](0026-github-settings-are-opentofu-code-the-owner-applies.md) | GitHub settings are OpenTofu code the owner applies | accepted | 2026-11-15 | amended by 0032, 0035, 0041 |
 | [0027](0027-dependency-updates-come-from-self-hosted-renovate.md) | Dependency updates come from self-hosted Renovate | proposed | 2026-11-16 | amended by 0032 |
 | [0028](0028-a-research-agent-composes-open-tools-and-a-research-index.md) | A research agent composes open tools and a research index | accepted | 2026-11-17 |  |
 | [0029](0029-the-roadmap-service-serves-a-read-only-api.md) | The roadmap Service serves a read-only API | accepted | 2026-11-17 |  |
@@ -185,5 +185,6 @@ The links to the OpenSpec change, the spec, the settings and the issue.
 | [0038](0038-owner-decisions-on-what-agents-may-do.md) | Owner decisions on what agents may do | accepted | 2026-11-05 |  |
 | [0039](0039-homepage-is-the-cluster-start-page.md) | Homepage is the cluster start page | accepted | 2026-11-25 |  |
 | [0040](0040-renovate-pins-product-refs-to-release-tags.md) | Renovate pins product refs to release tags after cutover | accepted | 2026-11-25 | amends 0013 |
+| [0041](0041-opentofu-holds-the-repository-settings.md) | OpenTofu holds the repository settings that the provider can hold | proposed | 2026-11-28 | amends 0026 |
 
 <!-- ADR_INDEX_END -->
