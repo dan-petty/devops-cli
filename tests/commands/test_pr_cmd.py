@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
-import httpx2
 import pytest
 from typer.testing import CliRunner
 
@@ -374,67 +373,24 @@ class TestPrCommands:
         assert "fix: resolve issue" in res.output
         assert "Detailed description text" in res.output
 
-    def test_pr_checks_fallback_on_gh_failure(
+    def test_pr_checks_fails_closed_when_gh_cannot_read_the_checks(
         self,
         runner: CliRunner,
         github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
     ) -> None:
-        """devops pr checks falls back to the REST check-runs listing, read through the GitHub
-        session, when gh pr checks fails."""
+        """gh reads the check runs and the commit statuses, so a failed `gh pr checks` exits 1
+        with its cause, and no REST read of the checks follows (#7508)."""
         github_api, gh = github_api_and_gh
         fresh_quota()
-        mock_checks_json = json.dumps(
-            {
-                "check_runs": [
-                    {
-                        "name": "Validation",
-                        "status": "completed",
-                        "conclusion": "success",
-                        "html_url": "https://example.com/runs/1",
-                    },
-                    {
-                        "name": "Analyze",
-                        "status": "completed",
-                        "conclusion": "failure",
-                        "html_url": "https://example.com/runs/2",
-                    },
-                ]
-            }
-        )
-        github_api.route(
-            "GET",
-            "/repos/owner/repo/commits/abcdef123456/check-runs?per_page=100",
-            httpx2.Response(
-                200, headers={"content-type": "application/json"}, content=mock_checks_json.encode()
-            ),
-        )
-        mock_statuses_json = json.dumps(
-            {
-                "state": "success",
-                "total_count": 1,
-                "statuses": [
-                    {
-                        "context": "ci/status",
-                        "state": "success",
-                        "target_url": "https://example.com/status/1",
-                    }
-                ],
-            }
-        )
         answer_origin(gh, "owner/repo")
-        script_gh(
-            gh,
-            GH_FAILED,
-            ProcessAnswer(stdout=json.dumps({"head": {"sha": "abcdef123456"}})),
-            ProcessAnswer(stdout=mock_statuses_json),
-        )
+        script_gh(gh, GH_FAILED)
         res = runner.invoke(app, ["checks", "184"])
         assert (
             res.exit_code,
-            "Validation" in res.output,
-            "Analyze" in res.output,
-            "ci/status" in res.output,
-        ) == (1, True, True, True)
+            "the query failed" in res.output,
+            [call.argv[:3] for call in gh.calls if call.argv[:1] == ("gh",)],
+            github_api.requested,
+        ) == (1, True, [("gh", "pr", "checks")], []), res.output
 
     def test_pr_edit_fallback(self, runner: CliRunner, gh_edge: ProcessFake) -> None:
         """devops pr edit falls back to REST PATCH when gh pr edit fails."""
@@ -860,31 +816,22 @@ class TestPrCommands:
             "<masked-github-token>" in result.output,
         ) == (0, False, True)
 
-    def test_pr_checks_fallback_empty_checks(
-        self, runner: CliRunner, github_api_and_gh: tuple[GitHubApiFake, ProcessFake]
+    def test_pr_checks_shows_the_pending_stand_in_for_a_head_with_no_check(
+        self, runner: CliRunner, gh_edge: ProcessFake
     ) -> None:
-        """The checks fallback renders a table with 'no checks reported' pending when empty."""
-        github_api, gh = github_api_and_gh
-        fresh_quota()
-        github_api.route(
-            "GET",
-            "/repos/owner/repo/commits/sha12345/check-runs?per_page=100",
-            httpx2.Response(
-                200, headers={"content-type": "application/json"}, content=b'{"check_runs": []}'
-            ),
-        )
-        answer_origin(gh, "owner/repo")
+        """gh answers a head with no check with exit 1 and `no checks reported`; a check can still
+        start, so the table shows the pending stand-in and the command exits 8 (#7508)."""
+        answer_origin(gh_edge, "owner/repo")
         script_gh(
-            gh,
-            GH_FAILED,
-            ProcessAnswer(stdout=json.dumps({"head": {"sha": "sha12345"}})),
-            ProcessAnswer(
-                stdout=json.dumps({"state": "pending", "statuses": [], "total_count": 0})
-            ),
+            gh_edge,
+            ProcessAnswer(returncode=1, stderr="no checks reported on the 'feat/x' branch\n"),
         )
         res = runner.invoke(app, ["checks", "184"])
-        assert "no checks reported" in res.output
-        assert "pending" in res.output
+        assert (res.exit_code, "no checks reported" in res.output, "pending" in res.output) == (
+            8,
+            True,
+            True,
+        ), res.output
 
     def test_pr_diff_failure_exit_code(self, runner: CliRunner, gh_edge: ProcessFake) -> None:
         """devops pr diff exits with returncode when gh pr diff fails."""

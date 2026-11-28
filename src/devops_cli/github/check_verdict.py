@@ -7,7 +7,6 @@ import logging
 from collections.abc import Iterator
 from datetime import datetime
 from enum import StrEnum
-from pathlib import Path
 from typing import Any, Final, Protocol
 
 from pydantic import BaseModel, Field
@@ -25,9 +24,13 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.rate_limiter import run_gh
-from devops_cli.github.session import GitHubSession, get_github_session
+from devops_cli.github.session import get_github_session
 
 logger = logging.getLogger(__name__)
+
+# The start of the error that `gh pr checks` prints for a head with no check:
+# "no checks reported on the '<branch>' branch" (cli/cli, pkg/cmd/pr/checks/checks.go).
+_NO_CHECKS_REPORTED: Final[str] = "no checks reported"
 
 
 class CheckBucket(StrEnum):
@@ -215,25 +218,14 @@ def _parse_gh_checks_list(data: list[Any]) -> list[PRCheckItem]:
     return [_entry_to_check_item(e) for e in data if isinstance(e, dict)]
 
 
-def _parse_gh_checks_dict(data: dict[str, Any]) -> list[PRCheckItem]:
-    """Parse dictionary wrapper containing check_runs from JSON output."""
-    check_runs = data.get("check_runs")
-    if isinstance(check_runs, list):
-        return [_check_run_dict_to_item(cr) for cr in check_runs if isinstance(cr, dict)]
-    return []
-
-
 def _parse_gh_checks_json(raw_json: str) -> list[PRCheckItem] | None:
-    """Parse JSON output from 'gh pr checks --json' into check items."""
+    """The check items of the list that `gh pr checks --json` prints, or None for output that is
+    no list."""
     try:
         data = json.loads(raw_json)
     except json.JSONDecodeError, TypeError, ValueError:
         return None
-    if isinstance(data, list):
-        return _parse_gh_checks_list(data)
-    if isinstance(data, dict):
-        return _parse_gh_checks_dict(data)
-    return None
+    return _parse_gh_checks_list(data) if isinstance(data, list) else None
 
 
 def _run_check(run: dict[str, Any]) -> tuple[str, object]:
@@ -269,70 +261,6 @@ def latest_run_of_each_check(runs: list[dict[str, Any]]) -> list[dict[str, Any]]
     ]
 
 
-def _parse_single_status_item(s: Any) -> PRCheckItem | None:
-    """Parse a single commit status dictionary into a PRCheckItem."""
-    if not isinstance(s, dict):
-        return None
-    return classify_check_item(
-        name=str(s.get("context") or "status"),
-        state=str(s.get("state") or ""),
-        workflow="Commit Status",
-        link=str(s.get("target_url") or ""),
-    )
-
-
-def _resolve_combined_status_item(
-    total: int,
-    current_count: int,
-    combined_state: str,
-    items: list[PRCheckItem],
-) -> PRCheckItem | None:
-    """Determine if an aggregated commit status item is required for unpaginated contexts."""
-    if total <= current_count:
-        return None
-    if combined_state in {"failure", "error"}:
-        if not any(i.bucket == CheckBucket.FAIL for i in items):
-            return classify_check_item(
-                name="commit status (combined)",
-                state=combined_state,
-                workflow="Commit Status",
-            )
-    elif combined_state == "pending":
-        if not any(i.bucket == CheckBucket.PENDING for i in items):
-            return classify_check_item(
-                name="commit status (combined)",
-                state="pending",
-                workflow="Commit Status",
-            )
-    return None
-
-
-def _parse_rest_commit_statuses_payload(
-    raw_json: str,
-) -> tuple[list[PRCheckItem], PRCheckItem | None]:
-    """Parse commit status contexts and combined state from GitHub status API."""
-    try:
-        data = json.loads(raw_json)
-    except (json.JSONDecodeError, TypeError, ValueError) as err:
-        raise ValueError(f"Invalid JSON from commit status API: {err}") from err
-
-    if not isinstance(data, dict):
-        raise ValueError("GitHub commit status API returned non-object response")
-
-    raw_statuses = data.get("statuses")
-    status_list = raw_statuses if isinstance(raw_statuses, list) else []
-    status_items = [item for s in status_list if (item := _parse_single_status_item(s)) is not None]
-
-    total_count = data.get("total_count")
-    total = int(total_count) if isinstance(total_count, (int, float)) else len(status_items)
-    combined_state = str(data.get("state") or "").lower()
-
-    combined_item = _resolve_combined_status_item(
-        total, len(status_items), combined_state, status_items
-    )
-    return status_items, combined_item
-
-
 class PaginatingSession(Protocol):
     """A session that reads a REST listing page by page, such as `GitHubSession` (#3494)."""
 
@@ -358,47 +286,6 @@ def _fetch_check_runs_from_rest(
     return [_check_run_dict_to_item(cr) for cr in latest_run_of_each_check(readable)], ""
 
 
-def _fetch_commit_statuses_from_rest(
-    owner: str,
-    repo_name: str,
-    head_sha: str,
-    runner: Any,
-) -> tuple[list[PRCheckItem], PRCheckItem | None, str]:
-    """Fetch commit statuses from GitHub REST API, returning (items, combined_item, unread_reason)."""
-    status_cmd = [
-        CONST_GH_CLI,
-        "api",
-        f"repos/{owner}/{repo_name}/commits/{head_sha}/status",
-    ]
-    res = runner(status_cmd, check=False, quiet=True)
-
-    if res.returncode != 0:
-        err_msg = res.stderr.strip() or f"exit code {res.returncode}"
-        return [], None, f"GitHub commit status API error: {err_msg}"
-    if not res.stdout.strip():
-        return [], None, "GitHub commit status API returned empty response"
-
-    try:
-        items, combined = _parse_rest_commit_statuses_payload(res.stdout)
-        return items, combined, ""
-    except ValueError as err:
-        return [], None, str(err)
-
-
-def _synthesize_check_items(
-    check_items: list[PRCheckItem],
-    status_items: list[PRCheckItem],
-    combined_item: PRCheckItem | None,
-) -> list[PRCheckItem]:
-    """Merge check runs and statuses, inserting 'no checks reported' if both are empty."""
-    all_items = list(check_items) + list(status_items)
-    if combined_item is not None:
-        all_items.append(combined_item)
-    if not all_items:
-        return [no_checks_reported()]
-    return all_items
-
-
 def read_check_runs(
     owner: str,
     repo_name: str,
@@ -410,14 +297,14 @@ def read_check_runs(
 
     The roadmap Service acts as a GitHub App whose token holds `checks: read` and no `statuses`
     permission, which the commit status endpoint needs (#2865). A commit with no check run reads
-    as one pending check, as in `read_commit_checks`.
+    as one pending check, as in `read_pr_checks`.
     """
     if not head_sha:
         return CheckVerdictSummary(unread_reason="PR head commit SHA is missing for checks query")
     check_items, check_err = _fetch_check_runs_from_rest(owner, repo_name, head_sha, session)
     if check_err:
         return CheckVerdictSummary(unread_reason=check_err)
-    return CheckVerdictSummary(items=_synthesize_check_items(check_items, [], None))
+    return CheckVerdictSummary(items=check_items or [no_checks_reported()])
 
 
 def read_required_check_names(
@@ -437,112 +324,34 @@ def read_required_check_names(
     return frozenset(names)
 
 
-def read_commit_checks(
-    owner: str,
-    repo_name: str,
-    head_sha: str,
-    *,
-    runner: Any = run_gh,
-    session: GitHubSession | None = None,
-) -> CheckVerdictSummary:
-    """Read and classify a commit's check runs and commit statuses, failing closed.
-
-    The check runs are read through `session` (the process's GitHub session by default) and the
-    commit statuses through `runner`, which runs `gh` as `run_gh` does. A read that fails leaves
-    no items and the reason, so no caller judges part of the checks.
-    """
-    if not head_sha:
-        return CheckVerdictSummary(unread_reason="PR head commit SHA is missing for checks query")
-
-    check_items, check_err = _fetch_check_runs_from_rest(owner, repo_name, head_sha, session)
-    if check_err:
-        return CheckVerdictSummary(unread_reason=check_err)
-
-    status_items, combined_item, status_err = _fetch_commit_statuses_from_rest(
-        owner, repo_name, head_sha, runner
-    )
-    if status_err:
-        return CheckVerdictSummary(unread_reason=status_err)
-
-    items = _synthesize_check_items(check_items, status_items, combined_item)
-    return CheckVerdictSummary(items=items)
-
-
-def _resolve_target_owner_repo(repo: str | None, checkout: Path | None) -> tuple[str, str] | None:
-    """Resolve owner and repo_name from `repo`, or from the origin of the repository at
-    `checkout`."""
-    from devops_cli.core.repo import get_repo_origin_name
-
-    target = repo or (get_repo_origin_name(checkout) if checkout is not None else None)
-    if not target or "/" not in target:
-        return None
-    owner, repo_name = target.split("/", 1)
-    return owner, repo_name
-
-
-def _resolve_head_sha(number: int, repo: str | None, runner: Any = run_gh) -> str:
-    """Resolve head commit SHA for a PR number."""
-    cmd = [CONST_GH_CLI, "pr", "view", str(number), "--json", "headRefOid"]
-    if repo:
-        cmd.extend(["--repo", repo])
-    res = runner(cmd, check=False, quiet=True)
-    if res.returncode != 0 or not res.stdout.strip():
-        return ""
-    try:
-        data = json.loads(res.stdout)
-        if data.get("headRefOid"):
-            return str(data["headRefOid"])
-        head = data.get("head", {})
-        return str(head.get("sha", "") if isinstance(head, dict) else "")
-    except json.JSONDecodeError, TypeError, ValueError:
-        return ""
-
-
 def pr_checks_args(number: int | str, repo: str | None = None) -> list[str]:
     """The `gh pr checks` command that reads pull request `number`'s check runs as JSON."""
     cmd = [CONST_GH_CLI, "pr", "checks", str(number), "--json", "name,state,bucket,workflow,link"]
     return [*cmd, "--repo", repo] if repo else cmd
 
 
-def fetch_pr_check_verdicts(
-    number: int,
-    repo: str | None = None,
-    head_sha: str | None = None,
-    runner: Any = None,
-    *,
-    checkout: Path | None = None,
+def read_pr_checks(
+    number: int, repo: str | None = None, *, runner: Any = run_gh
 ) -> CheckVerdictSummary:
-    """Fetch PR check runs and return structured fail-closed verdict summary.
+    """Read and classify the checks of pull request `number` with `gh pr checks`, failing closed.
 
-    First attempts to read checks via 'gh pr checks --json name,state,bucket,workflow,link'.
-    If that fails, returns invalid JSON, or fails closed, falls back to REST check-runs API.
-    The fallback reads the checks of `repo`, or with no `repo`, of the origin of the repository
-    at `checkout`, which the command gives (#2127).
+    gh reads the check runs and the commit statuses of the head commit, keeps the newest run of
+    each check and gives its bucket (#7508). With no `repo`, gh reads the pull request of the
+    repository of the working directory. gh answers a head with no check with exit 1 and
+    `no checks reported`, the exit code of a failed check, so that answer is told apart by its
+    text; it reads as the pending stand-in, since a check can still start. Each other failed
+    read, and output that is no list of checks, leaves no items and the reason.
     """
-    gh_runner = runner if runner is not None else run_gh
-    cmd = pr_checks_args(number, repo)
-
-    res = gh_runner(cmd, check=False, quiet=True)
-    if res.returncode == 0 and res.stdout.strip():
-        parsed = _parse_gh_checks_json(res.stdout)
-        if parsed is not None:
-            if not parsed:
-                parsed = [no_checks_reported()]
-            return CheckVerdictSummary(items=parsed)
-
-    owner_repo = _resolve_target_owner_repo(repo, checkout)
-    if not owner_repo:
-        err_msg = res.stderr.strip() or f"exit code {res.returncode}"
+    res = runner(pr_checks_args(number, repo), check=False, quiet=True)
+    error = (res.stderr or "").strip()
+    if res.returncode != 0:
+        if error.startswith(_NO_CHECKS_REPORTED):
+            return CheckVerdictSummary(items=[no_checks_reported()])
+        detail = error or f"exit code {res.returncode}"
         return CheckVerdictSummary(
-            unread_reason=f"Failed to read checks and cannot resolve target repo: {err_msg}"
+            unread_reason=f"gh pr checks failed: {detail[:CONST_MAX_ERROR_DETAIL_LENGTH]}"
         )
-
-    owner, repo_name = owner_repo
-    sha = head_sha or _resolve_head_sha(number, repo, runner=gh_runner)
-    if not sha:
-        err_msg = res.stderr.strip() or f"exit code {res.returncode}"
-        return CheckVerdictSummary(
-            unread_reason=f"Failed to read checks and cannot resolve head commit SHA: {err_msg}"
-        )
-
-    return read_commit_checks(owner, repo_name, sha, runner=gh_runner)
+    items = _parse_gh_checks_json(res.stdout)
+    if items is None:
+        return CheckVerdictSummary(unread_reason="gh pr checks printed no list of checks")
+    return CheckVerdictSummary(items=items or [no_checks_reported()])

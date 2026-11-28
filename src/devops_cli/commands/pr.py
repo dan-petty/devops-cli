@@ -446,15 +446,6 @@ def _render_check_verdict_table(number: int, verdict: Any) -> None:
     )
 
 
-def _render_pr_checks_fallback(number: int, repo: str | None = None) -> bool:
-    """Render check runs via REST API when gh pr checks fails or hits rate limits."""
-    from devops_cli.github.check_verdict import fetch_pr_check_verdicts
-
-    verdict = fetch_pr_check_verdicts(number, repo=repo, runner=run_gh, checkout=_checkout())
-    _render_check_verdict_table(number, verdict)
-    return True
-
-
 # =============================================================================
 # Command: devops pr view
 # =============================================================================
@@ -576,9 +567,9 @@ def pr_checks(
         render_request_plan("Planned requests for devops pr checks:", plan)
         return
     _require_gh_cli()
-    from devops_cli.github.check_verdict import fetch_pr_check_verdicts
+    from devops_cli.github.check_verdict import read_pr_checks
 
-    verdict = fetch_pr_check_verdicts(number, repo=repo, runner=run_gh, checkout=_checkout())
+    verdict = read_pr_checks(number, repo, runner=run_gh)
     _render_check_verdict_table(number, verdict)
     if verdict.exit_code != 0:
         raise typer.Exit(verdict.exit_code)
@@ -1619,23 +1610,15 @@ def _handle_pr_ready_failure(stderr_text: str, number: int) -> None:
     print_error(f"Failed to mark PR #{number} ready: {clean_err or 'Unknown error'}", safe=True)
 
 
-def _no_ci(verdict: MergeReadiness) -> bool:
-    """Whether no check will come for the pull request (#3767, #5144, #5408): the merge-readiness
-    verdict reads the workflows at its head and finds none whose trigger and branch and path
-    filters take the pull request, so it excuses the missing checks. A workflow read that fails
-    keeps the pending check, so the verdict says no."""
-    return verdict.no_ci
-
-
 def _validate_pr_ready(number: int, owner: str, repo_name: str, pr_data: dict[str, Any]) -> Draft:
     """Hold `pr ready` to draft readiness, warn of each other blocker, and return the judged draft,
     which `mark_ready` judges again before `gh pr ready` (#6123).
 
     Ready for review says the work is done and its checks pass; the merge itself stays gated by
     `check-readiness`, the required checks and a person. The pull request is a draft until this
-    command runs, so its draft state blocks nothing here. A head commit with no check, and no
-    workflow that can start one on the pull request, have nothing to wait for, so the checks are
-    not judged (#3767, #5408).
+    command runs, so its draft state blocks nothing here. A head commit with no check, into a base
+    branch whose rules require no check, has nothing to wait for, so the checks are not judged
+    (#3767, #5408, #7508).
     """
     verdict = assess_merge_readiness(
         pr_data, owner, repo_name, number, options=ReadinessOptions(allow_draft=True)
@@ -1643,7 +1626,7 @@ def _validate_pr_ready(number: int, owner: str, repo_name: str, pr_data: dict[st
     repo = f"{owner}/{repo_name}"
     pull = PullStatus.model_validate(pr_data)
     try:
-        no_ci = _no_ci(verdict)
+        no_ci = verdict.no_ci
         checks = None if no_ci else verdict.checks
         draft = read_draft(repo, number, pull=pull, checks=checks, declared=True)
     except (GitHubOperationError, GitHubUnreadError) as exc:
@@ -1651,7 +1634,8 @@ def _validate_pr_ready(number: int, owner: str, repo_name: str, pr_data: dict[st
         print_info("Pass --force to override failing check verification.")
         raise typer.Exit(1) from exc
     if no_ci:
-        print_info(MESSAGES.pr.ready_no_ci.format(repo=repo, number=number))
+        base = str(pr_data.get("base", {}).get("ref") or "")
+        print_info(MESSAGES.pr.readiness_no_ci.format(repo=repo, number=number, base=base))
 
     readiness = draft_readiness(draft)
     if readiness.answer is Answer.REFUSE:
@@ -1713,10 +1697,9 @@ def ready_pr(
 ) -> None:
     """Mark a draft pull request as ready for review once draft readiness allows it.
 
-    It exits 1 for a refusal and 8 while a check runs. A head commit with no check waits for one,
-    unless no workflow at the head can start a check on the pull request: none runs on pull
-    requests, or branch and path filters skip this one. Then the command says so and marks the
-    pull request ready with no --force. For an implement pull request, it names each unticked task
+    It exits 1 for a refusal and 8 while a check runs. `gh pr checks` reads the checks. A head
+    commit with no check waits for one, unless the rules of the base branch require no check.
+    Then the command says so and marks the pull request ready with no --force. For an implement pull request, it names each unticked task
     group. Every other blocker of the merge-readiness verdict prints as a warning. --force skips
     the readiness check. It sets the Status of the roadmap item the pull request closes to In
     Review.

@@ -34,11 +34,12 @@ from devops_cli.config.constants import (
     CONST_PR_CLOSING_ISSUES_PAGE,
 )
 from devops_cli.core.repo import find_repo_root
-from devops_cli.exceptions.git import GitHubOperationError, GitHubUnreadError
+from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.check_verdict import (
     CheckBucket,
     CheckVerdictSummary,
-    read_commit_checks,
+    read_pr_checks,
+    read_required_check_names,
 )
 from devops_cli.github.client import PullRequestFile
 from devops_cli.github.error_classifier import gh_http_status
@@ -51,7 +52,6 @@ from devops_cli.github.pr_threads import (
 )
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.session import GitHubSession, get_github_session
-from devops_cli.github.workflow_triggers import PullRequestChange
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.grounding import (
     ChangedFilesRead,
@@ -127,7 +127,8 @@ class MergeReadiness:
     excused them. `checks` is the read of the head commit's checks, None when the payload names
     no head commit. `threads_to_show` are the review threads that block it, for a caller to list.
     `grounding` is what the item rules judged, None where they do not apply. `no_ci` is true when
-    no workflow can start a check on the pull request, so the missing checks block nothing.
+    the head reports no check and the rules of the base branch require none, so the missing
+    checks block nothing.
     """
 
     blocking: tuple[Blocker, ...] = ()
@@ -260,39 +261,15 @@ def _judge_draft(verdict: _Verdict, pr_data: dict[str, Any], pr_num: int, allow:
         )
 
 
-def _pull_request_change(pr_data: dict[str, Any], changed: ChangedFilesRead) -> PullRequestChange:
-    """The base branch and the changed paths that the workflow filters judge (#5408).
-
-    A renamed file gives its new and its old path, so a filter that matches either one waits. A
-    list that is unread or holds GitHub's limit of files is unknown: None.
-    """
-    files = (
-        tuple(
-            path
-            for entry in changed.files
-            for path in (entry.filename, entry.previous_filename)
-            if path
-        )
-        if changed.complete
-        else None
-    )
-    return PullRequestChange(base=_branch_ref(pr_data, "base"), files=files)
-
-
-def _can_run_on_pull_request(
-    owner: str, repo_name: str, head_sha: str, change: PullRequestChange, reads: _Reads
-) -> bool:
-    """Whether a workflow at `head_sha` can start a check on the pull request of `change`.
-
-    A repository with no workflow whose trigger and filters take the pull request has no CI for
-    it (#5144, #5408). A read that fails returns True, so the pending check stays: an unread
-    workflow is no proof of no CI.
-    """
+def _requires_no_check(owner: str, repo_name: str, base: str, reads: _Reads) -> bool:
+    """Whether the rules of branch `base` require no check, so GitHub merges a pull request into
+    it with no check (#7508). A read of the rules that fails returns False, so the pending check
+    stays: unread rules are no proof that no check is required."""
     try:
         session = reads.session or get_github_session()
-        return session.client.pull_request_workflow_at(f"{owner}/{repo_name}", head_sha, change)
-    except GitHubOperationError, GitHubUnreadError:
-        return True
+        return not read_required_check_names(session, f"{owner}/{repo_name}", base)
+    except GitHubOperationError:
+        return False
 
 
 def _judge_checks(
@@ -301,14 +278,14 @@ def _judge_checks(
     pr_num: int,
     owner: str,
     repo_name: str,
-    change: PullRequestChange,
+    base: str,
     reads: _Reads,
 ) -> None:
     """Failing or unread checks block; running ones block unless excused.
 
-    A head commit that reports no check is no blocker where no workflow can start one on the pull
-    request of `change` (#5144, #5408). A payload that names no head commit is no read of the
-    checks: it fails closed, as a failed check read does (#4927)."""
+    `gh pr checks` reads the checks (#7508). A head commit that reports no check is no blocker
+    where the rules of branch `base` require no check (#5144, #5408). A payload that names no
+    head commit is no read of the checks: it fails closed, as a failed check read does (#4927)."""
     if not head_sha:
         verdict.block(
             BlockerKind.CHECKS_UNREAD,
@@ -316,9 +293,7 @@ def _judge_checks(
             "commit.",
         )
         return
-    checks = read_commit_checks(
-        owner, repo_name, head_sha, runner=reads.runner, session=reads.session
-    )
+    checks = read_pr_checks(pr_num, f"{owner}/{repo_name}", runner=reads.runner)
     verdict.checks = checks
     if checks.unread_reason:
         verdict.block(
@@ -338,12 +313,12 @@ def _judge_checks(
             BlockerKind.CHECKS_FAILING,
             f"PR #{pr_num} has {len(failing)} failing check(s): {', '.join(failing)}.",
         )
-    if checks.reports_nothing and not _can_run_on_pull_request(
-        owner, repo_name, head_sha, change, reads
-    ):
+    if checks.reports_nothing and _requires_no_check(owner, repo_name, base, reads):
         verdict.no_ci = True
         verdict.inform(
-            MESSAGES.pr.readiness_no_ci.format(repo=f"{owner}/{repo_name}", number=pr_num)
+            MESSAGES.pr.readiness_no_ci.format(
+                repo=f"{owner}/{repo_name}", number=pr_num, base=base
+            )
         )
         return
     verdict.pending.extend(pending)
@@ -717,7 +692,7 @@ def assess_merge_readiness(
 ) -> MergeReadiness:
     """Judge pull request `pr_num`, whose REST payload is `pr_data`, for merge readiness.
 
-    It reads the head commit's checks, the unresolved review threads, the changed files and,
+    It reads the checks with `gh pr checks`, the unresolved review threads, the changed files and,
     where the item rules apply, the base's change directory and the issues the PR closes.
     `review_root` is the checkout whose review.toml suppressions the perimeter advisory reads;
     without it, the repository of the working directory, found only when the PR changes a file.
@@ -731,11 +706,9 @@ def assess_merge_readiness(
     _judge_mergeable(verdict, pr_data, pr_num, reads.options.allow_blocked_state)
     _judge_draft(verdict, pr_data, pr_num, reads.options.allow_draft)
     head_sha = str(pr_data.get("head", {}).get("sha") or "")
-    changed = read_changed_files(
-        owner, repo_name, _branch_ref(pr_data, "base"), head_sha, session=session
-    )
-    change = _pull_request_change(pr_data, changed)
-    _judge_checks(verdict, head_sha, pr_num, owner, repo_name, change, reads)
+    base = _branch_ref(pr_data, "base")
+    changed = read_changed_files(owner, repo_name, base, head_sha, session=session)
+    _judge_checks(verdict, head_sha, pr_num, owner, repo_name, base, reads)
     _judge_threads(verdict, pr_num, owner, repo_name, reads)
     _judge_stage_eval(verdict, pr_data, pr_num, changed)
     _judge_grounding(verdict, pr_data, pr_num, owner, repo_name, changed, runner)

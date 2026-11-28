@@ -3,12 +3,8 @@
 from __future__ import annotations
 
 import json
-import subprocess
-from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
-import httpx2
 import pytest
 
 from devops_cli.github.check_verdict import (
@@ -16,15 +12,15 @@ from devops_cli.github.check_verdict import (
     CheckVerdictSummary,
     PRCheckItem,
     classify_check_item,
-    fetch_pr_check_verdicts,
+    no_checks_reported,
     read_check_runs,
+    read_pr_checks,
 )
-from tests.support.fakes.github import JSON_TYPE, GitHubApiFake, github_json, next_page
+from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.recorded_check_runs import PR_5357_HEAD, REPLACED_CHECK, pr_5357_head_runs
 
-# The REST fallback reads check runs through the GitHub session (#983).
-_NO_RUNS = {"total_count": 0, "check_runs": []}
+# `read_check_runs` reads the check runs through the GitHub session (#983).
 _ONE_PASSING_BUILD = {
     "total_count": 1,
     "check_runs": [{"name": "build", "status": "completed", "conclusion": "success"}],
@@ -34,11 +30,6 @@ _ONE_PASSING_BUILD = {
 def _check_runs(sha: str) -> str:
     """The check-runs listing of `sha` in owner/repo, as the session reads it."""
     return f"/repos/owner/repo/commits/{sha}/check-runs?per_page=100"
-
-
-def _json(text: str) -> httpx2.Response:
-    """A JSON answer whose body is `text` as written."""
-    return httpx2.Response(200, headers={"content-type": JSON_TYPE}, content=text.encode())
 
 
 def test_check_bucket_values() -> None:
@@ -165,137 +156,6 @@ def test_verdict_summary_exit_codes() -> None:
     )
 
 
-def test_fetch_pr_check_verdicts_from_gh_json() -> None:
-    """Verify fetch_pr_check_verdicts successfully parses gh pr checks JSON output."""
-    mock_payload = json.dumps(
-        [
-            {
-                "name": "Analyze",
-                "state": "SUCCESS",
-                "bucket": "pass",
-                "workflow": "CI",
-                "link": "https://example.com/1",
-            },
-            {
-                "name": "Format",
-                "state": "SKIPPED",
-                "bucket": "skipping",
-                "workflow": "CI",
-                "link": "https://example.com/2",
-            },
-        ]
-    )
-    mock_runner = MagicMock(return_value=MagicMock(returncode=0, stdout=mock_payload, stderr=""))
-    verdict = fetch_pr_check_verdicts(101, repo="owner/repo", runner=mock_runner)
-    assert (
-        verdict.exit_code,
-        verdict.is_passing,
-        verdict.pass_count,
-        verdict.skipping_count,
-        len(verdict.items),
-    ) == (0, True, 1, 1, 2)
-
-
-def test_fetch_pr_check_verdicts_gh_json_fails_closed_on_failing_bucket() -> None:
-    """Verify verdict is fail-closed (exit 1) even when gh pr checks --json exits 0 with a fail bucket."""
-    mock_payload = json.dumps(
-        [
-            {
-                "name": "Build",
-                "state": "SUCCESS",
-                "bucket": "pass",
-                "workflow": "CI",
-                "link": "https://example.com/1",
-            },
-            {
-                "name": "Analyze",
-                "state": "FAILURE",
-                "bucket": "fail",
-                "workflow": "CI",
-                "link": "https://example.com/2",
-            },
-        ]
-    )
-    mock_runner = MagicMock(return_value=MagicMock(returncode=0, stdout=mock_payload, stderr=""))
-    verdict = fetch_pr_check_verdicts(401, repo="owner/repo", runner=mock_runner)
-    assert (
-        verdict.exit_code,
-        verdict.is_passing,
-        verdict.fail_count,
-        verdict.pass_count,
-    ) == (1, False, 1, 1)
-
-
-def test_fetch_pr_check_verdicts_falls_back_to_rest_on_cli_error(github_api: GitHubApiFake) -> None:
-    """Verify fetch_pr_check_verdicts falls back to REST check-runs API when CLI checks fail."""
-    mock_pr_view = json.dumps({"head": {"sha": "c0ffee123456"}})
-    mock_rest_check_runs = json.dumps(
-        {
-            "check_runs": [
-                {
-                    "name": "Tests",
-                    "status": "completed",
-                    "conclusion": "success",
-                    "html_url": "https://example.com/t",
-                },
-                {
-                    "name": "Coverage",
-                    "status": "in_progress",
-                    "conclusion": None,
-                    "html_url": "https://example.com/c",
-                },
-            ]
-        }
-    )
-    mock_rest_statuses = json.dumps(
-        {
-            "state": "success",
-            "total_count": 1,
-            "statuses": [
-                {
-                    "context": "ci/status",
-                    "state": "success",
-                    "target_url": "https://example.com/s",
-                }
-            ],
-        }
-    )
-    mock_runner = MagicMock(
-        side_effect=[
-            MagicMock(returncode=1, stdout="", stderr="GraphQL error: rate limit"),
-            MagicMock(returncode=0, stdout=mock_pr_view, stderr=""),
-            MagicMock(returncode=0, stdout=mock_rest_statuses, stderr=""),
-        ]
-    )
-    github_api.route("GET", _check_runs("c0ffee123456"), _json(mock_rest_check_runs))
-    verdict = fetch_pr_check_verdicts(184, repo="owner/repo", runner=mock_runner)
-    assert (
-        verdict.exit_code,
-        verdict.pass_count,
-        verdict.pending_count,
-        [i.name for i in verdict.items],
-    ) == (8, 2, 1, ["Tests", "Coverage", "ci/status"])
-
-
-def test_fetch_pr_check_verdicts_fails_closed_when_rest_fails(github_api: GitHubApiFake) -> None:
-    """Verify fetch_pr_check_verdicts returns unread verdict when both CLI and REST fail."""
-    mock_runner = MagicMock(
-        side_effect=[
-            MagicMock(returncode=1, stdout="", stderr="CLI error"),
-            MagicMock(returncode=0, stdout=json.dumps({"head": {"sha": "sha123"}}), stderr=""),
-        ]
-    )
-    github_api.route(
-        "GET", _check_runs("sha123"), github_json({"message": "Server Error"}, status=500)
-    )
-    verdict = fetch_pr_check_verdicts(184, repo="owner/repo", runner=mock_runner)
-    assert (
-        verdict.exit_code,
-        verdict.is_passing,
-        "HTTP 500" in verdict.unread_reason,
-    ) == (1, False, True)
-
-
 def test_bucket_parity_against_gh_pr_checks_json_bucket() -> None:
     """Verify exact parity between GitHub CLI json buckets and REST conclusions/statuses."""
     gh_buckets = ["pass", "fail", "pending", "skipping", "cancel"]
@@ -357,234 +217,125 @@ def test_bucket_parity_against_gh_pr_checks_json_bucket() -> None:
     )
 
 
-def test_rest_pagination_bucket_count_matches_total_count(github_api: GitHubApiFake) -> None:
-    """Verify multi-page slurped REST check-runs parse correctly and bucket count matches total_count."""
-    page_1 = {
-        "total_count": 5,
-        "check_runs": [
-            {
-                "name": "check-1",
-                "status": "completed",
-                "conclusion": "success",
-                "html_url": "https://example.com/1",
-            },
-            {
-                "name": "check-2",
-                "status": "completed",
-                "conclusion": "skipped",
-                "html_url": "https://example.com/2",
-            },
-            {
-                "name": "check-3",
-                "status": "completed",
-                "conclusion": "failure",
-                "html_url": "https://example.com/3",
-            },
-        ],
+_PR_CHECKS = (
+    "gh",
+    "pr",
+    "checks",
+    "335",
+    "--json",
+    "name,state,bucket,workflow,link",
+    "--repo",
+    "dan-petty/devops-cli",
+)
+
+
+def _listed(name: str, state: str, bucket: str) -> dict[str, str]:
+    """One entry of the list that `gh pr checks --json name,state,bucket,workflow,link` prints."""
+    return {
+        "name": name,
+        "state": state,
+        "bucket": bucket,
+        "workflow": "CI",
+        "link": f"https://example.com/{name}",
     }
-    page_2 = {
-        "total_count": 5,
-        "check_runs": [
-            {
-                "name": "check-4",
-                "status": "completed",
-                "conclusion": "cancelled",
-                "html_url": "https://example.com/4",
-            },
-            {
-                "name": "check-5",
-                "status": "in_progress",
-                "conclusion": None,
-                "html_url": "https://example.com/5",
-            },
-        ],
-    }
-    second = "/repositories/1/commits/headsha999/check-runs?per_page=100&page=2"
-    github_api.route(
-        "GET", _check_runs("headsha999"), github_json(page_1, headers=next_page(second))
-    )
-    github_api.route("GET", second, github_json(page_2))
-    mock_rest_statuses = json.dumps(
-        {
-            "state": "success",
-            "total_count": 1,
-            "statuses": [
-                {
-                    "context": "ci/status",
-                    "state": "success",
-                    "target_url": "https://example.com/s",
-                }
-            ],
-        }
-    )
-    mock_runner = MagicMock(
-        side_effect=[
-            MagicMock(returncode=1, stdout="", stderr="CLI json not available"),
-            MagicMock(returncode=0, stdout=json.dumps({"head": {"sha": "headsha999"}}), stderr=""),
-            MagicMock(returncode=0, stdout=mock_rest_statuses, stderr=""),
-        ]
-    )
-    verdict = fetch_pr_check_verdicts(401, repo="owner/repo", runner=mock_runner)
-    assert (
-        len(verdict.items),
-        verdict.exit_code,
-        verdict.is_passing,
-        verdict.pass_count,
-        verdict.skipping_count,
-        verdict.fail_count,
-        verdict.cancel_count,
-        verdict.pending_count,
-        verdict.items[-1].name,
-    ) == (6, 1, False, 2, 1, 1, 1, 1, "ci/status")
 
 
-def test_fetch_pr_check_verdicts_zero_runs_and_zero_statuses_reports_pending(
-    github_api: GitHubApiFake,
+def test_the_checks_of_a_pull_request_are_the_list_that_gh_pr_checks_prints(
+    gh_edge: ProcessFake,
 ) -> None:
-    """Verify head commit with 0 runs and 0 statuses reports pending 'no checks reported'."""
-    github_api.route("GET", _check_runs("sha_zero"), github_json(_NO_RUNS))
-    mock_runner = MagicMock(
-        side_effect=[
-            MagicMock(returncode=1, stdout="", stderr="CLI error"),
-            MagicMock(returncode=0, stdout=json.dumps({"head": {"sha": "sha_zero"}}), stderr=""),
-            MagicMock(
-                returncode=0,
-                stdout=json.dumps({"state": "pending", "statuses": [], "total_count": 0}),
-                stderr="",
-            ),
-        ]
-    )
-    verdict = fetch_pr_check_verdicts(100, repo="owner/repo", runner=mock_runner)
-    assert (
-        len(verdict.items),
-        verdict.exit_code,
-        verdict.is_passing,
-        verdict.pending_count,
-        verdict.items[0].name,
-        verdict.items[0].bucket,
-    ) == (1, 8, False, 1, "no checks reported", CheckBucket.PENDING)
-
-
-def test_fetch_pr_check_verdicts_gh_json_empty_reports_pending() -> None:
-    """Verify gh pr checks returning empty JSON list reports pending 'no checks reported'."""
-    mock_runner = MagicMock(return_value=MagicMock(returncode=0, stdout="[]", stderr=""))
-    verdict = fetch_pr_check_verdicts(101, repo="owner/repo", runner=mock_runner)
-    assert (
-        len(verdict.items),
-        verdict.exit_code,
-        verdict.is_passing,
-        verdict.pending_count,
-        verdict.items[0].name,
-        verdict.items[0].bucket,
-    ) == (1, 8, False, 1, "no checks reported", CheckBucket.PENDING)
-
-
-def test_fetch_pr_check_verdicts_combined_status_failure_past_page_one(
-    github_api: GitHubApiFake,
-) -> None:
-    """Verify >30 status contexts with combined state failure past page 1 blocks fail-closed."""
-    github_api.route("GET", _check_runs("sha_combined"), github_json(_ONE_PASSING_BUILD))
-    page_1_statuses = [
-        {"context": f"ci/status-{i}", "state": "success", "target_url": f"https://example.com/{i}"}
-        for i in range(30)
+    """gh keeps the newest run of each check and each commit status, and gives its bucket, so
+    the reader takes each entry as gh lists it (#7508)."""
+    listed = [
+        _listed("Analyze", "SUCCESS", "pass"),
+        _listed("Format", "SKIPPED", "skipping"),
+        _listed("CodeQL", "FAILURE", "fail"),
+        _listed("Trivy", "IN_PROGRESS", "pending"),
+        _listed("zizmor", "CANCELLED", "cancel"),
     ]
-    status_payload = {
-        "state": "failure",
-        "total_count": 35,
-        "statuses": page_1_statuses,
-    }
-    mock_runner = MagicMock(
-        side_effect=[
-            MagicMock(returncode=1, stdout="", stderr="CLI error"),
-            MagicMock(
-                returncode=0, stdout=json.dumps({"head": {"sha": "sha_combined"}}), stderr=""
+    gh_edge.answer(list(_PR_CHECKS), ProcessAnswer(stdout=json.dumps(listed)))
+
+    verdict = read_pr_checks(335, "dan-petty/devops-cli")
+
+    expected = CheckVerdictSummary(
+        items=[
+            PRCheckItem(
+                name=entry["name"],
+                state=entry["state"],
+                bucket=CheckBucket(entry["bucket"]),
+                workflow="CI",
+                link=entry["link"],
+            )
+            for entry in listed
+        ]
+    )
+    assert (verdict, [call.argv for call in gh_edge.calls]) == (expected, [_PR_CHECKS])
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        ProcessAnswer(returncode=1, stderr="no checks reported on the 'feat/x' branch\n"),
+        ProcessAnswer(stdout="[]"),
+    ],
+    ids=["no-checks-reported", "empty-list"],
+)
+def test_a_head_with_no_check_reads_as_the_pending_stand_in(
+    gh_edge: ProcessFake, answer: ProcessAnswer
+) -> None:
+    """gh answers a head with no check with exit 1 and `no checks reported`, the exit code of a
+    failed check, so the reader tells them apart by the text. A check can still start, so the
+    head is pending (#3767, #7508)."""
+    gh_edge.answer(list(_PR_CHECKS), answer)
+
+    verdict = read_pr_checks(335, "dan-petty/devops-cli")
+
+    assert (verdict, verdict.reports_nothing, verdict.exit_code) == (
+        CheckVerdictSummary(items=[no_checks_reported()]),
+        True,
+        8,
+    )
+
+
+@pytest.mark.parametrize(
+    ("answer", "cause"),
+    [
+        (
+            ProcessAnswer(
+                returncode=1, stderr="HTTP 502: Bad Gateway (https://api.github.com/graphql)"
             ),
-            MagicMock(returncode=0, stdout=json.dumps(status_payload), stderr=""),
-        ]
-    )
-    verdict = fetch_pr_check_verdicts(200, repo="owner/repo", runner=mock_runner)
-    assert (
-        verdict.exit_code,
-        verdict.is_passing,
-        verdict.fail_count,
-        any(
-            i.name == "commit status (combined)" and i.bucket == CheckBucket.FAIL
-            for i in verdict.items
+            "HTTP 502",
         ),
-    ) == (1, False, 1, True)
-
-
-def test_fetch_pr_check_verdicts_combined_status_pending_past_page_one(
-    github_api: GitHubApiFake,
+        (ProcessAnswer(returncode=4), "exit code 4"),
+        (ProcessAnswer(stdout='{"check_runs": []}'), "no list of checks"),
+        (ProcessAnswer(stdout="<html>"), "no list of checks"),
+    ],
+    ids=["gh-error", "no-stderr", "object", "not-json"],
+)
+def test_a_failed_read_of_the_checks_fails_closed_with_its_cause(
+    gh_edge: ProcessFake, answer: ProcessAnswer, cause: str
 ) -> None:
-    """Verify >30 status contexts with combined state pending past page 1 yields pending verdict."""
-    github_api.route("GET", _check_runs("sha_pending"), github_json(_ONE_PASSING_BUILD))
-    page_1_statuses = [
-        {"context": f"ci/status-{i}", "state": "success", "target_url": f"https://example.com/{i}"}
-        for i in range(30)
-    ]
-    status_payload = {
-        "state": "pending",
-        "total_count": 35,
-        "statuses": page_1_statuses,
-    }
-    mock_runner = MagicMock(
-        side_effect=[
-            MagicMock(returncode=1, stdout="", stderr="CLI error"),
-            MagicMock(returncode=0, stdout=json.dumps({"head": {"sha": "sha_pending"}}), stderr=""),
-            MagicMock(returncode=0, stdout=json.dumps(status_payload), stderr=""),
-        ]
+    """A read that fails, or output that is no list of checks, is no read of the checks: no item
+    passes, and the reason names the cause (#7508)."""
+    gh_edge.answer(list(_PR_CHECKS), answer)
+
+    verdict = read_pr_checks(335, "dan-petty/devops-cli")
+
+    assert (verdict.items, verdict.exit_code, cause in verdict.unread_reason) == ([], 1, True), (
+        verdict.unread_reason
     )
-    verdict = fetch_pr_check_verdicts(201, repo="owner/repo", runner=mock_runner)
-    assert (
-        verdict.exit_code,
-        verdict.is_passing,
-        verdict.pending_count,
-        any(
-            i.name == "commit status (combined)" and i.bucket == CheckBucket.PENDING
-            for i in verdict.items
-        ),
-    ) == (8, False, 1, True)
 
 
-def test_fetch_pr_check_verdicts_fails_closed_when_commit_statuses_fail(
-    github_api: GitHubApiFake,
+def test_with_no_repository_gh_reads_the_pull_request_of_the_working_directory(
+    gh_edge: ProcessFake,
 ) -> None:
-    """Verify fetch_pr_check_verdicts returns unread verdict when commit status API fails."""
-    github_api.route("GET", _check_runs("sha_err"), github_json(_NO_RUNS))
-    mock_runner = MagicMock(
-        side_effect=[
-            MagicMock(returncode=1, stdout="", stderr="CLI error"),
-            MagicMock(returncode=0, stdout=json.dumps({"head": {"sha": "sha_err"}}), stderr=""),
-            MagicMock(returncode=1, stdout="", stderr="HTTP 500 status failure"),
-        ]
+    """With no `repo`, gh finds the repository itself, so the command sends no `--repo`."""
+    gh_edge.answer(
+        list(_PR_CHECKS[:6]), ProcessAnswer(stdout=json.dumps([_listed("CI", "SUCCESS", "pass")]))
     )
-    verdict = fetch_pr_check_verdicts(202, repo="owner/repo", runner=mock_runner)
-    assert (
-        verdict.exit_code,
-        verdict.is_passing,
-        "HTTP 500 status failure" in verdict.unread_reason,
-    ) == (1, False, True)
 
+    verdict = read_pr_checks(335)
 
-def test_fetch_pr_check_verdicts_fails_closed_when_commit_statuses_empty(
-    github_api: GitHubApiFake,
-) -> None:
-    """Verify fetch_pr_check_verdicts returns unread verdict when commit status API returns empty body."""
-    github_api.route("GET", _check_runs("sha_empty"), github_json(_NO_RUNS))
-    mock_runner = MagicMock(
-        side_effect=[
-            MagicMock(returncode=1, stdout="", stderr="CLI error"),
-            MagicMock(returncode=0, stdout=json.dumps({"head": {"sha": "sha_empty"}}), stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-        ]
-    )
-    verdict = fetch_pr_check_verdicts(203, repo="owner/repo", runner=mock_runner)
-    assert (
-        verdict.exit_code,
-        verdict.is_passing,
-        "empty response" in verdict.unread_reason,
-    ) == (1, False, True)
+    assert (verdict.is_passing, [call.argv for call in gh_edge.calls]) == (True, [_PR_CHECKS[:6]])
 
 
 _ACTIONS, _OTHER_APP = 15368, 57789
@@ -699,64 +450,6 @@ def test_the_recorded_head_of_pr_5357_counts_the_latest_run_of_each_check(
         verdict.skipping_count,
         [item.name for item in verdict.items if item.bucket is CheckBucket.FAIL],
     ) == (passing, 25, 5, failing)
-
-
-@pytest.mark.parametrize(
-    "error",
-    [StopIteration("status mock exhausted"), IndexError("status index out of range")],
-    ids=["stop-iteration", "index-error"],
-)
-def test_commit_status_read_raising_propagates_and_never_passes(
-    github_api: GitHubApiFake, error: BaseException
-) -> None:
-    """When check runs pass and the commit status runner raises StopIteration or IndexError,
-    fetch_pr_check_verdicts propagates the exception rather than returning a passing verdict (#1350)."""
-    github_api.route("GET", _check_runs("sha_raise"), github_json(_ONE_PASSING_BUILD))
-    responses = iter(
-        [
-            subprocess.CompletedProcess(["gh"], 1, "", "CLI error"),
-            subprocess.CompletedProcess(["gh"], 0, json.dumps({"head": {"sha": "sha_raise"}}), ""),
-        ]
-    )
-
-    def runner(_cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
-        try:
-            return next(responses)
-        except StopIteration:
-            raise error from None
-
-    with pytest.raises(type(error)) as raised:
-        fetch_pr_check_verdicts(1350, repo="owner/repo", runner=runner)
-    assert str(raised.value) != "" or getattr(raised.value, "error_code", None) is not None
-
-
-def test_with_no_repo_the_fallback_reads_the_origin_of_the_checkout_it_gets(
-    github_api: GitHubApiFake, process_fake: ProcessFake, tmp_path: Path
-) -> None:
-    """With no `repo`, the REST fallback reads the checks in the repository of the origin of the
-    checkout that the caller gives, not of the directory that the process runs in (#2127)."""
-    (tmp_path / ".git").mkdir()
-    process_fake.answer(
-        "git remote get-url origin", ProcessAnswer(stdout="https://github.com/owner/repo.git\n")
-    )
-    github_api.route("GET", _check_runs("sha2127"), github_json(_ONE_PASSING_BUILD))
-    mock_runner = MagicMock(
-        side_effect=[
-            MagicMock(returncode=1, stdout="", stderr="CLI error"),
-            MagicMock(
-                returncode=0,
-                stdout=json.dumps({"state": "success", "total_count": 0, "statuses": []}),
-                stderr="",
-            ),
-        ]
-    )
-    verdict = fetch_pr_check_verdicts(
-        2127, head_sha="sha2127", runner=mock_runner, checkout=tmp_path
-    )
-    assert (verdict.is_passing, [call.cwd for call in process_fake.calls]) == (
-        True,
-        [tmp_path.resolve()],
-    )
 
 
 def _check_run(name: str, status: str, conclusion: str | None) -> dict[str, Any]:

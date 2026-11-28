@@ -50,13 +50,9 @@ from devops_cli.github.issue_answer import (
     says_no_issue,
 )
 from devops_cli.github.rate_limiter import run_gh
-from devops_cli.github.workflow_triggers import PullRequestChange, starts_on_pull_request
 
 if TYPE_CHECKING:
     from devops_cli.github.session import GitHubSession
-
-
-_WORKFLOWS_DIR: Final[str] = ".github/workflows"
 
 
 class RepoInfo(BaseModel):
@@ -466,14 +462,6 @@ class _FileContents(BaseModel):
     content: str = ""
 
 
-class _DirectoryEntry(BaseModel):
-    """One item of a contents endpoint answer for a directory: a file or a directory."""
-
-    type: str
-    name: str
-    path: str
-
-
 class _CompareFiles(BaseModel):
     """What the compare endpoint says of two commits: the merge base it compares from, and each
     file their diff changes. An answer with no `files` is no answer, and not an empty diff."""
@@ -810,33 +798,6 @@ class GitHubClient:
             if len(hits) >= page.total_count or len(page.items) < per_page:
                 break
         return hits
-
-    def pull_request_workflow_at(self, repo: str, ref: str, change: PullRequestChange) -> bool:
-        """Whether a workflow at `ref` can start a check on the pull request that `change`
-        describes (#5144, #5408).
-
-        It lists the workflow files of `.github/workflows` at `ref`, and `starts_on_pull_request`
-        reads each one's triggers and the branch and path filters of each pull request trigger.
-        A repository with no workflow file, or none whose trigger and filters take the pull
-        request, has no CI for it. A read that fails raises the session's error, so its caller
-        keeps the pending check rather than call it no CI. A directory answer that is no list
-        reads as no workflow.
-        """
-        endpoint = _repo_path(repo, f"contents/{_WORKFLOWS_DIR}?{urlencode({'ref': ref})}")
-        try:
-            answer = self._session.rest("GET", endpoint)
-        except GitHubNotFoundError:
-            return False
-        if not isinstance(answer, list):
-            return False
-        for item in answer:
-            entry = _read_as(_DirectoryEntry, item, path=endpoint)
-            if entry.type != "file" or not entry.name.endswith((".yml", ".yaml")):
-                continue
-            text = self.get_file_at(repo, entry.path, ref)
-            if text is not None and starts_on_pull_request(text, change):
-                return True
-        return False
 
     def get_job_run_times(
         self, repo: str, *, workflow: str, branch: str, job: str, count: int
