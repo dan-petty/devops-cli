@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.232.5](https://github.com/dan-petty/devops-cli/compare/v0.232.4...v0.232.5) (2026-11-28)
+
+
+### Bug Fixes
+
+* **config:** disable Valkey cache tier when valkey.url is unset ([#7547](https://github.com/dan-petty/devops-cli/issues/7547)) ([fd14515](https://github.com/dan-petty/devops-cli/commit/fd14515a70054b393c5e2622b100b658631b158a))
+
 ## [0.232.4](https://github.com/dan-petty/devops-cli/compare/v0.232.3...v0.232.4) (2026-11-28)
 
 
