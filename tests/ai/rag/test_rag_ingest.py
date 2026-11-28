@@ -15,7 +15,6 @@ from devops_cli.ai.rag.indexer import WorkspaceIndexer
 from devops_cli.ai.rag.ingest import (
     cleanup_removed_repos,
     ingest_repository,
-    load_repo_state,
     read_repo_visibility,
     resolve_repo_paths,
     run_ingest_pass,
@@ -191,10 +190,11 @@ def test_first_run_indexes_and_records_head(tmp_path: Path) -> None:
     assert res.success is True
 
     state_file = rag_dir / "repos" / "owner" / "repo" / "state.json"
-    assert state_file.exists()
-    state = json.loads(state_file.read_text())
-    assert state["head"]
-    assert state["visibility"] == "public"
+    assert not state_file.exists()
+    stored = indexer.read_project_state("owner/repo")
+    assert stored["head"] == res.head
+    assert stored["branch"] == "main"
+    assert stored["visibility"] == "public"
 
     # Second run at same head makes no embedding calls
     embed_calls_before = embedder.call_count
@@ -206,6 +206,7 @@ def test_first_run_indexes_and_records_head(tmp_path: Path) -> None:
         indexer=indexer,
     )
     assert res2.success is True
+    assert res2.skipped is True
     assert embedder.call_count == embed_calls_before
 
 
@@ -219,15 +220,7 @@ def test_removed_repository_cleanup_leaves_workstation_projects(tmp_path: Path) 
         cache_dir=rag_dir,
     )
 
-    # Pre-populate state for owner/removed-repo and owner/kept-repo
-    for repo in ("owner/removed-repo", "owner/kept-repo"):
-        state_dir = rag_dir / "repos" / repo
-        state_dir.mkdir(parents=True, exist_ok=True)
-        (state_dir / "state.json").write_text(
-            json.dumps({"head": "123", "branch": "main", "visibility": "public"})
-        )
-
-    # Seed points in Qdrant for both and a workstation project
+    # Seed points in Qdrant for removed repo, kept repo, and a workstation project (no state.json)
     fake_qdrant.ensure_collection("devops_code", vector_size=4)
     fake_qdrant.ensure_collection("devops_docs", vector_size=4)
     pts = [
@@ -415,8 +408,8 @@ def test_failed_repository_continues_and_reports_error(tmp_path: Path) -> None:
         )
 
     # good repo was still indexed despite bad repo failing first!
-    good_state = rag_dir / "repos" / "owner" / "good-repo" / "state.json"
-    assert good_state.exists()
+    assert indexer.read_project_state("owner/good-repo")["head"]
+    assert not (rag_dir / "repos" / "owner" / "good-repo" / "state.json").exists()
 
 
 def test_push_edits_deletes_renames(tmp_path: Path) -> None:
@@ -549,8 +542,8 @@ def test_renamed_default_branch(tmp_path: Path) -> None:
         indexer=indexer,
     )
     assert res.branch == "trunk"
-    state = json.loads((rag_dir / "repos" / "owner" / "repo" / "state.json").read_text())
-    assert state["branch"] == "trunk"
+    assert indexer.read_project_state("owner/repo")["branch"] == "trunk"
+    assert not (rag_dir / "repos" / "owner" / "repo" / "state.json").exists()
 
 
 def test_pass_leaves_roadmap_clone_untouched(tmp_path: Path) -> None:
@@ -607,8 +600,7 @@ def test_embedding_failure_halfway_records_no_head_and_resumes(tmp_path: Path) -
             indexer=indexer,
         )
 
-    state_file = rag_dir / "repos" / "owner" / "repo" / "state.json"
-    assert not state_file.exists()
+    assert indexer.read_project_state("owner/repo") == {}
 
     embedder_ok = FixedVectorEngine()
     indexer_ok = WorkspaceIndexer(
@@ -624,7 +616,8 @@ def test_embedding_failure_halfway_records_no_head_and_resumes(tmp_path: Path) -
         indexer=indexer_ok,
     )
     assert res.success is True
-    assert state_file.exists()
+    assert indexer.read_project_state("owner/repo")["head"] == res.head
+    assert not (rag_dir / "repos" / "owner" / "repo" / "state.json").exists()
 
 
 def test_resolve_repo_paths_invalid(tmp_path: Path) -> None:
@@ -662,16 +655,9 @@ def test_read_repo_visibility_edge_cases() -> None:
     )
 
 
-def test_load_repo_state_corrupt_file(tmp_path: Path) -> None:
-    state_file = tmp_path / "state.json"
-    state_file.write_text("{not-valid-json", encoding="utf-8")
-    assert load_repo_state(state_file) == {}
-
-
 def test_cleanup_removed_repos_qdrant_error(tmp_path: Path) -> None:
-    repo_state = tmp_path / "repos" / "owner" / "old-repo" / "state.json"
-    repo_state.parent.mkdir(parents=True, exist_ok=True)
-    repo_state.write_text("{}", encoding="utf-8")
+    repo_dir = tmp_path / "repos" / "owner" / "old-repo"
+    repo_dir.mkdir(parents=True, exist_ok=True)
 
     class FailingDeleteQdrant(FakeQdrantClient):
         def delete_points_by_project(
@@ -683,14 +669,26 @@ def test_cleanup_removed_repos_qdrant_error(tmp_path: Path) -> None:
         ) -> bool:
             raise QdrantClientError("delete failed")
 
+    fake_qdrant = FailingDeleteQdrant()
+    fake_qdrant.ensure_collection("devops_code", vector_size=4)
+    fake_qdrant.upsert_points(
+        "devops_code",
+        [
+            {
+                "id": "old-1",
+                "vector": [1.0, 0.0, 0.0, 0.0],
+                "payload": {"project_name": "owner/old-repo"},
+            }
+        ],
+    )
     indexer = WorkspaceIndexer(
-        qdrant=cast(Any, FailingDeleteQdrant()),
+        qdrant=cast(Any, fake_qdrant),
         embedder=FixedVectorEngine(),
         cache_dir=tmp_path,
     )
     # Should log warning and not raise
     cleanup_removed_repos(tmp_path, {"owner/new-repo"}, indexer)
-    assert not (tmp_path / "repos" / "owner" / "old-repo").exists()
+    assert not repo_dir.exists()
 
 
 def test_update_points_visibility_qdrant_error(tmp_path: Path) -> None:
@@ -900,3 +898,210 @@ def test_every_written_point_carries_the_repository_project_name(tmp_path: Path)
     points = [point for collection in fake_qdrant.collections.values() for point in collection]
     assert points
     assert {point["payload"]["project_name"] for point in points} == {"example/roadmap"}
+
+
+def test_second_pass_in_new_data_folder_skips_clone_and_embedding(tmp_path: Path) -> None:
+    """A new pod with an empty data folder skips clone and embed when Qdrant holds the head."""
+    bare = _make_bare_remote(tmp_path / "remote.git", {"app.py": "def run():\n    return 1\n"})
+    fake_qdrant = FakeQdrantClient()
+    embedder = FixedVectorEngine()
+    gh_runner = _make_fake_gh_runner({"owner/repo": "public"})
+
+    rag_dir_1 = tmp_path / "pod1"
+    indexer_1 = WorkspaceIndexer(
+        qdrant=cast(Any, fake_qdrant), embedder=embedder, cache_dir=rag_dir_1
+    )
+    first = ingest_repository(
+        "owner/repo",
+        data_dir=rag_dir_1,
+        remote_url=f"file://{bare}",
+        gh_runner=gh_runner,
+        indexer=indexer_1,
+    )
+    assert first.skipped is False
+
+    rag_dir_2 = tmp_path / "pod2"
+    rag_dir_2.mkdir()
+    git_calls: list[list[str]] = []
+    embed_calls_before = embedder.call_count
+
+    def _recording_git(cmd: list[str], **kwargs: Any) -> Any:
+        git_calls.append(cmd)
+        return subprocess.run(
+            cmd, check=True, capture_output=True, text=True, cwd=kwargs.get("cwd")
+        )
+
+    indexer_2 = WorkspaceIndexer(
+        qdrant=cast(Any, fake_qdrant), embedder=embedder, cache_dir=rag_dir_2
+    )
+    second = ingest_repository(
+        "owner/repo",
+        data_dir=rag_dir_2,
+        remote_url=f"file://{bare}",
+        git_runner=_recording_git,
+        gh_runner=gh_runner,
+        indexer=indexer_2,
+    )
+
+    assert second.skipped is True
+    assert second.head == first.head
+    assert embedder.call_count == embed_calls_before
+    assert not any("clone" in cmd for cmd in git_calls)
+    assert not (rag_dir_2 / "repos" / "owner" / "repo" / "state.json").exists()
+
+
+def test_reindexes_with_force_when_points_not_intact_at_same_head(tmp_path: Path) -> None:
+    """When Qdrant points are lost at the same head, the pass clones and force-indexes."""
+    import shutil
+
+    bare = _make_bare_remote(tmp_path / "remote.git", {"app.py": "def run():\n    return 1\n"})
+    fake_qdrant = FakeQdrantClient()
+    embedder = FixedVectorEngine()
+    gh_runner = _make_fake_gh_runner({"owner/repo": "public"})
+
+    rag_dir = tmp_path / "pod"
+    first = ingest_repository(
+        "owner/repo",
+        data_dir=rag_dir,
+        remote_url=f"file://{bare}",
+        gh_runner=gh_runner,
+        indexer=WorkspaceIndexer(
+            qdrant=cast(Any, fake_qdrant), embedder=embedder, cache_dir=rag_dir
+        ),
+    )
+
+    fake_qdrant.collections["devops_code"].clear()
+    shutil.rmtree(rag_dir / "repos" / "owner" / "repo" / "tree")
+    fake_qdrant.calls.clear()
+    git_calls: list[list[str]] = []
+
+    def _recording_git(cmd: list[str], **kwargs: Any) -> Any:
+        git_calls.append(cmd)
+        return subprocess.run(
+            cmd, check=True, capture_output=True, text=True, cwd=kwargs.get("cwd")
+        )
+
+    second = ingest_repository(
+        "owner/repo",
+        data_dir=rag_dir,
+        remote_url=f"file://{bare}",
+        git_runner=_recording_git,
+        gh_runner=gh_runner,
+        indexer=WorkspaceIndexer(
+            qdrant=cast(Any, fake_qdrant), embedder=embedder, cache_dir=rag_dir
+        ),
+    )
+
+    assert second.skipped is False
+    assert second.head == first.head
+    assert any("clone" in cmd for cmd in git_calls)
+    assert any(name == "delete_points_by_project" for name, _args, _kwargs in fake_qdrant.calls)
+    assert fake_qdrant.count_points("devops_code", {"project_name": "owner/repo"}) >= 1
+
+
+def test_failed_index_workspace_writes_no_head_payload(tmp_path: Path) -> None:
+    """A failure in `index_workspace` writes no `head` field via `set_payload`."""
+    bare = _make_bare_remote(
+        tmp_path / "remote.git",
+        {"f1.py": "def a(): pass\n", "f2.py": "def b(): pass\n"},
+    )
+    fake_qdrant = FakeQdrantClient()
+
+    with pytest.raises(RuntimeError, match="Embedder error halfway"):
+        ingest_repository(
+            "owner/repo",
+            data_dir=tmp_path / "pod",
+            remote_url=f"file://{bare}",
+            gh_runner=_make_fake_gh_runner({"owner/repo": "public"}),
+            indexer=WorkspaceIndexer(
+                qdrant=cast(Any, fake_qdrant),
+                embedder=FixedVectorEngine(fail_after=1),
+                cache_dir=tmp_path / "pod",
+            ),
+        )
+
+    assert not any(
+        name == "set_payload" and isinstance(args[1], dict) and "head" in args[1]
+        for name, args, _kwargs in fake_qdrant.calls
+    )
+
+
+def test_cleanup_in_new_data_folder_respects_repo_filter_and_keeps_others(tmp_path: Path) -> None:
+    """Cleanup in an empty data folder removes unlisted `owner/name` repos and respects `--repo`."""
+    bare_a = _make_bare_remote(tmp_path / "a.git", {"a.py": "x = 1\n"})
+    fake_qdrant = FakeQdrantClient()
+    fake_qdrant.ensure_collection("devops_code", vector_size=4)
+    fake_qdrant.ensure_collection("devops_docs", vector_size=4)
+    fake_qdrant.upsert_points(
+        "devops_code",
+        [
+            {
+                "id": "1",
+                "vector": [1.0, 0.0, 0.0, 0.0],
+                "payload": {"project_name": "owner/a", "embedding_model": "test-model"},
+            },
+            {
+                "id": "2",
+                "vector": [1.0, 0.0, 0.0, 0.0],
+                "payload": {"project_name": "owner/b", "embedding_model": "test-model"},
+            },
+            {
+                "id": "3",
+                "vector": [1.0, 0.0, 0.0, 0.0],
+                "payload": {"project_name": "owner/gone", "embedding_model": "test-model"},
+            },
+            {
+                "id": "4",
+                "vector": [1.0, 0.0, 0.0, 0.0],
+                "payload": {"project_name": "workstation-proj", "embedding_model": "test-model"},
+            },
+        ],
+    )
+    fake_qdrant.upsert_points(
+        "devops_docs",
+        [
+            {
+                "id": "5",
+                "vector": [1.0, 0.0, 0.0, 0.0],
+                "payload": {"project_name": "owner/gone", "embedding_model": "test-model"},
+            }
+        ],
+    )
+
+    rag_dir = tmp_path / "empty_pod"
+    rag_dir.mkdir()
+    settings = Settings(
+        service={"repos": ["owner/a", "owner/b"]},
+        qdrant={"url": "http://example.com:6333"},
+        data={"rag_dir": rag_dir},
+    )
+    indexer = WorkspaceIndexer(
+        qdrant=cast(Any, fake_qdrant), embedder=FixedVectorEngine(), cache_dir=rag_dir
+    )
+
+    run_ingest_pass(
+        repo_filter=["owner/a"],
+        settings=settings,
+        data_dir=rag_dir,
+        remote_urls={"owner/a": f"file://{bare_a}"},
+        gh_runner=_make_fake_gh_runner({"owner/a": "public"}),
+        indexer=indexer,
+    )
+
+    assert fake_qdrant.count_points("devops_code", {"project_name": "owner/gone"}) == 0
+    assert fake_qdrant.count_points("devops_docs", {"project_name": "owner/gone"}) == 0
+    assert fake_qdrant.count_points("devops_code", {"project_name": "owner/b"}) == 1
+    assert fake_qdrant.count_points("devops_code", {"project_name": "workstation-proj"}) == 1
+
+
+def test_project_state_store_methods_fail_soft_on_qdrant_error(tmp_path: Path) -> None:
+    """Qdrant errors in read/write/list project state fail soft and return empty defaults."""
+    fake_qdrant = FakeQdrantClient()
+    fake_qdrant.fail_operation("scroll_points", "set_payload", "scroll_payloads")
+    indexer = WorkspaceIndexer(
+        qdrant=cast(Any, fake_qdrant), embedder=FixedVectorEngine(), cache_dir=tmp_path
+    )
+
+    assert indexer.read_project_state("owner/repo") == {}
+    indexer.write_project_state("owner/repo", head="abc", branch="main", visibility="public")
+    assert indexer.list_project_names() == set()
