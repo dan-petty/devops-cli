@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.232.1](https://github.com/dan-petty/devops-cli/compare/v0.232.0...v0.232.1) (2026-11-28)
+
+
+### Bug Fixes
+
+* **roadmap:** keep the brain digest soft on a store value of a wrong form ([#7517](https://github.com/dan-petty/devops-cli/issues/7517)) ([0e2070a](https://github.com/dan-petty/devops-cli/commit/0e2070ab4d77d033359e85309b919d980b78f521))
+
 ## [0.232.0](https://github.com/dan-petty/devops-cli/compare/v0.231.1...v0.232.0) (2026-11-28)
 
 
