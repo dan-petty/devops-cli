@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.232.9](https://github.com/dan-petty/devops-cli/compare/v0.232.8...v0.232.9) (2026-11-28)
+
+
+### Bug Fixes
+
+* **roadmap:** accept the plan title of a repo without a spec scope ([#7556](https://github.com/dan-petty/devops-cli/issues/7556)) ([d587b76](https://github.com/dan-petty/devops-cli/commit/d587b768ea3e07c1bb0f592c5d90e70389a5b950))
+
 ## [0.232.8](https://github.com/dan-petty/devops-cli/compare/v0.232.7...v0.232.8) (2026-11-28)
 
 
