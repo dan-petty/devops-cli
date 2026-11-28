@@ -34,25 +34,33 @@ The visibility read SHALL use `run_gh`, public SHALL count as public, and any ot
 - **THEN** The run updates the existing points with `visibility: private` via `set_payload`
 
 ### Requirement: Removed repository cleanup
-The pass SHALL delete the points and state of a repository that the pass recorded and that `service.repos` no longer lists, and MUST touch no other project.
+The pass SHALL delete the points of each `owner/name` project held in the vector store that `service.repos` no longer lists, and MUST touch no other project.
 
 #### Scenario: Removed repository beside a workstation project
-- **WHEN** A pass recorded `owner/name`, `owner/name` is removed from `service.repos`, and a workstation project exists in the same collections
-- **THEN** The next pass deletes the points and state of `owner/name` through `delete_points_by_project` and keeps every point of the workstation project
+- **WHEN** the vector store holds points for `owner/gone`, `owner/kept`, and a workstation project, `service.repos` lists only `owner/kept`, and the pass runs with a new empty data folder
+- **THEN** the pass deletes the points of `owner/gone` through `delete_points_by_project` in both collections and keeps every point of `owner/kept` and the workstation project
+
+#### Scenario: Filtered pass keeps unconfigured subset out of deletion
+- **WHEN** `service.repos` lists `owner/a` and `owner/b`, `--repo owner/a` filters the pass, and the store holds points for both
+- **THEN** the pass deletes no points for `owner/b`
 
 ### Requirement: Data paths containment
-The checkout, cache and `state.json` SHALL sit under `repos/<owner>/<name>` in `data.rag_dir` and MUST be resolved with `safe_resolve_subpath`.
+The checkout and indexer cache SHALL sit under `repos/<owner>/<name>` in `data.rag_dir` and MUST be resolved with `safe_resolve_subpath`, and the pass SHALL write no `state.json`.
 
 #### Scenario: Path containment
-- **WHEN** The pass writes the checkout, cache and state for `owner/name`
-- **THEN** Each path is under `data.rag_dir/repos/owner/name`, no file appears under `/roadmap/`, and a traversal path is refused
+- **WHEN** the pass writes the checkout and cache for `owner/name`
+- **THEN** each path is under `data.rag_dir/repos/owner/name`, no `state.json` exists there, and a traversal path is refused
 
 ### Requirement: Atomic state write
-The pass SHALL write `state.json` atomically with `write_json_file(..., atomic=True)` and MUST record the head only after the indexer returns.
+The pass SHALL record `head`, `branch`, and `visibility` onto the project's vector store points via `set_payload` only after `index_workspace` returns.
 
 #### Scenario: Failed run records no state
-- **WHEN** The indexer raises an error after embedding part of a repository
-- **THEN** No `state.json` records the new head and the next run embeds the files that were not stored
+- **WHEN** the indexer raises an error after embedding part of a repository
+- **THEN** no `set_payload` call records the new `head` and the next run embeds the files that were not stored
+
+#### Scenario: A pass records the head in the store
+- **WHEN** `ingest_repository` indexes `owner/name` at head `abc123` with a new empty data folder
+- **THEN** Qdrant records `set_payload` for `project_name` `owner/name` with `head` `abc123`, and no `repos/owner/name/state.json` exists
 
 ### Requirement: Qdrant URL required
 The command SHALL fail with a `ConfigurationError` naming `qdrant.url` before any request or clone when `qdrant.url` is unset, and MUST NOT use the localhost default.
@@ -76,11 +84,15 @@ Each repository's run SHALL be one `trace_span` and MUST count `devops_cli_rag_i
 - **THEN** Two spans exist and `devops_cli_rag_ingest_runs_total` has `repo` and `result` labels with `success` and `error`
 
 ### Requirement: Head check with ls-remote
-The pass SHALL read the default branch and head with `git ls-remote --symref <remote> HEAD` and MUST skip embedding when the head equals the recorded commit and `points_intact` finds the project's points.
+The pass SHALL read the default branch and head with `git ls-remote --symref <remote> HEAD`, and MUST skip cloning and indexing when the stored head equals the remote head and `points_intact` is true.
 
 #### Scenario: Second run at the same head
-- **WHEN** A second pass runs at the head recorded in `state.json` and `points_intact` returns true
-- **THEN** The pass makes the visibility read, the `ls-remote` and two `count` requests, and embeds nothing
+- **WHEN** a second pass runs in a new empty data folder at the head recorded in the vector store and `points_intact` returns true
+- **THEN** the pass makes no `git clone`, runs no `index_workspace`, and returns `IngestResult.skipped` as `True`
+
+#### Scenario: Re-index when points are not intact
+- **WHEN** a pass runs with stored head `abc123` and `points_intact` returns `False`
+- **THEN** the pass clones and calls `index_workspace` with `force=True`
 
 ### Requirement: Shallow single-branch checkout
 The pass SHALL keep a shallow, single-branch checkout at `repos/<owner>/<name>/tree` and MUST use `git clone --depth 1 --single-branch --no-tags` on the first run and `git fetch --depth 1 origin <branch>` then `git checkout --detach FETCH_HEAD` later.
