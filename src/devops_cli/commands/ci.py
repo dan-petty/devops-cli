@@ -142,6 +142,8 @@ def _get_project_root() -> Path:
     try:
         return find_gate_root()
     except GitOperationError as exc:
+        if is_dry_run():
+            return Path.cwd().resolve()
         print_error(exc.message, prefix=False, safe=True)
         raise typer.Exit(1) from exc
 
@@ -1684,6 +1686,9 @@ def _run_checks_lifecycle(
     )
 
 
+_SUBCOMMANDS_WITHOUT_GATE_ROOT: Final[frozenset[str]] = frozenset({"job-time"})
+
+
 def _row_name_callback(value: list[str] | str | None) -> list[str] | str | None:
     """Validate check row names in --only and --skip options."""
     if not value:
@@ -1762,7 +1767,10 @@ def all_checks(
         raise typer.BadParameter(
             MESSAGES.ci.shard_above_total.format(shard=shard, shards=shards), param_hint="--shard"
         )
-    if not ctx.meta.get(CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY):
+    if (
+        not ctx.meta.get(CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY)
+        and ctx.invoked_subcommand not in _SUBCOMMANDS_WITHOUT_GATE_ROOT
+    ):
         root = _get_project_root()
         _announce_gate_root(root)
     if ctx.invoked_subcommand is not None:
