@@ -738,3 +738,89 @@ def test_the_package_of_a_watch_entry_selects_the_vulnerabilities_that_name_it(
     )
 
     assert [f.advisory_id for f in report.findings] == expected
+
+
+@pytest.mark.parametrize(
+    ("pinned", "expected_ids"),
+    [("1.111.0", []), ("1.86.2", ["GHSA-mpqq-3cc5-fgh2"])],
+    ids=["fixed-pin", "affected-pin"],
+)
+def test_an_open_range_uses_patched_versions_and_reads_v_bare_and_stable_ranges(
+    web: WebFake, pinned: str, expected_ids: list[str]
+) -> None:
+    serve_recorded_kev(web)
+    advisories = [
+        {
+            "ghsa_id": "GHSA-mpqq-3cc5-fgh2",
+            "severity": "high",
+            "summary": "Open lower bound bounded by patched_versions",
+            "vulnerabilities": [
+                {
+                    "package": {"ecosystem": "pip", "name": "app"},
+                    "vulnerable_version_range": ">= 1.86.0",
+                    "patched_versions": "1.86.3",
+                }
+            ],
+        },
+        {
+            "ghsa_id": "GHSA-8gh5-qqh8-hq3x",
+            "severity": "medium",
+            "summary": "Bare version range",
+            "vulnerabilities": [
+                {
+                    "package": {"ecosystem": "pip", "name": "app"},
+                    "vulnerable_version_range": "0.6.5",
+                    "patched_versions": "0.6.6",
+                }
+            ],
+        },
+        {
+            "ghsa_id": "GHSA-39wr-r5vm-3jxj",
+            "severity": "low",
+            "summary": "Leading v bare range",
+            "vulnerabilities": [
+                {
+                    "package": {"ecosystem": "pip", "name": "app"},
+                    "vulnerable_version_range": "v0.1.111",
+                    "patched_versions": "v0.1.112",
+                }
+            ],
+        },
+        {
+            "ghsa_id": "GHSA-4g5m-c9r5-49xf",
+            "severity": "medium",
+            "summary": "-stable suffix range",
+            "vulnerabilities": [
+                {
+                    "package": {"ecosystem": "pip", "name": "app"},
+                    "vulnerable_version_range": "< 1.83.10-stable",
+                    "patched_versions": "1.83.10-stable",
+                }
+            ],
+        },
+    ]
+    web.respond(
+        "GET",
+        "https://api.github.com/repos/example/app/security-advisories?per_page=100",
+        200,
+        advisories,
+    )
+    component = Component(
+        kind=ComponentKind.CONTAINER_IMAGE,
+        ecosystem=Ecosystem.DOCKER,
+        name="app",
+        version=pinned,
+        file="compose.yaml",
+        line=1,
+    )
+    watch = WatchList(
+        watch=[WatchEntry(ecosystem=Ecosystem.DOCKER, name="app", repo="example/app")]
+    )
+
+    report = find_advisories(
+        Inventory(components=[component], summary=summarize([component])),
+        watch=watch,
+        github=GitHubAdvisoryClient(),
+    )
+
+    assert ([f.advisory_id for f in report.findings], report.failures) == (expected_ids, [])

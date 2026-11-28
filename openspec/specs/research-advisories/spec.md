@@ -118,7 +118,7 @@ An entry MAY name the `package` that the advisories of the repository give to th
 - **THEN** the entry with the package `example.com/app/v3` gives no finding, and the entry with no package gives one
 
 ### Requirement: The range of an advisory is matched with packaging
-The command SHALL match a pinned version to the range of a GitHub advisory (`<= 45.0.7`, `< 41`, `>= 1.18.0, < 1.19.2`, `= 1.2.3`) with `packaging`; ranges that `||` joins match when any of them holds. A pin names one release only when it has at least three numbers after an optional `v`. A range that is empty or that cannot be read SHALL be a failure that names the advisory, and SHALL NOT be a pin that is clean.
+The command SHALL match a pinned version to a GitHub advisory range with `packaging`, normalizing bare versions to `==`, stripping a leading `v` or trailing `-stable`, and closing an open lower-bound alternative at `fixed_version` when set. Ranges joined by `||` match when any holds; empty or unreadable ranges stay a failure.
 
 #### Scenario: The edge of a range
 - **WHEN** the pinned version is `45.0.7` and the range is `<= 45.0.7`, or the version is `41.0.0` and the range is `< 41`
@@ -129,8 +129,16 @@ The command SHALL match a pinned version to the range of a GitHub advisory (`<= 
 - **THEN** `3.5.3` is in the range and `3.5.4` is not
 
 #### Scenario: A range that cannot be read
-- **WHEN** an advisory of a mapped repository has the range `since the start`
-- **THEN** the report holds no finding for it and holds a failure that names the advisory
+- **WHEN** an advisory of a mapped repository has the range `since the start`, or an unknown suffix such as `< 1.83.10-custom`
+- **THEN** the report holds no finding for it and holds a failure that names the advisory and the invalid suffix
+
+#### Scenario: Bare versions, leading v, and -stable suffixes
+- **WHEN** `in_range` matches ranges `"0.6.5"`, `"v0.1.111"`, `"< 1.83.10-stable"`, and `">= v1.82.0-stable, < v1.83.0-stable"`
+- **THEN** `"0.6.5"` matches only `0.6.5`, `"v0.1.111"` matches only `0.1.111`, and `"-stable"` matches as the underlying release version
+
+#### Scenario: Open lower-bound range with patched version
+- **WHEN** `_github_matches` evaluates a vulnerability with `vulnerable_version_range` `">= 1.86.0"` and `patched_versions` `"1.86.3"` against pin `"1.111.0"` and pin `"1.86.2"`
+- **THEN** `"1.111.0"` is not affected and `"1.86.2"` is affected
 
 ### Requirement: A CVE in the CISA KEV list sets the exploited flag
 The command SHALL read the CISA Known Exploited Vulnerabilities list once, when at least one finding names a CVE in its id or aliases, and SHALL set `exploited` to true on each finding with a CVE in the list. It SHALL send no request to the list when no finding names a CVE. A list that cannot be read SHALL be `kev_failure` in the report, no finding SHALL be flagged, and the command SHALL print the report and exit with code 1.
