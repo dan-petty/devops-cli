@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.232.0](https://github.com/dan-petty/devops-cli/compare/v0.231.1...v0.232.0) (2026-11-28)
+
+
+### Features
+
+* **roadmap:** the alternatives check reads the brain digest ([#7496](https://github.com/dan-petty/devops-cli/issues/7496)) ([0a47a6d](https://github.com/dan-petty/devops-cli/commit/0a47a6d6a5134f20eb3a04b022e6d9de34e66f77))
+
 ## [0.231.1](https://github.com/dan-petty/devops-cli/compare/v0.231.0...v0.231.1) (2026-11-28)
 
 
