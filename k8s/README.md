@@ -106,7 +106,7 @@ devops k8s volume move logging/storage-loki-0 --to-node <worker-node>
 devops k8s volume move llm/qdrant-storage-qdrant-0 --storage-class longhorn
 ```
 
-`--plan` only reads, and prints each step with the real names. `--dry-run` makes no request, and prints the requests of a move. Without `--to-node`, the command moves a volume from the control-plane node to the worker node with the most free disk (`node.fs.availableBytes` in the kubelet's `/stats/summary`). A volume on a worker node moves only to the node that `--to-node` names. The command refuses a claim that is not `Bound`, a target on the control-plane node, a StatefulSet that deletes its claims when it scales down (`persistentVolumeClaimRetentionPolicy.whenScaled: Delete`), and the claim `<claim>-move` of an earlier move.
+`--plan` only reads, and prints each step with the real names. `--dry-run` makes no request, and prints the requests of a move. Without `--to-node`, the command moves a volume from the control-plane node to the worker node with the most free disk (`node.fs.availableBytes` in the kubelet's `/stats/summary`). A volume on a worker node moves only to the node that `--to-node` names. The command refuses a claim that is not `Bound`, a target on the control-plane node, a StatefulSet that deletes its claims when it scales down (`persistentVolumeClaimRetentionPolicy.whenScaled: Delete`), and the claim `<claim>-move` of an earlier move. It also refuses a paused Application owned by an ApplicationSet unless `spec.ignoreApplicationDifferences` ignores `/spec/syncPolicy`.
 
 The move does these steps, and prints each one:
 

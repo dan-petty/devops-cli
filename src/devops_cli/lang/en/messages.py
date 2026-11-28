@@ -1100,6 +1100,11 @@ class K8sMessages:
         "Argo CD Application {application}, which the tracking annotation names, does not exist "
         "in namespace {namespace}."
     )
+    volume_move_applicationset_owned: str = (
+        "ApplicationSet {applicationset} owns Argo CD Application {application} and restores "
+        "its spec. Add {pointer} for {application} to spec.ignoreApplicationDifferences "
+        "on {applicationset} before a pause can hold."
+    )
     volume_move_refused: str = (
         "The move of claim {namespace}/{claim} cannot start. It changed nothing."
     )
