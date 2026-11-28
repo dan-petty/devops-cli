@@ -3549,8 +3549,7 @@ def _refinable(
                 )
             )
         except GitHubNotAnIssueError as gone:
-            if gone.number != it.number:
-                raise
+            gone.require_issue(it.number)
             continue
         if due:
             picked.append(it)
@@ -3667,8 +3666,7 @@ def _select_round(
         try:
             selection.consider(it)
         except GitHubNotAnIssueError as gone:
-            if gone.number != it.number:
-                raise
+            gone.require_issue(it.number)
             continue
     return selection.selected, selection.waiting, len(ordered)
 
@@ -4543,8 +4541,7 @@ def _refine_selected_candidates(
         except AICredentialsError:
             raise
         except GitHubNotAnIssueError as gone:
-            if gone.number != cand.number:
-                raise
+            gone.require_issue(cand.number)
             continue
         except AIClientError as exc:
             failure = _failed_item(cand, repo, exc)
@@ -5065,8 +5062,7 @@ class RefineWriter:
         except GitHubUnauthenticatedError, ServiceStoppingError:
             raise
         except GitHubNotAnIssueError as gone:
-            if gone.number != number:
-                raise
+            gone.require_issue(number)
             if (
                 isinstance(result, RefineFailure)
                 and self._failures

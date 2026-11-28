@@ -578,8 +578,7 @@ def walk_named[T](
         try:
             verdict = judge(item)
         except GitHubNotAnIssueError as gone:
-            if gone.number != item.number:
-                raise
+            gone.require_issue(item.number)
             continue
         if isinstance(verdict, str):
             left_out.append(LeftOut(item.number, verdict, item.title))
@@ -4443,8 +4442,7 @@ def _record_failures(
             }
             store.set_marks(item, marks)
         except GitHubNotAnIssueError as gone:
-            if gone.number != item.number:
-                raise
+            gone.require_issue(item.number)
             continue
 
 
@@ -4651,8 +4649,7 @@ class StageWriter:
             try:
                 self._settle(target.item, result)
             except GitHubNotAnIssueError as gone:
-                if gone.number != target.item.number:
-                    raise
+                gone.require_issue(target.item.number)
 
     def _settle(
         self,

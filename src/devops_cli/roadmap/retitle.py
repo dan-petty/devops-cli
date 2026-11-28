@@ -405,8 +405,7 @@ def plan_retitle(
             try:
                 decided = _decide(store, model, item)
             except GitHubNotAnIssueError as gone:
-                if gone.number != item.number:
-                    raise
+                gone.require_issue(item.number)
                 continue
             if isinstance(decided, TitleChange):
                 changes.append(decided)
@@ -494,8 +493,7 @@ def apply_retitle(store: RoadmapStore, plan: RetitlePlan) -> int:
             store.set_title(change.item.number, change.title)
             store.comment(change.item.number, _comment_of(change))
         except GitHubNotAnIssueError as gone:
-            if gone.number != change.item.number:
-                raise
+            gone.require_issue(change.item.number)
             continue
         written += 1
     for skip in plan.skips:
@@ -512,8 +510,7 @@ def apply_retitle(store: RoadmapStore, plan: RetitlePlan) -> int:
                 store.comment(skip.item.number, body)
             store.set_marks(skip.item, {RetitleRecordKey.SKIPPED: skip_hash(skip.item)})
         except GitHubNotAnIssueError as gone:
-            if gone.number != skip.item.number:
-                raise
+            gone.require_issue(skip.item.number)
             continue
     return written
 

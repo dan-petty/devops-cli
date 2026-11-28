@@ -738,8 +738,7 @@ def select_fix_plan(
                 repo, source, each, candidate_pull, now, skip_wait=skip_wait
             )
         except GitHubNotAnIssueError as gone:
-            if gone.number != each.number:
-                raise
+            gone.require_issue(each.number)
             continue
         if reason is not None or candidate_pull is None or status is None:
             left.append(FixPlanLeftOut(each.number, reason or ""))
@@ -1468,8 +1467,7 @@ def run_fix_plan(
                 screen=screen,
             )
         except GitHubNotAnIssueError as gone:
-            if gone.number != target.item.number:
-                raise
+            gone.require_issue(target.item.number)
             seen_left.add(target.item.number)
             continue
         if isinstance(done, FixPlanLeftOut):

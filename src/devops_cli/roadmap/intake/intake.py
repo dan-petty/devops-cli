@@ -1220,8 +1220,7 @@ class _Planner:
             try:
                 is_checked = _checked(self.run, subject)
             except GitHubNotAnIssueError as gone:
-                if subject.number is None or gone.number != subject.number:
-                    raise
+                gone.require_issue(subject.number)
                 continue
             kept_subjects.append(subject)
             checked.append(is_checked)
@@ -1232,8 +1231,7 @@ class _Planner:
             try:
                 decision = self._decide(subject, vector)
             except GitHubNotAnIssueError as gone:
-                if subject.number is None or gone.number != subject.number:
-                    raise
+                gone.require_issue(subject.number)
                 continue
             joins = decision.outcome is Outcome.PLACE and not subject.sub_issues
             if joins and vector is not None:

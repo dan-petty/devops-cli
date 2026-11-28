@@ -787,8 +787,7 @@ def _process_graphql_nodes(
                 labels=labels,
             )
         except GitHubNotAnIssueError as gone:
-            if gone.number != item.number:
-                raise
+            gone.require_issue(item.number)
             continue
 
 
@@ -872,8 +871,7 @@ def _record_closed_plan_rest(
             if pull_status.merged:
                 sync_status(ctx.store, known_item, facts_of(known_item, plan_merged=True))
         except GitHubNotAnIssueError as gone:
-            if gone.number != known_item.number:
-                raise
+            gone.require_issue(known_item.number)
         ctx.recorded_pulls.pop(pr_number, None)
 
 
@@ -925,8 +923,7 @@ def _process_rest_pulls(
                 labels=pull_status.labels,
             )
         except GitHubNotAnIssueError as gone:
-            if gone.number != item.number:
-                raise
+            gone.require_issue(item.number)
             continue
 
 
@@ -956,8 +953,7 @@ def _check_closed_stage_plans(ctx: _WatchContext, pull_numbers: tuple[int, ...] 
                 if plan_status.merged:
                     sync_status(ctx.store, item, facts_of(item, plan_merged=True))
             except GitHubNotAnIssueError as gone:
-                if gone.number != item.number:
-                    raise
+                gone.require_issue(item.number)
                 continue
             ctx.recorded_pulls.pop(plan_pr, None)
 

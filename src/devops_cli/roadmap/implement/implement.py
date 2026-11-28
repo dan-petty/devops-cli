@@ -588,8 +588,7 @@ def _named(judge: _Judge, store: RoadmapStore, number: int) -> ImplementPlanPart
     try:
         verdict = judge.judge(item)
     except GitHubNotAnIssueError as gone:
-        if gone.number != number:
-            raise
+        gone.require_issue(number)
         return (), ()
     if isinstance(verdict, str):
         return (), (_left(item, verdict),)

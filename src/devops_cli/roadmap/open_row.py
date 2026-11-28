@@ -264,8 +264,7 @@ def run_open_round(
             )
             opened = open_or_update(request)
         except GitHubNotAnIssueError as gone:
-            if gone.number != number:
-                raise
+            gone.require_issue(number)
             continue
         except DevOpsCLIError as exc:
             logger.warning(texts.open_row_failed, repo, number, candidate.branch, exc)

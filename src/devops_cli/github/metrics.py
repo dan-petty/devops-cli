@@ -575,8 +575,7 @@ def _read_label_times(store: RoadmapStore, item: Item) -> _LabelTimes | None:
     try:
         return _labeled_since(store.label_changes(item.number))
     except GitHubNotAnIssueError as gone:
-        if gone.number != item.number:
-            raise
+        gone.require_issue(item.number)
         return None
 
 

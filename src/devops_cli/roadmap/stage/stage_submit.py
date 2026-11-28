@@ -278,8 +278,7 @@ def _recover(
                 log_line=not (job is not None and LINE_PREFIX in _log_tail(api, job.name)),
             )
         except GitHubNotAnIssueError as gone:
-            if gone.number != item.number:
-                raise
+            gone.require_issue(item.number)
             continue
         if written is None:
             continue
@@ -397,8 +396,7 @@ def run_stage_round(
                 deleted.append(name)
             result = _submit(store, api, repo, target.item, name, cronjob, at)
         except GitHubNotAnIssueError as gone:
-            if gone.number != target.item.number:
-                raise
+            gone.require_issue(target.item.number)
             continue
         if result is not None:
             _count(repo, result)

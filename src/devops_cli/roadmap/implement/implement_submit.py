@@ -505,8 +505,7 @@ def _report_ended(
         try:
             _report(store, jobs, repo, item, name, job)
         except GitHubNotAnIssueError as gone:
-            if gone.number != item.number:
-                raise
+            gone.require_issue(item.number)
             continue
         reported.append(name)
     return tuple(reported)
@@ -586,8 +585,7 @@ def _note_needs_fix(store: RoadmapStore, plan: ImplementPlan) -> tuple[NeedsFix,
         try:
             store.set_marks(held.item, {ImplementRecordKey.NEEDS_FIX: str(held.pull)})
         except GitHubNotAnIssueError as gone:
-            if gone.number != held.item.number:
-                raise
+            gone.require_issue(held.item.number)
             continue
         kept.append(held)
     judged = {
@@ -601,8 +599,7 @@ def _note_needs_fix(store: RoadmapStore, plan: ImplementPlan) -> tuple[NeedsFix,
             try:
                 store.set_marks(item, {ImplementRecordKey.NEEDS_FIX: None})
             except GitHubNotAnIssueError as gone:
-                if gone.number != item.number:
-                    raise
+                gone.require_issue(item.number)
                 continue
     return tuple(kept)
 
@@ -719,8 +716,7 @@ def _submit_selected_targets(
             size = _size_of(source, planned, target)
             created_name = _create(store, api, repo, target, label, size)
         except GitHubNotAnIssueError as gone:
-            if gone.number != target.item.number:
-                raise
+            gone.require_issue(target.item.number)
             continue
         if created_name is not None:
             created_jobs.append(created_name)

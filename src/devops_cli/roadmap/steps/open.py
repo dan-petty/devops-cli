@@ -306,8 +306,7 @@ def _record_pr_marks(
     try:
         store.set_marks(item, marks)
     except GitHubNotAnIssueError as gone:
-        if gone.number != item_num:
-            raise
+        gone.require_issue(item_num)
 
 
 def _sync_status(store: RoadmapStore | None, item_num: int | None, kind: str) -> None:
@@ -320,8 +319,7 @@ def _sync_status(store: RoadmapStore | None, item_num: int | None, kind: str) ->
     try:
         write_status(store, item, StatusFacts(pull_open=True))
     except GitHubNotAnIssueError as gone:
-        if gone.number != item_num:
-            raise
+        gone.require_issue(item_num)
 
 
 def _resolve_desired_labels(request: OpenRequest, declared: tuple[str, ...] | None) -> set[str]:
