@@ -19,11 +19,11 @@ When the run stops pv-migrate, by an interrupt or by the time bound, the undo SH
 - **THEN** the undo runs no `pv-migrate cleanup`, and the error names the end of the output of pv-migrate
 
 ### Requirement: A volume move in a namespace that enforces restricted copies without root
-The plan SHALL read the label `pod-security.kubernetes.io/enforce` of the namespace. When it is `restricted`, the copy SHALL add `--non-root`, and the plan SHALL refuse each workload whose pod template has no `fsGroup`, and a new class whose provisioner is not a CSIDriver or whose CSIDriver has `fsGroupPolicy: None`. A move that keeps the class SHALL read the class of the old claim. `--plan` SHALL print whether pv-migrate runs as root or with `--non-root`.
+The plan SHALL read the label `pod-security.kubernetes.io/enforce` of the namespace. When it is `restricted`, the copy SHALL add `--non-root` and `--rsync-extra-args=--no-perms`, and the plan SHALL refuse each workload whose pod template has no `fsGroup`, and a new class whose provisioner is not a CSIDriver or whose CSIDriver has `fsGroupPolicy: None`. A move that keeps the class SHALL read the class of the old claim. `--plan` SHALL print whether pv-migrate runs as root or with `--non-root`.
 
 #### Scenario: A move to longhorn in a restricted namespace
 - **WHEN** the namespace enforces `restricted`, the Deployment sets an `fsGroup`, and the move runs with `--storage-class longhorn`, whose CSIDriver has `fsGroupPolicy: ReadWriteOnceWithFSType`
-- **THEN** the pv-migrate call ends with `--non-root`
+- **THEN** the pv-migrate call ends with `--non-root --rsync-extra-args=--no-perms`
 
 #### Scenario: A workload with no fsGroup
 - **WHEN** the namespace enforces `restricted` and the pod template of the Deployment has no `fsGroup`

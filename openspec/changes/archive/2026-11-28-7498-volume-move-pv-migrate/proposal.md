@@ -7,7 +7,7 @@
 ## What Changes
 
 - The copy step runs `pv-migrate --strategies clusterip` from the old claim to `<claim>-move`, with Helm values on stdin: a `nodeSelector` that puts the rsync pod on the target node, and the tolerations of the workload pod and of a cordon for the sshd pod. rsync checks each file that it sends, so the move has no compare step.
-- In a namespace that enforces Pod Security `restricted`, the copy adds `--non-root`, and the plan refuses a workload with no `fsGroup` and a class whose volumes get no `fsGroup` from the kubelet. The plan prints whether the copy runs as root.
+- In a namespace that enforces Pod Security `restricted`, the copy adds `--non-root` and `--rsync-extra-args=--no-perms`, and the plan refuses a workload with no `fsGroup` and a class whose volumes get no `fsGroup` from the kubelet. The plan prints whether the copy runs as root.
 - The plan refuses a move when `pv-migrate` is not on `PATH`, and refuses `<claim>-move` of an earlier move as the only leftover.
 - When the run stops pv-migrate (an interrupt or the time bound), the undo runs `pv-migrate cleanup <operation> --force` first.
 - The steps go from 13 to 11: no source pod, no compare, no delete of the copy pods. The end of the running syncs before the old claim is a step of its own.
@@ -42,7 +42,10 @@ None.
 - `internal/strategy/strategy.go:226` (`applyNonRootValues`): `--non-root` sets `runAsNonRoot`, user and group 10000, `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]` and `seccompProfile: RuntimeDefault`, and `fsGroup` 10000. `internal/rsync/cmd.go` then adds `--no-o --no-g --omit-dir-times`, so the copy keeps no owner and no group.
 - `internal/migrator/migrator.go:482` (`handleMounted`) refuses a claim that a running pod mounts, and `cleanupAttempt` removes the release at the end of a run, also after a failure. `cmd/pv-migrate/main.go` cancels the run on SIGINT, but `subprocess.run` kills the child 0.25 s after an interrupt, so the undo removes the release then.
 - `pv-migrate cleanup <id>` exits 1 with `no releases found for operation` when nothing is left (`internal/app/cleanup.go`), so the undo runs it only when the run stopped pv-migrate.
-- A live move in a `restricted` namespace was not run: the agent of this change makes no move against the cluster.
+- The live test of 2026-11-28 (owner approved, temporary objects only, comment on the pull request) passed three moves as root: `local-path` from node to node, `local-path` to `longhorn` and a claim of 600 MiB, with each checksum, owner, mode and symbolic link equal. An interrupt during the copy left the workload on its old volume and no object of pv-migrate.
+- The same test failed the move in a `restricted` namespace to `longhorn`: rsync as user 10000 logged `[generator] failed to set permissions on "/dest/."` and exit 23 in each of its 11 tries, because root owns the root folder of the new volume. The undo was correct. The integration test of pv-migrate does not see this: its `NonRoot` test uses the `local-path` class of kind, whose new folder has the mode 0777, equal to the source (`integration/integration_test.go:858`).
+- rsync 3.5.2 as a user that is not root, with the flags of pv-migrate (`-av --info=progress2,misc0,flist0 --no-inc-recursive -z --no-o --no-g --omit-dir-times`), into a folder of root with mode 2775: exit 23 with the same message. With `--no-perms` added: exit 0, each checksum equal, the root folder kept 2775, modes 0444, 0640, 0750 and 0755 kept, 0664 became 0644, and the symbolic link kept its target.
+- The live test again of 2026-11-28 with `--no-perms` (comment on the pull request) passed: the move of `t-7518-restricted/data` to `longhorn` took 84 s, rsync ran with `--no-perms`, 22 of 22 checksums passed, the symbolic links kept their targets, and the workload (user 1000, fsGroup 2000) wrote a file. In the pod, each file was 0664 and each folder 2775, owned by 10000:2000, also the file of 0444 at the source: the kubelet applies the fsGroup of the pod to a `longhorn` volume, adds 0660 to each file and the setgid bit to each folder (`SetVolumeOwnership`).
 
 ## Existing Tool Considered
 

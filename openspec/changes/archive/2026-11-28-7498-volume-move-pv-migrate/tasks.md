@@ -32,5 +32,6 @@ Kind: documents.
 ## Workflow follow-up
 
 - dan-petty/devtools#118 installs pv-migrate in the devtools image.
-- Pending a person: after a devcontainer has pv-migrate, one live move of a test claim in a namespace that enforces `restricted`, to `--storage-class longhorn`, with a byte compare of the two volumes.
+- Done 2026-11-28 (owner approved, temporary objects only, comment on the pull request): three live moves as root (`local-path` from node to node, `local-path` to `longhorn`, 600 MiB) with each checksum, owner, mode and symbolic link equal, and one interrupted move that undid each step.
+- Done 2026-11-28 (owner approved, temporary objects only, comment on the pull request): the live move of `t-7518-restricted/data` to `--storage-class longhorn` with `--rsync-extra-args=--no-perms` passed in 84 s, with 22 of 22 checksums, the symbolic links, and a write as user 1000. Each file was 0664 and each folder 2775, owned by 10000:2000: the kubelet applies the fsGroup of the pod to the volume.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
