@@ -1202,13 +1202,6 @@ class CICommandHelp:
         "search for the open issue reads the line that the command writes in the body of the "
         "issue, so a changed title or label files no second issue."
     )
-    durations: str = (
-        "Write the mean seconds of each test module to tests/module_durations.json, from the JUnit "
-        "reports of the test shards of the last push runs of a workflow on a branch. The split "
-        "of the test shards weighs each module by these seconds. gh downloads the artifacts of "
-        "each run. A run whose artifacts GitHub no longer holds is left out."
-    )
-    durations_runs: str = "How many of the last runs with an ended Tests & Coverage check to read."
 
 
 @dataclass(frozen=True)

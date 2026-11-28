@@ -121,10 +121,9 @@ jobs:
 
   # The test row runs in five shards on five runners (#3050). On one runner the suite took 355 s
   # to 528 s for the same tests, depending on the speed of the runner that GitHub gave: more than
-  # the 300 s of AGENTS.md rule 5, and growing with the suite. Each shard runs a fifth of the
-  # recorded test time (tests/module_durations.json, #5247), keeps its coverage data, and checks no
-  # floor, since it measures a part of the tree. It passes the paths of its own test files to
-  # pytest, so no worker collects the whole suite (#2371).
+  # the 300 s of AGENTS.md rule 5, and growing with the suite. pytest-split gives each shard a
+  # fifth of the tests (`--splits`, `--group`, #7500). Each shard keeps its coverage data and checks
+  # no floor, since it measures a part of the tree.
   # The job `Tests & Coverage` below joins the data and checks the floor. The matrix lists the
   # shards and `strategy.job-total` gives their number, so a sixth shard is one more entry. The
   # shard jobs are no required check: ADR 0004 binds the ruleset to the aggregate.
@@ -217,17 +216,14 @@ jobs:
         if: steps.changes.outputs.outside_plan == 'false' && matrix.shard == 1
         run: uv run devops ci test tests/invariants
 
-      # The combined data file of the shard, which the gate keeps (#1743), and the JUnit XML report
-      # with the time of each test of the shard, which `devops ci durations` reads (#4673). The
-      # coverage path starts with a dot, so the action needs `include-hidden-files`.
-      - name: Upload Coverage Data and Test Report
+      # The combined data file of the shard, which the gate keeps (#1743). The path starts with a
+      # dot, so the action needs `include-hidden-files`.
+      - name: Upload Coverage Data
         if: steps.changes.outputs.outside_plan != 'false'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-shard-${{ matrix.shard }}
-          path: |
-            .data/.coverage
-            .data/junit.xml
+          path: .data/.coverage
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7

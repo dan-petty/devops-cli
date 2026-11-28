@@ -96,7 +96,8 @@ jobs:
   # `.devcontainer/Dockerfile` uses `debian:sid` (#1643). Dev packages and the test tools of the
   # devtools image (`promtool`, `kubectl`) mount read-only from `$RUNNER_TEMP`, so the shipped
   # `service` stage keeps its minimal package set and `USER 1000:1000` read-only security posture.
-  # Six shards run without coverage collection.
+  # Six shards run without coverage collection. pytest-split gives each shard a sixth of the tests
+  # (#7500).
   service-image-test:
     name: Service Image Tests (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
     needs: service-image-build
@@ -184,12 +185,9 @@ jobs:
           TOOLS_DIR="$RUNNER_TEMP/service-test-tools"
           WORKSPACE_DIR="$RUNNER_TEMP/service-test-workspace"
           TMP_DIR="$RUNNER_TEMP/service-test-tmp"
-          SHARD_FILE="$RUNNER_TEMP/service-test-shard.txt"
           mkdir -p "$WORKSPACE_DIR" "$TMP_DIR"
           chmod 1777 "$WORKSPACE_DIR" "$TMP_DIR"
           chmod -R a+rX "$GITHUB_WORKSPACE"
-          SHARD_FILE="$SHARD_FILE" uv run python -c 'import os, pathlib; from devops_cli.core.test_selection import shard_test_files; files = shard_test_files(int(os.environ["SHARD"]), int(os.environ["SHARDS"]), pathlib.Path(".")); assert files; pathlib.Path(os.environ["SHARD_FILE"]).write_text("\n".join(files) + "\n", encoding="utf-8")'
-          readarray -t TEST_FILES < "$SHARD_FILE"
           timeout --kill-after=30 900 docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
             -v "$GITHUB_WORKSPACE:/checkout:ro" \
             -v "$WORKSPACE_DIR:/workspace:rw" \
@@ -209,4 +207,4 @@ jobs:
             --entrypoint /app/.venv/bin/python \
             "$IMAGE" \
             -c 'import pathlib, sys, devops_cli; os_rel = pathlib.Path("/etc/os-release").read_text(encoding="utf-8"); assert "VERSION_CODENAME=trixie" in os_rel, os_rel; assert (devops_cli.__file__ or "").startswith("/app/.venv/"), devops_cli.__file__; import pytest; raise SystemExit(pytest.main(["-o", "pythonpath=", "-q", "-rfEs", "--durations=10", "--no-cov", "--snapshot-warn-unused", *sys.argv[1:]]))' \
-            "${TEST_FILES[@]}"
+            --splits "$SHARDS" --group "$SHARD" --splitting-algorithm least_duration

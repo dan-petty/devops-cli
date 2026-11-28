@@ -51,7 +51,7 @@ from contextlib import contextmanager
 from html.parser import HTMLParser
 from pathlib import Path, PurePath, PurePosixPath
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from devops_cli.ci.changed_tests import (
     ParsedTests,
@@ -122,9 +122,6 @@ class TestCaseOutcome(BaseModel):
     name: str
     status: str
     message: str = ""
-    # The `time` of the testcase: the seconds of its setup, call and teardown, which only
-    # `devops ci durations` reads, so the report of a replay leaves it out (#5247).
-    seconds: float = Field(default=0.0, exclude=True)
 
     @property
     def test_id(self) -> str:
@@ -400,7 +397,6 @@ class _JUnitHTMLParser(HTMLParser):
         super().__init__()
         self.outcomes: list[TestCaseOutcome] = []
         self._current_case: tuple[str, str] | None = None
-        self._current_seconds: str = ""
         self._current_status: str = "passed"
         self._current_message: str = ""
         self.root_closed = False
@@ -409,7 +405,6 @@ class _JUnitHTMLParser(HTMLParser):
         attr_map = {key: (val or "") for key, val in attrs}
         if tag == "testcase" and self._current_case is None:
             self._current_case = (attr_map.get("classname", ""), attr_map.get("name", ""))
-            self._current_seconds = attr_map.get("time", "")
             self._current_status = "passed"
             self._current_message = ""
         elif self._current_case is not None and tag in CONST_FAIL_TO_PASS_JUNIT_TAG_STATUS:
@@ -427,7 +422,6 @@ class _JUnitHTMLParser(HTMLParser):
                     name=name,
                     status=self._current_status,
                     message=self._current_message,
-                    seconds=float(self._current_seconds or 0),
                 )
             )
             self._current_case = None

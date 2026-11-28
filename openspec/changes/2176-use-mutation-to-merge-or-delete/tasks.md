@@ -2,7 +2,7 @@
 
 ## 1. Repair the mutation test selection and the copy list
 
-Kind: manifest. Reads: `pyproject.toml`, `tests/module_durations.json`. Changes: `pyproject.toml`.
+Kind: manifest. Reads: `pyproject.toml`. Changes: `pyproject.toml`.
 
 - [ ] 1.1 Point each `--ignore` and `--deselect` entry of `pytest_add_cli_args_test_selection` in `pyproject.toml` at the module that holds that test at this commit: commit 513bb31f2 moved each of them into its package folder. Remove the entry whose test no file of this tree holds. Add to `also_copy` each top-level entry that a selected test reads, `openspec` included, because `tests/openspec/test_openspec_new.py` reads a spec of the checkout. Keep the comment of each entry
   - Verification: in the mutants tree that mutmut 3.8.1 makes for all of `src/devops_cli`, `pytest -n 8` with the selection of `pyproject.toml` passes, and `uv run pytest --collect-only -q <node id>` collects the test of each `--deselect` entry

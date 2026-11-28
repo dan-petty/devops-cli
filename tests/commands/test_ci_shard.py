@@ -1,14 +1,12 @@
 """Tests for `devops ci --shard` and `--shards`: the test row runs one part of the suite (#3050).
 
-The `Tests & Coverage` job of CI runs the test row in shards on separate runners, so each shard
-takes the test files of one part of the suite, and a job that waits for all of them joins their
-coverage data and checks the floor. A shard measures a part of the tree, so it checks no floor. A
-shard passes the paths of its own files to pytest, so it collects no file of another shard (#2371).
+The `Tests & Coverage` job of CI runs the test row in shards on separate runners, and a job that
+waits for all of them joins their coverage data and checks the floor. A shard measures a part of
+the tree, so it checks no floor. pytest-split chooses the tests of a shard (#7500).
 """
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
@@ -16,18 +14,14 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ci.cache import resolve_ci_cache_path
-from devops_cli.ci.fail_to_pass import parse_junit_xml
 from devops_cli.commands.ci import app, get_check_spec
-from devops_cli.config.constants import CONST_CI_TEST_DURATIONS_PATH
-from devops_cli.core.test_selection import directory_modules, is_test_module, shard_test_files
+from devops_cli.config.constants import CONST_TESTS_ROOT_DIR
 from devops_cli.dry_run import set_dry_run
 from tests.support.fakes.process import ProcessFake
-from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
 
 _SPLIT_OPTIONS = ("--splits", "--group", "--splitting-algorithm")
-_JUNIT_OPTION = "--junitxml="
 
 # One test of each outcome whose reason the log of a shard must give.
 _SHARD_SUITE = """
@@ -64,11 +58,15 @@ def _planned_test_row(*options: str) -> list[str]:
     return row[1:] if row[:1] == ["UV_MALWARE_CHECK=0"] else row
 
 
-def _report_path(row: list[str]) -> str | None:
-    """The path of the JUnit XML report that the test row `row` writes, or None when it writes none."""
-    return next(
-        (word.removeprefix(_JUNIT_OPTION) for word in row if word.startswith(_JUNIT_OPTION)), None
-    )
+def _split_words(row: list[str]) -> list[str]:
+    """The split options of the test row `row`, each followed by its value, in the order of
+    `_SPLIT_OPTIONS`; an option that the row does not hold gives no word."""
+    return [
+        word
+        for option in _SPLIT_OPTIONS
+        if option in row
+        for word in (option, row[row.index(option) + 1])
+    ]
 
 
 def test_the_unsharded_test_row_has_no_split_option_and_prints_the_term_report() -> None:
@@ -90,177 +88,98 @@ def test_one_shard_of_one_is_the_unsharded_row() -> None:
     assert _planned_test_row("--shard", "1", "--shards", "1") == _planned_test_row()
 
 
-def test_a_shard_runs_its_own_test_files_and_checks_no_floor() -> None:
-    """Shard 2 of 4 runs the files of its quarter, keeps the coverage data, prints no report and
-    leaves the floor to the job that combines the data of all shards. The snapshots of the other
-    shards are unused in this one, and syrupy would fail the run on them."""
+def test_a_shard_runs_its_pytest_split_group_and_checks_no_floor() -> None:
+    """Shard 2 of 4 asks pytest-split for group 2 of 4 with the `least_duration` algorithm, and
+    passes no test path, so pytest collects `testpaths`. The shard keeps the coverage data, prints
+    no report and leaves the floor to the job that combines the data of all shards. The snapshots
+    of the other shards are unused in this one, and syrupy would fail the run on them."""
     cmd = _planned_test_row("--shard", "2", "--shards", "4")
 
-    own_files = shard_test_files(2, 4, REPO_ROOT)
     assert (
-        cmd[-len(own_files) :],
-        [option in cmd for option in _SPLIT_OPTIONS],
+        _split_words(cmd),
+        [word for word in cmd if word.startswith(f"{CONST_TESTS_ROOT_DIR}/")],
         "--cov=src" in cmd,
         "--cov-fail-under=0" in cmd,
         "--cov-report=" in cmd,
         "--cov-report=term-missing" in cmd,
         "--snapshot-warn-unused" in cmd,
-    ) == (own_files, [False, False, False], True, True, True, False, True)
+    ) == (
+        ["--splits", "4", "--group", "2", "--splitting-algorithm", "least_duration"],
+        [],
+        True,
+        True,
+        True,
+        False,
+        True,
+    )
 
 
-def test_a_shard_reports_each_test_id_and_the_reason_of_each_skip_and_failure(
+def test_the_shard_rows_give_each_test_to_exactly_one_shard(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The split by measured time (#4250) needs the time of each test of a shard, and the log of a
-    shard must give the reason of each skip (#4673). The report options of the shard row, on a
-    suite with a pass, a skip and a failure, write the three tests to the JUnit XML report and
-    print the reason of the skip. The option `-r` of pytest replaces its default `fE`, so the row
-    asks again for the failures and errors, and the failure stays in the summary."""
+    """The split options of the rows of shards 1 and 2 of 2, run with pytest-split on six tests,
+    select each test in exactly one shard. The tree holds no `.test_durations`, as the repository
+    holds none, so each test weighs the same and the shards take the tests in turn."""
+    # The inner run loads no installed plugin but pytest-split: autoloading each plugin costs
+    # seconds.
+    monkeypatch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
+    pytester.makepyprojecttoml(
+        '[tool.pytest.ini_options]\naddopts = "-p pytest_split.plugin -p no:randomly"\n'
+    )
+    names = [f"test_split.py::test_{number}" for number in range(6)]
+    pytester.makepyfile(
+        test_split="".join(f"def test_{number}() -> None:\n    pass\n\n\n" for number in range(6))
+    )
+
+    selected = [
+        [
+            line
+            for line in pytester.runpytest(
+                *_split_words(_planned_test_row("--shard", str(shard), "--shards", "2")),
+                "--collect-only",
+                "-q",
+            ).stdout.lines
+            if line.startswith("test_split.py::")
+        ]
+        for shard in (1, 2)
+    ]
+
+    assert selected == [names[0::2], names[1::2]]
+
+
+def test_a_shard_gives_the_reason_of_each_skip_and_names_each_failure(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The log of a shard must give the reason of each skip (#4673). The report options of the
+    shard row, on a suite with a pass, a skip and a failure, print the reason of the skip. The
+    option `-r` of pytest replaces its default `fE`, so the row asks again for the failures and
+    errors, and the failure stays in the summary."""
     # The inner run loads no installed plugin: autoloading each plugin costs seconds.
     monkeypatch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
     pytester.makepyprojecttoml('[tool.pytest.ini_options]\naddopts = "-p no:randomly --tb=no"\n')
     pytester.makepyfile(test_shard=_SHARD_SUITE)
     row = _planned_test_row("--shard", "2", "--shards", "4")
-    report_path = _report_path(row)
-    assert report_path is not None, "the shard row writes no JUnit XML report"
 
-    result = pytester.runpytest(
-        *[word for word in row if word.startswith(("-r", _JUNIT_OPTION))], "test_shard.py"
-    )
+    result = pytester.runpytest(*[word for word in row if word.startswith("-r")], "test_shard.py")
 
-    report = parse_junit_xml((pytester.path / report_path).read_text(encoding="utf-8"))
     output = _said(result.stdout.str())
     assert (
-        sorted(f"{case.classname}::{case.name}" for case in report),
         re.search(r"SKIPPED \[1\] test_shard\.py:\d+: promtool is not installed", output)
         is not None,
         "FAILED test_shard.py::test_fails" in output,
-    ) == (
-        ["test_shard::test_fails", "test_shard::test_passes", "test_shard::test_skips"],
-        True,
-        True,
-    )
+        "--junitxml" in " ".join(row),
+    ) == (True, True, False)
 
 
-@pytest.mark.parametrize("shards", [2, 3, 4])
-def test_the_shards_cover_every_test_module_once(shards: int) -> None:
-    """Each test module is in exactly one shard, and no shard is empty."""
-    every_module = directory_modules("tests", REPO_ROOT)
-    lists = [shard_test_files(shard, shards, REPO_ROOT) for shard in range(1, shards + 1)]
-
-    assert (
-        sorted(module for files in lists for module in files),
-        all(lists),
-    ) == (every_module, True)
-
-
-def test_the_split_is_the_same_in_every_call_and_in_any_order_of_asking() -> None:
-    """Every runner computes its own shard, so the split must not depend on the call: two calls
-    give one list, and asking for shard 4 first changes no list."""
-    first = [shard_test_files(shard, 4, REPO_ROOT) for shard in (1, 2, 3, 4)]
-    reversed_order = {shard: shard_test_files(shard, 4, REPO_ROOT) for shard in (4, 3, 2, 1)}
-
-    assert first == [reversed_order[shard] for shard in (1, 2, 3, 4)]
-
-
-def _tree(root: Path, lines: dict[str, int], durations: dict[str, float] | None = None) -> None:
-    """Write test modules of `lines` lines each under `root`, and the recorded seconds of
-    `durations` at the path that the split reads, when given."""
-    for module, count in lines.items():
-        path = root / module
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("x = 1\n" * count)
-    if durations is not None:
-        (root / CONST_CI_TEST_DURATIONS_PATH).write_text(json.dumps(durations), encoding="utf-8")
-
-
-def test_a_short_module_with_a_long_recorded_time_is_alone_in_its_shard(tmp_path: Path) -> None:
-    """A module of 10 lines that took 300 s weighs more than three modules of 500 lines that took
-    10 s each, so it fills one shard and the three others share the second (#5247)."""
-    long_modules = {f"tests/test_{name}.py": 500 for name in "abc"}
-    _tree(
-        tmp_path,
-        {"tests/test_slow.py": 10, **long_modules},
-        {"tests/test_slow.py": 300.0, **dict.fromkeys(long_modules, 10.0)},
-    )
-
-    assert [shard_test_files(shard, 2, tmp_path) for shard in (1, 2)] == [
-        ["tests/test_slow.py"],
-        ["tests/test_a.py", "tests/test_b.py", "tests/test_c.py"],
-    ]
-
-
-def test_a_module_without_a_recorded_time_weighs_its_lines_at_the_recorded_rate(
-    tmp_path: Path,
-) -> None:
-    """The recorded modules hold 200 lines for 110 s, so a new module of 100 lines weighs 55 s:
-    less than the module of 100 s and more than the module of 10 s, so it joins the light one."""
-    _tree(
-        tmp_path,
-        {"tests/test_a.py": 100, "tests/test_b.py": 100, "tests/test_c.py": 100},
-        {"tests/test_a.py": 100.0, "tests/test_b.py": 10.0},
-    )
-
-    assert [shard_test_files(shard, 2, tmp_path) for shard in (1, 2)] == [
-        ["tests/test_a.py"],
-        ["tests/test_b.py", "tests/test_c.py"],
-    ]
-
-
-def test_a_recorded_module_that_the_tree_no_longer_holds_is_ignored(tmp_path: Path) -> None:
-    """The file still names a deleted module: the split gives it to no shard, and its seconds
-    do not change the rate of the lines of a new module."""
-    _tree(
-        tmp_path,
-        {"tests/test_a.py": 10, "tests/test_b.py": 10, "tests/test_c.py": 10},
-        {"tests/test_gone.py": 9000.0, "tests/test_a.py": 30.0, "tests/test_b.py": 20.0},
-    )
-
-    assert [shard_test_files(shard, 2, tmp_path) for shard in (1, 2)] == [
-        ["tests/test_a.py"],
-        ["tests/test_b.py", "tests/test_c.py"],
-    ]
-
-
-def test_the_committed_durations_are_seconds_of_test_modules() -> None:
-    """The committed file maps the path of a test module to the seconds it took, so a typing
-    error fails here and not in the four shards of CI."""
-    recorded = json.loads((REPO_ROOT / CONST_CI_TEST_DURATIONS_PATH).read_text(encoding="utf-8"))
-
-    assert (
-        bool(recorded),
-        [path for path in recorded if not is_test_module(path)],
-        [path for path, seconds in recorded.items() if not isinstance(seconds, (int, float))],
-    ) == (True, [], [])
-
-
-def test_the_split_deals_the_heaviest_file_to_the_lightest_shard(tmp_path: Path) -> None:
-    """With no recorded seconds, files go heaviest first to the shard with the fewest lines so
-    far, and a tie goes to the lower shard."""
-    tests = tmp_path / "tests"
-    tests.mkdir()
-    for name, lines in {"test_a.py": 5, "test_b.py": 4, "test_c.py": 3, "test_d.py": 3}.items():
-        (tests / name).write_text("x = 1\n" * lines)
-    (tests / "helper.py").write_text("x = 1\n" * 99)
-
-    assert [shard_test_files(shard, 2, tmp_path) for shard in (1, 2)] == [
-        ["tests/test_a.py", "tests/test_d.py"],
-        ["tests/test_b.py", "tests/test_c.py"],
-    ]
-
-
-def test_the_dry_run_of_a_shard_lists_its_files_and_starts_nothing() -> None:
-    """The planned command of `--only test --shard 2 --shards 4` holds the files of shard 2 and
-    none of the split options of the old plugin."""
+def test_the_dry_run_of_a_shard_lists_its_group_and_starts_nothing() -> None:
+    """The planned command of `--only test --shard 2 --shards 4` names group 2 of 4."""
     result = runner.invoke(app, ["--dry-run", "--only", "test", "--shard", "2", "--shards", "4"])
 
     said = _said(result.output)
-    own_files = shard_test_files(2, 4, REPO_ROOT)
     assert (
         result.exit_code,
-        all(path in said for path in own_files),
-        any(option in said for option in _SPLIT_OPTIONS),
-    ) == (0, True, False)
+        "--splits 4 --group 2 --splitting-algorithm least_duration" in said,
+    ) == (0, True)
 
 
 def test_the_dry_run_of_an_unsharded_run_lists_no_split() -> None:

@@ -745,13 +745,10 @@ CONST_CI_TEST_BUDGET_TOLERANCE_SECONDS: Final[float] = 60.0
 CONST_CI_JOB_TIME_LIMIT_SECONDS: Final[float] = (
     CONST_CI_TEST_BUDGET_SECONDS + CONST_CI_TEST_BUDGET_TOLERANCE_SECONDS
 )
-# A test shard of CI writes the time of each of its tests to this JUnit XML report, beside the
-# coverage data (`data_file` of pyproject.toml), and `ci.yml` uploads both as the artifact of the
-# shard (#4673). `devops ci durations` reads it. The path is relative to the checkout.
-CONST_CI_SHARD_JUNIT_PATH: Final[str] = ".data/junit.xml"
-# The recorded seconds of each test module, which `devops ci durations` writes from the reports
-# above and the split of the test shards reads (#5247). The path is relative to the checkout.
-CONST_CI_TEST_DURATIONS_PATH: Final[str] = "tests/module_durations.json"
+# The algorithm of pytest-split for the test shards of CI (#7500): it deals each test to the shard
+# with the least time so far. The repository holds no `.test_durations`, so each test weighs the
+# same and the shards take the tests in turn.
+CONST_CI_SHARD_SPLITTING_ALGORITHM: Final[str] = "least_duration"
 # The `-r` summary of a test shard: the reason of each skip (s) in the log (#4673). `-r` replaces
 # the default `fE` of pytest, so the shard asks again for the failed (f) and error (E) tests.
 CONST_CI_SHARD_SUMMARY_CHARS: Final[str] = "fEs"

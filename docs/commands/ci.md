@@ -373,26 +373,6 @@ devops ci job-time [OPTIONS]
 
 ---
 
-## `devops ci durations`
-
-**Write the mean seconds of each test module to tests/module_durations.json, from the JUnit reports of the test shards of the last push runs of a workflow on a branch. The split of the test shards weighs each module by these seconds. gh downloads the artifacts of each run. A run whose artifacts GitHub no longer holds is left out.**
-
-```bash
-devops ci durations [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--repo`, `-R` | `string` | - | Repository as owner/name. Default: the origin of the current checkout. |
-| `--workflow` | `string` | `ci.yml` | Workflow file that holds the job. |
-| `--branch`, `-b` | `string` | `main` | Branch whose push runs are read. |
-| `--runs` | `integer` | `20` | How many of the last runs with an ended Tests & Coverage check to read. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-
----
-
 ## `devops ci fail-to-pass`
 
 **Replay added or modified tests against the merge-base tree to prove a defect fix's tests fail unpatched. A changed module under tests/gate/*_checks/ runs its gate row on the base and head trees: a case of that module that fails on base and passes on head proves the fix. A module that only loses checks, and a deleted module, run no gate row. A changed module directly under tests/gate/ runs on the plain base and head trees: a stderr problem line on base that disappears on head proves the fix. A fix that changes no source code and no module under tests/gate/, or only deletes checks, needs no proof.**

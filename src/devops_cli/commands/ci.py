@@ -29,14 +29,11 @@ from devops_cli.config.constants import (
     CONST_BANDIT_INI_NAME,
     CONST_CI_CHECK_ROW_NAMES,
     CONST_CI_RUN_STOP_SIGNAL_NAMES,
-    CONST_CI_SHARD_JUNIT_PATH,
+    CONST_CI_SHARD_SPLITTING_ALGORITHM,
     CONST_CI_SHARD_SUMMARY_CHARS,
     CONST_CI_SLOWEST_TESTS_SHOWN,
     CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY,
     CONST_CI_TEST_BUDGET_SECONDS,
-    CONST_CI_TEST_DURATIONS_PATH,
-    CONST_CI_TEST_JOB_NAME,
-    CONST_CI_WORKFLOW_FILE,
     CONST_EXIT_CANCELLED,
     CONST_EXIT_FAILURE,
     CONST_GATE_ROW_SCRIPT,
@@ -50,7 +47,6 @@ from devops_cli.config.defaults import (
     DEFAULT_CI_BANDIT_NICENESS,
     DEFAULT_CI_COVERAGE_INDEX_TIMEOUT_SECONDS,
     DEFAULT_CI_JOB_TIME_MAX_RUNS,
-    DEFAULT_CI_JOB_TIME_RUNS,
     DEFAULT_CI_MUTATE_TIMEOUT_SECONDS,
     DEFAULT_CI_TEST_COLLECTION_TIMEOUT_SECONDS,
     DEFAULT_CI_TEST_NARROWED_WORKERS,
@@ -737,17 +733,12 @@ def _resolve_pytest_cmd(*, shard: int = 1, shards: int = 1) -> list[str]:
     The row prints the term report and writes no XML report: only CI's changed-line coverage
     step reads `coverage.xml`, and it writes the file from the combined data (#1743).
 
-    With `shards` above 1 the row runs the part `shard` of the suite (#3050). It passes the paths
-    of the test files of that part to pytest, so pytest collects no file of another shard: a plugin
-    that deselects after collection makes every xdist worker collect the whole suite (#2371). A
-    shard measures a part of the tree: it checks no floor and prints no report, and the job that
-    combines the data of every shard does both. A shard also warns on, and does not fail on, an
-    unused snapshot: the snapshots of the tests in the other shards are unused in it. A shard writes
-    the time of each test to a JUnit XML report, which CI uploads with the coverage data, and its
-    log gives the reason of each skip (#4673).
+    With `shards` above 1 the row runs the part `shard` of the suite (#3050): pytest-split selects
+    group `shard` of `shards` after collection (#7500). A shard measures a part of the tree: it checks no floor and prints no report, and the
+    job that combines the data of every shard does both. A shard also warns on, and does not fail
+    on, an unused snapshot: the snapshots of the tests in the other shards are unused in it. The
+    log of a shard gives the reason of each skip (#4673).
     """
-    from devops_cli.core.test_selection import shard_test_files
-
     cmd = [
         "uv",
         "run",
@@ -763,8 +754,12 @@ def _resolve_pytest_cmd(*, shard: int = 1, shards: int = 1) -> list[str]:
         "--cov-fail-under=0",
         _SNAPSHOT_WARN_UNUSED,
         f"-r{CONST_CI_SHARD_SUMMARY_CHARS}",
-        f"--junitxml={CONST_CI_SHARD_JUNIT_PATH}",
-        *shard_test_files(shard, shards, _get_project_root()),
+        "--splits",
+        str(shards),
+        "--group",
+        str(shard),
+        "--splitting-algorithm",
+        CONST_CI_SHARD_SPLITTING_ALGORITHM,
     ]
 
 
@@ -2889,97 +2884,6 @@ def _render_job_time_plan(repo: str, group: Sequence[JobTimeCheck], *, file_issu
             branch=first.branch,
         ),
         planned,
-    )
-
-
-@app.command(name="durations", help=HELP.ci.durations)
-@dry_run_class("request-plan")
-def durations(
-    repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.ci.job_time_repo)] = None,
-    workflow: Annotated[
-        str, typer.Option("--workflow", help=HELP.ci.job_time_workflow)
-    ] = CONST_CI_WORKFLOW_FILE,
-    branch: Annotated[
-        str, typer.Option("--branch", "-b", help=HELP.ci.job_time_branch)
-    ] = CONST_GIT_MAIN_BRANCH,
-    runs: Annotated[
-        int,
-        typer.Option(
-            "--runs", min=1, max=DEFAULT_CI_JOB_TIME_MAX_RUNS, help=HELP.ci.durations_runs
-        ),
-    ] = DEFAULT_CI_JOB_TIME_RUNS,
-    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
-) -> None:
-    """Write the recorded seconds of each test module from the shard reports of CI (#5247)."""
-    from devops_cli.core.repo import find_repo_root, get_repo_origin_name
-
-    root = _get_project_root()
-    target = repo or get_repo_origin_name(find_repo_root(Path.cwd()))
-    if target is None:
-        print_error(MESSAGES.ci.job_time_no_repo)
-        raise typer.Exit(1)
-    if dry_run or is_dry_run():
-        _render_durations_plan(target, workflow=workflow, branch=branch, runs=runs)
-        return
-    from devops_cli.ci.durations import record_durations, write_durations
-    from devops_cli.core.test_selection import directory_modules
-    from devops_cli.github.session import get_github_session
-
-    record = record_durations(
-        get_github_session().client,
-        target,
-        workflow=workflow,
-        branch=branch,
-        job=CONST_CI_TEST_JOB_NAME,
-        runs=runs,
-        modules=frozenset(directory_modules(CONST_TESTS_ROOT_DIR, root)),
-    )
-    if not record.runs:
-        print_error(MESSAGES.ci.durations_none.format(workflow=workflow, branch=branch))
-        raise typer.Exit(1)
-    write_durations(root, record.durations)
-    print_success(
-        MESSAGES.ci.durations_written.format(
-            modules=len(record.durations),
-            runs=len(record.runs),
-            path=CONST_CI_TEST_DURATIONS_PATH,
-        )
-    )
-
-
-def _render_durations_plan(repo: str, *, workflow: str, branch: str, runs: int) -> None:
-    """List the requests of `durations` without making them (#412)."""
-    from devops_cli.ci.durations import SHARD_ARTIFACT_PREFIX
-
-    base = f"/repos/{repo}/actions"
-    each = f"for each of the last {runs} runs that hold an ended {CONST_CI_TEST_JOB_NAME}"
-    render_request_plan(
-        MESSAGES.ci.durations_dry_run_heading.format(
-            workflow=workflow, branch=branch, path=CONST_CI_TEST_DURATIONS_PATH
-        ),
-        [
-            PlannedRequest(method="GET", target=f"{base}/workflows/{workflow}/runs"),
-            PlannedRequest(method="GET", target=f"{base}/runs/<run_id>/jobs", repeat=each),
-            PlannedRequest(method="GET", target=f"{base}/runs/<run_id>/artifacts", repeat=each),
-            PlannedRequest(
-                method="RUN",
-                target="gh run download",
-                argv=(
-                    "gh",
-                    "run",
-                    "download",
-                    "<run_id>",
-                    "--repo",
-                    repo,
-                    "--dir",
-                    "<temporary folder>",
-                    "--pattern",
-                    f"{SHARD_ARTIFACT_PREFIX}*",
-                ),
-                condition="the run still holds a shard artifact",
-                repeat=each,
-            ),
-        ],
     )
 
 
